@@ -54,6 +54,8 @@ pub fn create_video_timeline_moonbit(
   // Create timeline element
   let timeline_el = create_element("div")
   set_class_name(timeline_el, "video-timeline")
+  set_tabindex(timeline_el, 0)
+  set_aria_label(timeline_el, "Video scene timeline")
   append_child(container, timeline_el)
 
   // Add loading indicator
@@ -93,6 +95,7 @@ pub fn create_video_timeline_moonbit(
 
   // Setup video time update listener
   setup_timeupdate_listener(state)
+  setup_timeline_keyboard_navigation(state)
 
   state
 }
@@ -161,6 +164,7 @@ fn handle_sse_message(state : VTLState, data : String) -> Unit {
       // Click to jump
       let h = on_with_handle(img, "click", fn(e) {
         stop_propagation(e)
+        focus_element(state.timeline_el)
         let t = parse_float(get_dataset(img, "time"))
         video_set_current_time(state.video_el, t)
       })
@@ -254,6 +258,25 @@ fn update_active_thumb(state : VTLState, current_time : Double) -> Unit {
 
     state.active_thumb_idx = closest_idx
   }
+}
+
+///| Setup keyboard navigation for scene thumbnails.
+///  Left / Right stay within the timeline. Up / Down intentionally bubble to
+///  the media sidebar so document media navigation keeps one clear owner.
+fn setup_timeline_keyboard_navigation(state : VTLState) -> Unit {
+  let h = on_with_handle(state.timeline_el, "keydown", fn(e) {
+    let key = event_key(e)
+    if key == "ArrowLeft" {
+      prevent_default(e)
+      stop_propagation(e)
+      navigate(state, -1)
+    } else if key == "ArrowRight" {
+      prevent_default(e)
+      stop_propagation(e)
+      navigate(state, 1)
+    }
+  })
+  state.handles.push(h)
 }
 
 ///| Navigate to next/prev scene

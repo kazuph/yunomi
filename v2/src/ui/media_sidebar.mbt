@@ -390,6 +390,26 @@ fn navigate_thumbs(state : MediaSidebarState, direction : Int) -> Unit {
   }
 }
 
+///| Resolve the document media index for a focused inline video timeline.
+fn media_index_for_timeline_focus(state : MediaSidebarState, active : Element) -> Int {
+  let timeline = closest(active, ".video-timeline")
+  if is_null(timeline) { return -1 }
+
+  let wrapper = closest(timeline, ".video-overlay-wrapper")
+  if is_null(wrapper) { return -1 }
+
+  let video = query_in(wrapper, "video.video-preview")
+  if is_null(video) { return -1 }
+
+  let mut found = -1
+  state.items.eachi(fn(idx, item) {
+    if found == -1 && elem_eq(item.element, video) {
+      found = idx
+    }
+  })
+  found
+}
+
 ///| Setup keyboard navigation
 fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
   let h = on_with_handle(query_body(), "keydown", fn(e) {
@@ -424,12 +444,19 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
 
     // Arrow navigation
     let focused_thumb = has_class(active, "media-sidebar-thumb")
-    if focused_thumb || state.active_idx != -1 {
+    let focused_timeline_idx = media_index_for_timeline_focus(state, active)
+    if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
       if key == "ArrowUp" {
         prevent_default(e)
+        if focused_timeline_idx != -1 {
+          state.active_idx = focused_timeline_idx
+        }
         navigate_thumbs(state, -1)
       } else if key == "ArrowDown" {
         prevent_default(e)
+        if focused_timeline_idx != -1 {
+          state.active_idx = focused_timeline_idx
+        }
         navigate_thumbs(state, 1)
       }
     }

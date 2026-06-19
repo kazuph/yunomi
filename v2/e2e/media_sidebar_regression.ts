@@ -504,6 +504,157 @@ try {
     afterDown,
   );
 
+  // --- Inline video timeline keyboard contract:
+  //     Left/Right move inside the focused video timeline; Up/Down move to
+  //     previous/next document media through the media sidebar.
+  const inlineVideoTarget = await page.evaluate((exts) => {
+    const preview = document.querySelector(".md-preview");
+    const mediaEls = preview
+      ? Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+          if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+          if (el.tagName !== "VIDEO") return true;
+          const src = (el.getAttribute("src") || "").toLowerCase();
+          return exts.some((ext: string) => src.endsWith(ext));
+        })
+      : [];
+    const videoIndex = mediaEls.findIndex((el) => el.tagName === "VIDEO");
+    return { videoIndex, total: mediaEls.length };
+  }, VIDEO_EXTS);
+  assert(
+    inlineVideoTarget.videoIndex >= 0 && inlineVideoTarget.videoIndex < inlineVideoTarget.total - 1,
+    "inline 動画 timeline の上下キー検証に使える動画がある",
+    inlineVideoTarget,
+  );
+
+  if (inlineVideoTarget.videoIndex >= 0 && inlineVideoTarget.videoIndex < inlineVideoTarget.total - 1) {
+    await page.locator(`.media-sidebar-thumb[data-media-index="${inlineVideoTarget.videoIndex}"]`).click();
+    await waitForNavSettle(page, inlineVideoTarget.videoIndex);
+    await page.waitForFunction((idx) => {
+      const preview = document.querySelector(".md-preview");
+      if (!preview) return false;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx];
+      const wrapper = video?.closest(".video-overlay-wrapper");
+      return !!wrapper && wrapper.querySelectorAll(".video-timeline .timeline-thumb").length >= 2;
+    }, inlineVideoTarget.videoIndex, { timeout: 30000 });
+
+    const timelinePrimed = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      const wrapper = video.closest(".video-overlay-wrapper")!;
+      const thumbs = Array.from(wrapper.querySelectorAll<HTMLImageElement>(".video-timeline .timeline-thumb"));
+      thumbs[0].click();
+      return {
+        time: video.currentTime,
+        focusedTimeline: document.activeElement?.classList.contains("video-timeline") || false,
+        thumbCount: thumbs.length,
+      };
+    }, inlineVideoTarget.videoIndex);
+    assert(
+      timelinePrimed.focusedTimeline && timelinePrimed.thumbCount >= 2,
+      "inline timeline サムネクリックで timeline にフォーカスが残る",
+      timelinePrimed,
+    );
+
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      return (mediaEls[idx] as HTMLVideoElement).currentTime > 0.1;
+    }, inlineVideoTarget.videoIndex, { timeout: 5000 });
+    const afterInlineRight = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      return {
+        currentTime: video.currentTime,
+        activeIndex: Number(document.querySelector(".media-sidebar-thumb.active")?.getAttribute("data-media-index") ?? "-1"),
+      };
+    }, inlineVideoTarget.videoIndex);
+    assert(
+      afterInlineRight.currentTime > timelinePrimed.time &&
+        afterInlineRight.activeIndex === inlineVideoTarget.videoIndex,
+      "ArrowRight は inline 動画 timeline 内だけを次サムネへ進める",
+      { timelinePrimed, afterInlineRight },
+    );
+
+    await page.keyboard.press("ArrowLeft");
+    const afterInlineLeft = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      return {
+        currentTime: video.currentTime,
+        activeIndex: Number(document.querySelector(".media-sidebar-thumb.active")?.getAttribute("data-media-index") ?? "-1"),
+      };
+    }, inlineVideoTarget.videoIndex);
+    assert(
+      afterInlineLeft.currentTime <= afterInlineRight.currentTime &&
+        afterInlineLeft.activeIndex === inlineVideoTarget.videoIndex,
+      "ArrowLeft は inline 動画 timeline 内だけを前サムネへ戻す",
+      { afterInlineRight, afterInlineLeft },
+    );
+
+    await page.keyboard.press("ArrowDown");
+    await waitForNavSettle(page, inlineVideoTarget.videoIndex + 1);
+    const afterInlineDown = await measureNavState(page, inlineVideoTarget.videoIndex + 1);
+    assert(
+      afterInlineDown.activeIndex === inlineVideoTarget.videoIndex + 1 &&
+        afterInlineDown.visibleRatio !== null &&
+        afterInlineDown.visibleRatio >= 0.5,
+      "ArrowDown は inline timeline から次の画像/動画へ移動する",
+      afterInlineDown,
+    );
+
+    await page.locator(`.media-sidebar-thumb[data-media-index="${inlineVideoTarget.videoIndex}"]`).click();
+    await waitForNavSettle(page, inlineVideoTarget.videoIndex);
+    await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const wrapper = mediaEls[idx].closest(".video-overlay-wrapper")!;
+      (wrapper.querySelector(".video-timeline .timeline-thumb") as HTMLElement).click();
+    }, inlineVideoTarget.videoIndex);
+    await page.keyboard.press("ArrowUp");
+    await waitForNavSettle(page, Math.max(0, inlineVideoTarget.videoIndex - 1));
+    const afterInlineUp = await measureNavState(page, Math.max(0, inlineVideoTarget.videoIndex - 1));
+    assert(
+      afterInlineUp.activeIndex === Math.max(0, inlineVideoTarget.videoIndex - 1),
+      "ArrowUp は inline timeline から前の画像/動画へ移動する",
+      afterInlineUp,
+    );
+  }
+
   const samples = await stopMediaSampler(page);
   const expectedCount = thumbSummary.expected;
   const flickered = samples.filter((s) => s.total !== expectedCount || s.rendered !== expectedCount);
