@@ -2455,6 +2455,27 @@ fn build_css() -> String {
     #|.timeline-thumb.active { border-color: var(--accent); }
     #|.timeline-thumb:hover { border-color: var(--accent); opacity: 0.8; }
     #|.timeline-time { font-size: 10px; color: var(--muted); }
+    #|.md-preview .video-timeline {
+    #|  height: auto;
+    #|  min-height: 92px;
+    #|  align-items: flex-start;
+    #|}
+    #|.md-preview .video-timeline .timeline-thumb-wrapper {
+    #|  position: static;
+    #|}
+    #|.md-preview .video-timeline .timeline-time {
+    #|  position: static;
+    #|  right: auto;
+    #|  bottom: auto;
+    #|  display: block;
+    #|  width: 100%;
+    #|  max-width: 80px;
+    #|  padding: 0;
+    #|  background: transparent;
+    #|  color: var(--muted);
+    #|  text-align: center;
+    #|  line-height: 1.2;
+    #|}
     #|/* Fullscreen overlay */
     #|.fullscreen-overlay {
     #|  display: none;

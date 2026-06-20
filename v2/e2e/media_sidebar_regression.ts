@@ -560,6 +560,43 @@ try {
       timelinePrimed,
     );
 
+    const inlineTimelineLayout = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      const timeline = video.closest(".video-overlay-wrapper")!.querySelector(".video-timeline")!;
+      const first = timeline.querySelector(".timeline-thumb-wrapper")!;
+      const thumb = first.querySelector(".timeline-thumb")!;
+      const label = first.querySelector(".timeline-time")!;
+      const timelineStyle = getComputedStyle(timeline);
+      const labelStyle = getComputedStyle(label);
+      const thumbRect = thumb.getBoundingClientRect();
+      const labelRect = label.getBoundingClientRect();
+      return {
+        timelineHeight: timeline.getBoundingClientRect().height,
+        thumbWidth: thumbRect.width,
+        thumbHeight: thumbRect.height,
+        labelTop: labelRect.top,
+        thumbBottom: thumbRect.bottom,
+        labelPosition: labelStyle.position,
+        labelBackground: labelStyle.backgroundColor,
+        timelineAlignItems: timelineStyle.alignItems,
+        overlapsThumb: labelRect.top < thumbRect.bottom - 1,
+      };
+    }, inlineVideoTarget.videoIndex);
+    assert(
+      !inlineTimelineLayout.overlapsThumb &&
+        inlineTimelineLayout.labelPosition === "static" &&
+        inlineTimelineLayout.timelineHeight >= inlineTimelineLayout.thumbHeight + 20,
+      "inline 動画 timeline の時刻ラベルはサムネ画像と重ならない",
+      inlineTimelineLayout,
+    );
+
     await page.locator(`.media-sidebar-thumb[data-media-index="${inlineVideoTarget.videoIndex}"]`).click();
     await waitForNavSettle(page, inlineVideoTarget.videoIndex);
     const sidebarSelectedVideo = await page.evaluate((idx) => {
