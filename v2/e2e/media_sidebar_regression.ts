@@ -421,6 +421,28 @@ try {
     thumbSummary.details,
   );
 
+  await page.keyboard.press("Escape");
+  for (let i = 0; i < thumbSummary.actual; i++) {
+    await page.keyboard.press("ArrowDown");
+    await waitForNavSettle(page, i);
+    const state = await measureNavState(page, i);
+    assert(
+      state.activeIndex === i && state.highlightedIndex === i && state.highlightCount === 1,
+      `ArrowDown だけでメディア ${i + 1}/${thumbSummary.actual} へ順番に移動する`,
+      state,
+    );
+  }
+  for (let i = thumbSummary.actual - 2; i >= 0; i--) {
+    await page.keyboard.press("ArrowUp");
+    await waitForNavSettle(page, i);
+    const state = await measureNavState(page, i);
+    assert(
+      state.activeIndex === i && state.highlightedIndex === i && state.highlightCount === 1,
+      `ArrowUp だけでメディア ${i + 1}/${thumbSummary.actual} へ順番に戻る`,
+      state,
+    );
+  }
+
   // --- Scroll-navigator spec: the 45vw sidebar viewer panel is gone ---
   const viewerGone = await page.evaluate(() => ({
     viewerEl: !!document.querySelector("#media-sidebar-viewer"),

@@ -561,7 +561,19 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
       // Arrow navigation
       let focused_thumb = has_class(active, "media-sidebar-thumb")
       let focused_timeline_idx = media_index_for_timeline_focus(state, active)
-      if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
+      if key == "ArrowUp" {
+        prevent_default(e)
+        if focused_timeline_idx != -1 {
+          state.active_idx = focused_timeline_idx
+        }
+        navigate_thumbs(state, -1)
+      } else if key == "ArrowDown" {
+        prevent_default(e)
+        if focused_timeline_idx != -1 {
+          state.active_idx = focused_timeline_idx
+        }
+        navigate_thumbs(state, 1)
+      } else if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
         if key == "ArrowLeft" {
           if navigate_active_video_timeline(state, -1) {
             prevent_default(e)
@@ -570,18 +582,6 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
           if navigate_active_video_timeline(state, 1) {
             prevent_default(e)
           }
-        } else if key == "ArrowUp" {
-          prevent_default(e)
-          if focused_timeline_idx != -1 {
-            state.active_idx = focused_timeline_idx
-          }
-          navigate_thumbs(state, -1)
-        } else if key == "ArrowDown" {
-          prevent_default(e)
-          if focused_timeline_idx != -1 {
-            state.active_idx = focused_timeline_idx
-          }
-          navigate_thumbs(state, 1)
         }
       }
     },
