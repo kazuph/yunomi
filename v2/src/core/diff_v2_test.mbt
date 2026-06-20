@@ -1,7 +1,9 @@
 ///| Tests for cli.cjs-compatible diff parser behavior
-///| Mirrors parsers.test.js test cases at the MoonBit level
-///| New fields referenced: DiffFile.{is_new, is_deleted, is_binary}, DiffHunk.context
 
+///| Mirrors parsers.test.js test cases at the MoonBit level
+
+///|
+/// New fields referenced: DiffFile.{is_new, is_deleted, is_binary}, DiffHunk.context
 test "diff compat: simple unified diff with all metadata" {
   let input =
     #|diff --git a/file.txt b/file.txt
@@ -15,38 +17,71 @@ test "diff compat: simple unified diff with all metadata" {
     #|+added line
     #| line3
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].old_path, content=(
-    #|file.txt
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|file.txt
-  ))
-  inspect(data.files[0].is_new, content=(
-    #|false
-  ))
-  inspect(data.files[0].is_deleted, content=(
-    #|false
-  ))
-  inspect(data.files[0].is_binary, content=(
-    #|false
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].old_start, content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].new_start, content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].lines.length(), content=(
-    #|5
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].old_path,
+    content=(
+      #|"file.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"file.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_new,
+    content=(
+      #|false
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_deleted,
+    content=(
+      #|false
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_binary,
+    content=(
+      #|false
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].old_start,
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].new_start,
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines.length(),
+    content=(
+      #|5
+    ),
+  )
 }
 
+///|
 test "diff compat: new file detection" {
   let input =
     #|diff --git a/newfile.txt b/newfile.txt
@@ -59,29 +94,52 @@ test "diff compat: new file detection" {
     #|+line2
     #|+line3
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|newfile.txt
-  ))
-  inspect(data.files[0].is_new, content=(
-    #|true
-  ))
-  inspect(data.files[0].is_deleted, content=(
-    #|false
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].lines.length(), content=(
-    #|3
-  ))
-  inspect(data.files[0].hunks[0].lines[0].kind, content=(
-    #|Addition
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"newfile.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_new,
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_deleted,
+    content=(
+      #|false
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines.length(),
+    content=(
+      #|3
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines[0].kind,
+    content=(
+      #|Addition
+    ),
+  )
 }
 
+///|
 test "diff compat: deleted file detection" {
   let input =
     #|diff --git a/deleted.txt b/deleted.txt
@@ -93,29 +151,52 @@ test "diff compat: deleted file detection" {
     #|-line1
     #|-line2
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].old_path, content=(
-    #|deleted.txt
-  ))
-  inspect(data.files[0].is_new, content=(
-    #|false
-  ))
-  inspect(data.files[0].is_deleted, content=(
-    #|true
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].lines.length(), content=(
-    #|2
-  ))
-  inspect(data.files[0].hunks[0].lines[0].kind, content=(
-    #|Deletion
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].old_path,
+    content=(
+      #|"deleted.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_new,
+    content=(
+      #|false
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_deleted,
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines.length(),
+    content=(
+      #|2
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines[0].kind,
+    content=(
+      #|Deletion
+    ),
+  )
 }
 
+///|
 test "diff compat: hunk context extraction" {
   let input =
     #|diff --git a/file.js b/file.js
@@ -128,17 +209,28 @@ test "diff compat: hunk context extraction" {
     #|+added
     #| context
   let data = parse_diff(input)
-  inspect(data.files[0].hunks[0].old_start, content=(
-    #|10
-  ))
-  inspect(data.files[0].hunks[0].new_start, content=(
-    #|10
-  ))
-  inspect(data.files[0].hunks[0].context, content=(
-    #| function example() {
-  ))
+  debug_inspect(
+    data.files[0].hunks[0].old_start,
+    content=(
+      #|10
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].new_start,
+    content=(
+      #|10
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].context,
+    content=(
+      #|" function example() {"
+
+    ),
+  )
 }
 
+///|
 test "diff compat: binary file detection" {
   let input =
     #|diff --git a/image.png b/image.png
@@ -146,20 +238,34 @@ test "diff compat: binary file detection" {
     #|index 0000000..abcdefg
     #|Binary files /dev/null and b/image.png differ
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|image.png
-  ))
-  inspect(data.files[0].is_binary, content=(
-    #|true
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|0
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"image.png"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].is_binary,
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|0
+    ),
+  )
 }
 
+///|
 test "diff compat: multiple files with git prefix" {
   let input =
     #|diff --git a/file1.txt b/file1.txt
@@ -178,23 +284,41 @@ test "diff compat: multiple files with git prefix" {
     #| content
     #|+added
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|2
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|file1.txt
-  ))
-  inspect(data.files[1].new_path, content=(
-    #|file2.txt
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|1
-  ))
-  inspect(data.files[1].hunks.length(), content=(
-    #|1
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|2
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"file1.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[1].new_path,
+    content=(
+      #|"file2.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[1].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
 }
 
+///|
 test "diff compat: japanese characters" {
   let input =
     #|diff --git a/japanese.txt b/japanese.txt
@@ -206,27 +330,46 @@ test "diff compat: japanese characters" {
     #|-古いテキスト
     #|+新しいテキスト
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].lines.length(), content=(
-    #|3
-  ))
-  inspect(data.files[0].hunks[0].lines[1].content, content=(
-    #|古いテキスト
-  ))
-  inspect(data.files[0].hunks[0].lines[2].content, content=(
-    #|新しいテキスト
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines.length(),
+    content=(
+      #|3
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines[1].content,
+    content=(
+      #|"古いテキスト"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines[2].content,
+    content=(
+      #|"新しいテキスト"
+
+    ),
+  )
 }
 
+///|
 test "diff compat: empty diff" {
   let data = parse_diff("")
-  inspect(data.files.length(), content=(
-    #|0
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|0
+    ),
+  )
 }
 
+///|
 test "diff compat: multiple hunks in single file" {
   let input =
     #|diff --git a/file.txt b/file.txt
@@ -244,20 +387,33 @@ test "diff compat: multiple hunks in single file" {
     #|+new2
     #| line12
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|2
-  ))
-  inspect(data.files[0].hunks[0].old_start, content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[1].old_start, content=(
-    #|10
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|2
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].old_start,
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[1].old_start,
+    content=(
+      #|10
+    ),
+  )
 }
 
+///|
 test "diff compat: line type identification" {
   let input =
     #|diff --git a/file.txt b/file.txt
@@ -271,20 +427,33 @@ test "diff compat: line type identification" {
     #| another context
   let data = parse_diff(input)
   let lines = data.files[0].hunks[0].lines
-  inspect(lines[0].kind, content=(
-    #|Context
-  ))
-  inspect(lines[1].kind, content=(
-    #|Deletion
-  ))
-  inspect(lines[2].kind, content=(
-    #|Addition
-  ))
-  inspect(lines[3].kind, content=(
-    #|Context
-  ))
+  debug_inspect(
+    lines[0].kind,
+    content=(
+      #|Context
+    ),
+  )
+  debug_inspect(
+    lines[1].kind,
+    content=(
+      #|Deletion
+    ),
+  )
+  debug_inspect(
+    lines[2].kind,
+    content=(
+      #|Addition
+    ),
+  )
+  debug_inspect(
+    lines[3].kind,
+    content=(
+      #|Context
+    ),
+  )
 }
 
+///|
 test "diff compat: file paths with spaces" {
   let input =
     #|diff --git a/path with spaces/file.txt b/path with spaces/file.txt
@@ -295,10 +464,18 @@ test "diff compat: file paths with spaces" {
     #|-old
     #|+new
   let data = parse_diff(input)
-  inspect(data.files[0].old_path, content=(
-    #|path with spaces/file.txt
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|path with spaces/file.txt
-  ))
+  debug_inspect(
+    data.files[0].old_path,
+    content=(
+      #|"path with spaces/file.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"path with spaces/file.txt"
+
+    ),
+  )
 }

@@ -1,3 +1,4 @@
+///|
 test "parse simple unified diff" {
   let input =
     #|--- a/hello.txt
@@ -8,26 +9,47 @@ test "parse simple unified diff" {
     #|+new line
     #| line3
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].old_path, content=(
-    #|hello.txt
-  ))
-  inspect(data.files[0].new_path, content=(
-    #|hello.txt
-  ))
-  inspect(data.files[0].hunks.length(), content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].old_start, content=(
-    #|1
-  ))
-  inspect(data.files[0].hunks[0].lines.length(), content=(
-    #|4
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].old_path,
+    content=(
+      #|"hello.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"hello.txt"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks.length(),
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].old_start,
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].lines.length(),
+    content=(
+      #|4
+    ),
+  )
 }
 
+///|
 test "diff line kinds" {
   let input =
     #|--- a/f.txt
@@ -37,20 +59,35 @@ test "diff line kinds" {
     #|+added
   let data = parse_diff(input)
   let lines = data.files[0].hunks[0].lines
-  inspect(lines[0].kind, content=(
-    #|Deletion
-  ))
-  inspect(lines[0].content, content=(
-    #|removed
-  ))
-  inspect(lines[1].kind, content=(
-    #|Addition
-  ))
-  inspect(lines[1].content, content=(
-    #|added
-  ))
+  debug_inspect(
+    lines[0].kind,
+    content=(
+      #|Deletion
+    ),
+  )
+  debug_inspect(
+    lines[0].content,
+    content=(
+      #|"removed"
+
+    ),
+  )
+  debug_inspect(
+    lines[1].kind,
+    content=(
+      #|Addition
+    ),
+  )
+  debug_inspect(
+    lines[1].content,
+    content=(
+      #|"added"
+
+    ),
+  )
 }
 
+///|
 test "parse diff with git prefix" {
   let input =
     #|diff --git a/src/main.rs b/src/main.rs
@@ -61,14 +98,22 @@ test "parse diff with git prefix" {
     #|+added
     #| context2
   let data = parse_diff(input)
-  inspect(data.files[0].new_path, content=(
-    #|src/main.rs
-  ))
-  inspect(data.files[0].hunks[0].new_start, content=(
-    #|10
-  ))
+  debug_inspect(
+    data.files[0].new_path,
+    content=(
+      #|"src/main.rs"
+
+    ),
+  )
+  debug_inspect(
+    data.files[0].hunks[0].new_start,
+    content=(
+      #|10
+    ),
+  )
 }
 
+///|
 test "parse diff multiple files" {
   let input =
     #|--- a/a.txt
@@ -82,11 +127,15 @@ test "parse diff multiple files" {
     #|-foo
     #|+bar
   let data = parse_diff(input)
-  inspect(data.files.length(), content=(
-    #|2
-  ))
+  debug_inspect(
+    data.files.length(),
+    content=(
+      #|2
+    ),
+  )
 }
 
+///|
 test "hunk header single line" {
   let input =
     #|--- a/f.txt
@@ -96,13 +145,22 @@ test "hunk header single line" {
     #|+new
   let data = parse_diff(input)
   let hunk = data.files[0].hunks[0]
-  inspect(hunk.old_start, content=(
-    #|5
-  ))
-  inspect(hunk.old_count, content=(
-    #|1
-  ))
-  inspect(hunk.new_count, content=(
-    #|1
-  ))
+  debug_inspect(
+    hunk.old_start,
+    content=(
+      #|5
+    ),
+  )
+  debug_inspect(
+    hunk.old_count,
+    content=(
+      #|1
+    ),
+  )
+  debug_inspect(
+    hunk.new_count,
+    content=(
+      #|1
+    ),
+  )
 }

@@ -1,4 +1,5 @@
-///| Serialize a ReviewResult to YAML string
+///|
+/// Serialize a ReviewResult to YAML string
 pub fn review_to_yaml(result : ReviewResult) -> String {
   let buf = StringBuilder::new()
   match result.action {
@@ -62,7 +63,8 @@ pub fn review_to_yaml(result : ReviewResult) -> String {
   buf.to_string()
 }
 
-///| Serialize multiple ReviewResults
+///|
+/// Serialize multiple ReviewResults
 pub fn reviews_to_yaml(results : Array[ReviewResult]) -> String {
   if results.length() == 1 {
     review_to_yaml(results[0])

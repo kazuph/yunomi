@@ -1,4 +1,5 @@
-///| Server context for one file
+///|
+/// Server context for one file
 struct ServerContext {
   file_path : String
   filename : String
@@ -13,28 +14,36 @@ struct ServerContext {
   mut finished : Bool
 }
 
-///| All active server contexts
+///|
+/// All active server contexts
 let active_servers : Array[ServerContext] = []
 
-///| Encoding override from CLI --encoding / -e flag
-let encoding_override : Ref[String] = Ref::new("")
+///|
+/// Encoding override from CLI --encoding / -e flag
+let encoding_override : Ref[String] = Ref("")
 
-///| Host address to bind to (default: 127.0.0.1)
-let bind_host : Ref[String] = Ref::new("127.0.0.1")
+///|
+/// Host address to bind to (default: 127.0.0.1)
+let bind_host : Ref[String] = Ref("127.0.0.1")
 
-///| Results collected from submissions
+///|
+/// Results collected from submissions
 let all_results : Array[@core.ReviewResult] = []
 
-///| Expected total number of files
-let expected_count : Ref[Int] = Ref::new(0)
+///|
+/// Expected total number of files
+let expected_count : Ref[Int] = Ref(0)
 
-///| Per-process id announced over SSE so reused-port tabs can self-reload
-let server_instance_id : Ref[String] = Ref::new("")
+///|
+/// Per-process id announced over SSE so reused-port tabs can self-reload
+let server_instance_id : Ref[String] = Ref("")
 
-///| Live log file path for real-time comment IPC
-let live_log_path : Ref[String] = Ref::new("")
+///|
+/// Live log file path for real-time comment IPC
+let live_log_path : Ref[String] = Ref("")
 
-///| Initialize live log file
+///|
+/// Initialize live log file
 fn init_live_log() -> Unit {
   let pid = process_pid()
   let path = path_join(os_tmpdir(), "yunomi-live-\{pid}.jsonl")
@@ -43,24 +52,41 @@ fn init_live_log() -> Unit {
   console_error("[YUNOMI_LIVE] \{path}")
 }
 
-///| Append a JSONL line to the live log
+///|
+/// Append a JSONL line to the live log
 fn append_live_log(json_line : String) -> Unit {
   if live_log_path.val.length() > 0 {
-    try_call_void(fn() { fs_append_file_sync(live_log_path.val, json_line + "\n") })
+    try_call_void(fn() {
+      fs_append_file_sync(live_log_path.val, json_line + "\n")
+    })
   }
 }
 
-///| Clean up live log file
+///|
+/// Clean up live log file
 fn cleanup_live_log() -> Unit {
   if live_log_path.val.length() > 0 && exists_sync(live_log_path.val) {
     try_call_void(fn() { unlink_sync(live_log_path.val) })
   }
 }
 
-///| Cached ui.js content
-let ui_js_cache : Ref[String] = Ref::new("")
+///|
+fn log_session_event(message : String) -> Unit {
+  console_error("[YUNOMI_SESSION] " + message)
+}
 
-///| Load ui.js from build output
+///|
+fn exit_process(reason : String, code : Int) -> Unit {
+  console_error("[YUNOMI_EXIT] " + reason + " code=" + code.to_string())
+  process_exit(code)
+}
+
+///|
+/// Cached ui.js content
+let ui_js_cache : Ref[String] = Ref("")
+
+///|
+/// Load ui.js from build output
 fn load_ui_js() -> String {
   if ui_js_cache.val.length() > 0 {
     return ui_js_cache.val
@@ -77,7 +103,8 @@ fn load_ui_js() -> String {
   }
 }
 
-///| Get lock file directory
+///|
+/// Get lock file directory
 fn lock_dir() -> String {
   let override_dir = get_env_var("YUNOMI_LOCK_DIR")
   if override_dir.length() > 0 {
@@ -87,24 +114,27 @@ fn lock_dir() -> String {
   }
 }
 
-///| Get lock file path for a port
+///|
+/// Get lock file path for a port
 fn lock_path(port : Int) -> String {
   let dir = lock_dir()
   path_join(dir, "\{port}.lock")
 }
 
-///| Ensure lock directory exists
+///|
+/// Ensure lock directory exists
 fn ensure_lock_dir() -> Unit {
   let dir = lock_dir()
-  if !(exists_sync(dir)) {
+  if !exists_sync(dir) {
     mkdir_sync(dir, mkdir_recursive_opts())
   }
 }
 
-///| Check if a port is locked by another process
+///|
+/// Check if a port is locked by another process
 fn is_port_locked(port : Int) -> Bool {
   let lp = lock_path(port)
-  if !(exists_sync(lp)) {
+  if !exists_sync(lp) {
     return false
   }
   // Read PID from lock file and check if process is alive
@@ -127,14 +157,16 @@ fn is_port_locked(port : Int) -> Bool {
   }
 }
 
-///| Write lock file for a port (stores PID)
+///|
+/// Write lock file for a port (stores PID)
 fn write_lock(port : Int) -> Unit {
   ensure_lock_dir()
   let lp = lock_path(port)
   write_file_sync(lp, process_pid().to_string())
 }
 
-///| Remove lock file for a port
+///|
+/// Remove lock file for a port
 fn remove_lock(port : Int) -> Unit {
   let lp = lock_path(port)
   if exists_sync(lp) {
@@ -142,12 +174,13 @@ fn remove_lock(port : Int) -> Unit {
   }
 }
 
-///| Find first available port starting from base, skipping locked ports
+///|
+/// Find first available port starting from base, skipping locked ports
 fn find_available_port(base : Int) -> Int {
   let mut port = base
   let mut attempts = 0
   while attempts < max_port_attempts {
-    if !(is_port_locked(port)) {
+    if !is_port_locked(port) {
       return port
     }
     console_log("Port \{port} locked, trying \{port + 1}...")
@@ -157,7 +190,8 @@ fn find_available_port(base : Int) -> Int {
   base // fallback
 }
 
-///| Main entry point
+///|
+/// Main entry point
 fn main {
   let argv = get_argv()
   let args : Array[String] = []
@@ -172,14 +206,14 @@ fn main {
     let arg = args[i]
     if arg == "--help" || arg == "-h" {
       print_usage()
-      process_exit(0)
+      exit_process("help requested", 0)
     } else if arg == "--skill" {
       print_skill_doc()
-      process_exit(0)
+      exit_process("skill doc requested", 0)
     } else if arg == "--version" || arg == "-v" {
       let ver = get_package_version()
       console_log("yunomi " + ver + " (moonbit)")
-      process_exit(0)
+      exit_process("version requested", 0)
     } else if arg == "--port" {
       i = i + 1
       if i < args.length() {
@@ -197,7 +231,7 @@ fn main {
       if i < args.length() {
         encoding_override.val = args[i]
       }
-    } else if !(arg.has_prefix("-")) {
+    } else if !arg.has_prefix("-") {
       files.push(arg)
     }
     i = i + 1
@@ -207,22 +241,19 @@ fn main {
   // server setup so stdout is the pure markdown skill text.
   if files.is_empty() && is_stdin_tty() {
     print_skill_doc()
-    process_exit(0)
+    exit_process("no args on tty", 0)
   }
   server_instance_id.val = gen_instance_id()
   // Initialize live log for real-time comment IPC
   init_live_log()
   // Cleanup locks and live log on SIGINT
-  on_process_signal(
-    "SIGINT",
-    fn() {
-      cleanup_live_log()
-      for srv in active_servers {
-        remove_lock(srv.port)
-      }
-      process_exit(0)
-    },
-  )
+  on_process_signal("SIGINT", fn() {
+    cleanup_live_log()
+    for srv in active_servers {
+      remove_lock(srv.port)
+    }
+    exit_process("SIGINT", 0)
+  })
   // Pre-load ui.js
   ignore(load_ui_js())
   // No files and stdin is piped: read a diff from stdin
@@ -234,7 +265,7 @@ fn main {
     }
     // Piped but empty: a confused script — show usage and fail
     print_usage()
-    process_exit(1)
+    exit_process("empty piped stdin", 1)
   }
   // Enforce media embed discipline before serving anything:
   // [text](media) links hide evidence from the reviewer — refuse and
@@ -249,16 +280,23 @@ fn main {
   }
 }
 
-///| Exit with a fix-it message when markdown files link (instead of embed) media
+///|
+/// Exit with a fix-it message when markdown files link (instead of embed) media
 fn enforce_media_discipline(files : Array[String]) -> Unit {
   let mut violation_total = 0
   for file_path in files {
     let resolved = path_resolve(file_path)
-    if !(exists_sync(resolved)) { continue }
-    if detect_mode(resolved) != @core.FileMode::Markdown { continue }
+    if !exists_sync(resolved) {
+      continue
+    }
+    if detect_mode(resolved) != @core.FileMode::Markdown {
+      continue
+    }
     let content = decode_file(resolved, encoding_override.val)
     let violations = @core.find_media_link_violations(content)
-    if violations.is_empty() { continue }
+    if violations.is_empty() {
+      continue
+    }
     if violation_total == 0 {
       console_error("yunomi: media embed discipline violation")
     }
@@ -279,7 +317,7 @@ fn enforce_media_discipline(files : Array[String]) -> Unit {
       "yunomi renders only embedded media; a plain link hides the evidence from the reviewer.",
     )
     console_error("Fix the lines above, then run yunomi again.")
-    process_exit(1)
+    exit_process("media embed discipline violation", 1)
   }
 }
 
@@ -304,8 +342,11 @@ fn print_usage() -> Unit {
 }
 
 ///| The instant skill: everything an AI agent needs to serve work for
+
 ///| human approval. Printed when yunomi runs with no arguments on a TTY,
-///| so "just tell your AI to run npx yunomi" is the entire onboarding.
+
+///|
+/// so "just tell your AI to run npx yunomi" is the entire onboarding.
 fn print_skill_doc() -> Unit {
   let doc =
     #|# yunomi 🍵 — skill document for AI agents
@@ -424,10 +465,15 @@ fn parse_port(s : String) -> Int {
       n = n * 10 + (ch.to_int() - '0'.to_int())
     }
   }
-  if n == 0 { 4989 } else { n }
+  if n == 0 {
+    4989
+  } else {
+    n
+  }
 }
 
-///| Detect encoding from buffer: BOM → UTF-8 validate → heuristic
+///|
+/// Detect encoding from buffer: BOM → UTF-8 validate → heuristic
 fn detect_encoding(buf : JsValue) -> String {
   let len = buffer_length(buf)
   if len == 0 {
@@ -481,7 +527,7 @@ fn detect_encoding(buf : JsValue) -> String {
         break
       }
     }
-    if !(valid) {
+    if !valid {
       is_utf8 = false
       break
     }
@@ -523,7 +569,8 @@ fn detect_encoding(buf : JsValue) -> String {
   "utf-8"
 }
 
-///| Decode file with optional encoding override
+///|
+/// Decode file with optional encoding override
 fn decode_file(path : String, override_enc : String) -> String {
   let buf = read_file_buffer(path)
   let encoding = if override_enc.length() > 0 {
@@ -548,7 +595,8 @@ fn detect_mode(file_path : String) -> @core.FileMode {
   @core.FileMode::from_extension(ext_lower)
 }
 
-///| Browser tab title: "<project>/<filename>" so parallel reviews are distinguishable.
+///|
+/// Browser tab title: "<project>/<filename>" so parallel reviews are distinguishable.
 ///  The project is the nearest ancestor directory containing .git; falls back to
 ///  the file's parent directory name.
 fn compute_tab_title(file_path : String, filename : String) -> String {
@@ -594,8 +642,11 @@ fn load_and_build_html(ctx : ServerContext) -> String {
     @core.FileMode::Markdown => {
       let md = @core.parse_markdown(content)
       @core.build_markdown_html(
-        md, ctx.filename, ctx.port,
-        file_path=ctx.file_path, tab_title~,
+        md,
+        ctx.filename,
+        ctx.port,
+        file_path=ctx.file_path,
+        tab_title~,
       )
     }
     @core.FileMode::Text => {
@@ -651,47 +702,49 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
   if ctx.file_path != "<stdin>" {
     let clients = ctx.sse_clients
     ignore(
-      watch_file(
-        resolved,
-        fn(_curr, _prev) {
-          ctx.html_cache = load_and_build_html(ctx)
-          for client in clients {
-            sse_send(client, "reload", "")
-          }
-        },
-      ),
+      watch_file(resolved, fn(_curr, _prev) {
+        ctx.html_cache = load_and_build_html(ctx)
+        for client in clients {
+          sse_send(client, "reload", "")
+        }
+      }),
     )
   }
   start_http_server(ctx, no_open)
 }
 
-///| History constants
+///|
+/// History constants
 let history_max : Int = 50
 
-///| Get history directory path
+///|
+/// Get history directory path
 fn history_dir() -> String {
   path_join(os_homedir(), ".yunomi/history")
 }
 
-///| Ensure history directory exists
+///|
+/// Ensure history directory exists
 fn ensure_history_dir() -> Unit {
   let dir = history_dir()
-  if !(exists_sync(dir)) {
+  if !exists_sync(dir) {
     mkdir_sync(dir, mkdir_recursive_opts())
     chmod_sync(dir, 448) // 0o700
   }
 }
 
-///| Get history file path for a given file
+///|
+/// Get history file path for a given file
 fn history_path(file_path : String) -> String {
   let hash = crypto_sha256(path_resolve(file_path))
   path_join(history_dir(), hash + ".json")
 }
 
-///| Load history from file
+///|
+/// Load history from file
 fn load_history(file_path : String) -> String {
   let hp = history_path(file_path)
-  if !(exists_sync(hp)) {
+  if !exists_sync(hp) {
     return "[]"
   }
   let data = read_file_safe(hp)
@@ -702,7 +755,8 @@ fn load_history(file_path : String) -> String {
   }
 }
 
-///| Save history entry (with trim to history_max)
+///|
+/// Save history entry (with trim to history_max)
 fn save_history(file_path : String, entry_json : String) -> Unit {
   ensure_history_dir()
   let hp = history_path(file_path)
@@ -717,7 +771,8 @@ fn save_history(file_path : String, entry_json : String) -> Unit {
   chmod_sync(hp, 384) // 0o600
 }
 
-///| Trim a JSON array to at most max_entries objects
+///|
+/// Trim a JSON array to at most max_entries objects
 fn trim_json_array(json : String, max_entries : Int) -> String {
   let chars = json.to_array()
   let len = chars.length()
@@ -749,7 +804,8 @@ fn trim_json_array(json : String, max_entries : Int) -> String {
   }
 }
 
-///| Find first occurrence of char in string, -1 if not found
+///|
+/// Find first occurrence of char in string, -1 if not found
 fn index_of(s : String, target : Char) -> Int {
   let chars = s.to_array()
   for i, ch in chars {
@@ -760,7 +816,8 @@ fn index_of(s : String, target : Char) -> Int {
   -1
 }
 
-///| Max port retry attempts
+///|
+/// Max port retry attempts
 let max_port_attempts : Int = 10
 
 ///|
@@ -769,42 +826,39 @@ fn start_http_server(ctx : ServerContext, no_open : Bool) -> Unit {
 }
 
 ///|
-fn try_listen(ctx : ServerContext, port : Int, attempt : Int, no_open : Bool) -> Unit {
+fn try_listen(
+  ctx : ServerContext,
+  port : Int,
+  attempt : Int,
+  no_open : Bool,
+) -> Unit {
   if attempt >= max_port_attempts {
-    console_error("Failed to find available port after \{max_port_attempts} attempts")
-    process_exit(1)
+    console_error(
+      "Failed to find available port after \{max_port_attempts} attempts",
+    )
+    exit_process("no available port", 1)
   }
-  let server = create_server(
-    fn(req, res) { handle_request(ctx, req, res) },
-  )
-  server_on_error(
-    server,
-    fn(err) {
-      if error_code(err) == "EADDRINUSE" {
-        console_log("Port \{port} in use, trying \{port + 1}...")
-        try_listen(ctx, port + 1, attempt + 1, no_open)
-      } else {
-        console_error("Server error")
-        process_exit(1)
-      }
-    },
-  )
+  let server = create_server(fn(req, res) { handle_request(ctx, req, res) })
+  server_on_error(server, fn(err) {
+    if error_code(err) == "EADDRINUSE" {
+      console_log("Port \{port} in use, trying \{port + 1}...")
+      try_listen(ctx, port + 1, attempt + 1, no_open)
+    } else {
+      console_error("Server error")
+      exit_process("server error", 1)
+    }
+  })
   let host = bind_host.val
-  server_listen(
-    server,
-    port,
-    host,
-    fn() {
-      ctx.port = port
-      write_lock(port)
-      let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
-      let url = "http://\{display_host}:\{port}"
-      console_log("yunomi serving \{ctx.filename} at \{url}")
-      if !(no_open) {
-        open_browser(url)
-      }
-    },
-  )
+  server_listen(server, port, host, fn() {
+    ctx.port = port
+    write_lock(port)
+    let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
+    let url = "http://\{display_host}:\{port}"
+    console_log("yunomi serving \{ctx.filename} at \{url}")
+    if !no_open {
+      open_browser(url)
+    }
+  })
   // Heartbeat for SSE
   ignore(
     set_interval(
@@ -838,12 +892,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     // Announce this server's identity: a tab reconnecting after a
     // restart sees a different id and reloads itself
     sse_send(res, "hello", server_instance_id.val)
-    on_close(
-      req,
-      fn() {
-        remove_sse_client(ctx, res)
-      },
-    )
+    on_close(req, fn() { remove_sse_client(ctx, res) })
   } else if http_method == "GET" && url == "/history" {
     let history_json = load_history(ctx.file_path)
     res_write_head(res, 200, "application/json")
@@ -851,41 +900,29 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   } else if http_method == "GET" && url.has_prefix("/video-timeline?") {
     handle_video_timeline(ctx, url, res)
   } else if http_method == "POST" && url == "/session/open" {
-    read_body(
-      req,
-      fn(body) {
-        handle_session_open(ctx, body)
-        res_write_head(res, 200, "application/json")
-        res_end(res, "{\"ok\":true}")
-      },
-    )
+    read_body(req, fn(body) {
+      handle_session_open(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
   } else if http_method == "POST" && url == "/close" {
-    read_body(
-      req,
-      fn(body) {
-        handle_session_close(ctx, body)
-        res_write_head(res, 200, "application/json")
-        res_end(res, "{\"ok\":true}")
-      },
-    )
+    read_body(req, fn(body) {
+      handle_session_close(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
   } else if http_method == "POST" && url == "/comment" {
-    read_body(
-      req,
-      fn(body) {
-        handle_comment(ctx, body)
-        res_write_head(res, 200, "application/json")
-        res_end(res, "{\"ok\":true}")
-      },
-    )
+    read_body(req, fn(body) {
+      handle_comment(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
   } else if http_method == "POST" && url == "/exit" {
-    read_body(
-      req,
-      fn(body) {
-        handle_submit(ctx, body)
-        res_write_head(res, 200, "application/json")
-        res_end(res, "{\"ok\":true}")
-      },
-    )
+    read_body(req, fn(body) {
+      handle_submit(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
   } else if http_method == "HEAD" {
     // HEAD: same as GET but no body
     if url == "/" || url == "/index.html" {
@@ -912,7 +949,8 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   }
 }
 
-///| MIME type lookup by extension
+///|
+/// MIME type lookup by extension
 fn get_mime_type(ext : String) -> String {
   match ext {
     ".png" => "image/png"
@@ -938,17 +976,22 @@ fn get_mime_type(ext : String) -> String {
   }
 }
 
-///| Serve static files relative to the reviewed file's directory
+///|
+/// Serve static files relative to the reviewed file's directory
 fn serve_static_file(
   ctx : ServerContext,
   url : String,
   req : JsValue,
-  res : JsValue
+  res : JsValue,
 ) -> Unit {
   // Decode URL path (strip query string)
   let url_path = {
     let qmark = index_of(url, '?')
-    if qmark >= 0 { @core.safe_slice_range(url, 0, qmark) } else { url }
+    if qmark >= 0 {
+      @core.safe_slice_range(url, 0, qmark)
+    } else {
+      url
+    }
   }
   // Remove leading slash
   let relative_path = if url_path.has_prefix("/") {
@@ -990,15 +1033,20 @@ fn serve_static_file(
   }
 }
 
-///| Serve static file HEAD request (headers only, no body)
+///|
+/// Serve static file HEAD request (headers only, no body)
 fn serve_static_file_head(
   ctx : ServerContext,
   url : String,
-  res : JsValue
+  res : JsValue,
 ) -> Unit {
   let url_path = {
     let qmark = index_of(url, '?')
-    if qmark >= 0 { @core.safe_slice_range(url, 0, qmark) } else { url }
+    if qmark >= 0 {
+      @core.safe_slice_range(url, 0, qmark)
+    } else {
+      url
+    }
   }
   let relative_path = if url_path.has_prefix("/") {
     @core.safe_slice(url_path, 1)
@@ -1033,7 +1081,8 @@ fn serve_static_file_head(
   }
 }
 
-///| Remove SSE client by reference equality
+///|
+/// Remove SSE client by reference equality
 extern "js" fn js_ref_eq(a : JsValue, b : JsValue) -> Bool =
   #|(a, b) => a === b
 
@@ -1051,6 +1100,7 @@ fn remove_sse_client(ctx : ServerContext, client : JsValue) -> Unit {
   }
 }
 
+///|
 fn has_active_tab(ctx : ServerContext, tab_id : String) -> Bool {
   for existing in ctx.active_tabs {
     if existing == tab_id {
@@ -1060,6 +1110,7 @@ fn has_active_tab(ctx : ServerContext, tab_id : String) -> Bool {
   false
 }
 
+///|
 fn add_active_tab(ctx : ServerContext, tab_id : String) -> Unit {
   if tab_id.length() == 0 || has_active_tab(ctx, tab_id) {
     return
@@ -1067,6 +1118,7 @@ fn add_active_tab(ctx : ServerContext, tab_id : String) -> Unit {
   ctx.active_tabs.push(tab_id)
 }
 
+///|
 fn remove_active_tab(ctx : ServerContext, tab_id : String) -> Unit {
   if tab_id.length() == 0 {
     return
@@ -1083,14 +1135,16 @@ fn remove_active_tab(ctx : ServerContext, tab_id : String) -> Unit {
   }
 }
 
+///|
 fn cancel_pending_close(ctx : ServerContext) -> Unit {
-  if !(js_is_nullish(ctx.pending_close_timer)) {
+  if !js_is_nullish(ctx.pending_close_timer) {
     clear_timeout(ctx.pending_close_timer)
     ctx.pending_close_timer = js_null()
   }
 }
 
-///| Handle real-time comment from browser
+///|
+/// Handle real-time comment from browser
 fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   if ctx.finished {
     return
@@ -1104,7 +1158,15 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   buf.write_string("\",\"file\":\"")
   buf.write_string(@core.escape_js_string(ctx.filename))
   buf.write_string("\",\"type\":\"")
-  buf.write_string(@core.escape_js_string(if event_type.length() > 0 { event_type } else { "comment" }))
+  buf.write_string(
+    @core.escape_js_string(
+      if event_type.length() > 0 {
+        event_type
+      } else {
+        "comment"
+      },
+    ),
+  )
   buf.write_string("\"")
   let key = json_parse_string("key", body)
   if key.length() > 0 {
@@ -1137,6 +1199,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
 ///|
 fn handle_submit(ctx : ServerContext, body : String) -> Unit {
   if ctx.finished {
+    log_session_event("ignored submit for finished context file=\{ctx.filename}")
     return
   }
   ctx.finished = true
@@ -1185,6 +1248,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Unit {
   let decision = @core.ReviewDecision::from_string(decision_str)
   let action_str = json_parse_string("action", body)
   let action = @core.ReviewAction::from_string(action_str)
+  log_session_event(
+    "submit file=\{ctx.filename} comments=\{raw_comments.length()} summary_len=\{summary.length()} decision=\{decision_str} action=\{action_str}",
+  )
   let result : @core.ReviewResult = {
     file: ctx.filename,
     mode: ctx.mode,
@@ -1226,7 +1292,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Unit {
       comment_img_idx = comment_img_idx + 1
     }
   }
-  console_log("Received review for \{ctx.filename} (\{comments.length()} comments)")
+  console_log(
+    "Received review for \{ctx.filename} (\{comments.length()} comments)",
+  )
   if all_results.length() >= expected_count.val {
     let yaml = @core.reviews_to_yaml(all_results)
     process_stdout_write(yaml)
@@ -1237,26 +1305,34 @@ fn handle_submit(ctx : ServerContext, body : String) -> Unit {
       }
       remove_lock(srv.port)
     }
-    process_exit(0)
+    exit_process("all reviews submitted", 0)
   }
 }
 
+///|
 fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
   if ctx.finished {
+    log_session_event("ignored open for finished context file=\{ctx.filename}")
     return
   }
   let tab_id = json_parse_string("tabId", body)
   let instance_id = json_parse_string("instanceId", body)
   if tab_id.length() == 0 || instance_id.length() == 0 {
+    log_session_event("ignored open missing id file=\{ctx.filename}")
     return
   }
   cancel_pending_close(ctx)
   add_active_tab(ctx, tab_id)
   ctx.active_tab_instances.set(tab_id, instance_id)
+  log_session_event(
+    "open file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()}",
+  )
 }
 
+///|
 fn schedule_close_submit(ctx : ServerContext, draft : String) -> Unit {
   if ctx.finished {
+    log_session_event("ignored close scheduling for finished context file=\{ctx.filename}")
     return
   }
   cancel_pending_close(ctx)
@@ -1269,44 +1345,64 @@ fn schedule_close_submit(ctx : ServerContext, draft : String) -> Unit {
   ctx.pending_close_timer = set_timeout(
     fn() {
       ctx.pending_close_timer = js_null()
-      if ctx.finished || !(ctx.active_tabs.is_empty()) {
+      if ctx.finished || !ctx.active_tabs.is_empty() {
+        log_session_event(
+          "cancel close submit file=\{ctx.filename} finished=\{ctx.finished} active=\{ctx.active_tabs.length()}",
+        )
         return
       }
+      log_session_event("auto submit after last tab close file=\{ctx.filename}")
       handle_submit(ctx, draft_body)
     },
     5000,
   )
+  log_session_event("scheduled close submit file=\{ctx.filename}")
 }
 
+///|
 fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   if ctx.finished {
+    log_session_event("ignored close for finished context file=\{ctx.filename}")
     return
   }
   let tab_id = json_parse_string("tabId", body)
   let instance_id = json_parse_string("instanceId", body)
   let draft = json_parse_string("draft", body)
-  if tab_id.length() > 0 && instance_id.length() > 0 {
-    match ctx.active_tab_instances.get(tab_id) {
-      Some(active_instance) => {
-        if active_instance != instance_id {
-          return
-        }
+  if tab_id.length() == 0 || instance_id.length() == 0 {
+    log_session_event("ignored close missing id file=\{ctx.filename}")
+    return
+  }
+  match ctx.active_tab_instances.get(tab_id) {
+    Some(active_instance) =>
+      if active_instance != instance_id {
+        log_session_event(
+          "ignored stale close file=\{ctx.filename} tab=\{tab_id} active_instance=\{active_instance} close_instance=\{instance_id}",
+        )
+        return
       }
-      None => ()
+    None => {
+      log_session_event(
+        "ignored unknown close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id}",
+      )
+      return
     }
   }
   ignore(ctx.active_tab_instances.remove(tab_id))
   remove_active_tab(ctx, tab_id)
+  log_session_event(
+    "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
+  )
   if ctx.active_tabs.is_empty() {
     schedule_close_submit(ctx, draft)
   }
 }
 
-///| Handle video timeline SSE endpoint
+///|
+/// Handle video timeline SSE endpoint
 fn handle_video_timeline(
   ctx : ServerContext,
   url : String,
-  res : JsValue
+  res : JsValue,
 ) -> Unit {
   let video_path = parse_query_param(url, "path")
   let scene_str = parse_query_param(url, "scene")
@@ -1327,12 +1423,13 @@ fn handle_video_timeline(
   }
   // Use resolved path from here
   let video_path = resolved_video
-  if !(exists_sync(video_path)) {
+  if !exists_sync(video_path) {
     res_write_head(res, 404, "text/plain")
     res_end(res, "File not found")
     return
   }
-  if !(command_exists("ffmpeg")) {
+  let ffmpeg = resolve_command("ffmpeg")
+  if ffmpeg.length() == 0 {
     res_write_head(res, 500, "text/plain")
     res_end(res, "ffmpeg not available")
     return
@@ -1342,17 +1439,41 @@ fn handle_video_timeline(
   let tmp_dir = make_temp_dir()
   // Extract first frame
   let first_frame = path_join(tmp_dir, "first_frame.jpg")
-  ignore(spawn_sync_stdout("ffmpeg", "[\"-y\", \"-i\", " + json_encode_value(video_path) + ", \"-vf\", \"scale=160:-1\", \"-vframes\", \"1\", \"-q:v\", \"5\", " + json_encode_value(first_frame) + "]"))
+  ignore(
+    spawn_sync_stdout(
+      ffmpeg,
+      "[\"-y\", \"-i\", " +
+      json_encode_value(video_path) +
+      ", \"-vf\", \"scale=160:-1\", \"-vframes\", \"1\", \"-q:v\", \"5\", " +
+      json_encode_value(first_frame) +
+      "]",
+    ),
+  )
   // Send first frame
   if exists_sync(first_frame) {
     let b64 = read_file_base64(first_frame)
     if b64.length() > 0 {
-      sse_send(res, "message", "{\"type\":\"thumbnail\",\"time\":0,\"index\":0,\"data\":\"data:image/jpeg;base64," + b64 + "\"}")
+      sse_send(
+        res,
+        "message",
+        "{\"type\":\"thumbnail\",\"time\":0,\"index\":0,\"data\":\"data:image/jpeg;base64," +
+        b64 +
+        "\"}",
+      )
     }
   }
   // Scene detection with ffmpeg
   let scene_threshold = if scene_str.length() > 0 { scene_str } else { "0.01" }
-  let ffmpeg_proc = spawn_async("ffmpeg", "[\"-i\", " + json_encode_value(video_path) + ", \"-vf\", \"select='gt(scene," + scene_threshold + ")',showinfo,scale=160:-1\", \"-vsync\", \"vfr\", \"-q:v\", \"5\", " + json_encode_value(path_join(tmp_dir, "scene_%04d.jpg")) + "]")
+  let ffmpeg_proc = spawn_async(
+    ffmpeg,
+    "[\"-i\", " +
+    json_encode_value(video_path) +
+    ", \"-vf\", \"select='gt(scene," +
+    scene_threshold +
+    ")',showinfo,scale=160:-1\", \"-vsync\", \"vfr\", \"-q:v\", \"5\", " +
+    json_encode_value(path_join(tmp_dir, "scene_%04d.jpg")) +
+    "]",
+  )
   on_spawn_close_with_stderr(ffmpeg_proc, fn(_code, stderr) {
     // Parse actual timestamps from ffmpeg showinfo output
     let timestamps = parse_showinfo_timestamps(stderr)
@@ -1377,12 +1498,26 @@ fn handle_video_timeline(
         } else {
           (scene_idx + 1).to_double()
         }
-        sse_send(res, "message", "{\"type\":\"thumbnail\",\"time\":" + time_val.to_string() + ",\"index\":" + (scene_idx + 1).to_string() + ",\"data\":\"data:image/jpeg;base64," + b64 + "\"}")
+        sse_send(
+          res,
+          "message",
+          "{\"type\":\"thumbnail\",\"time\":" +
+          time_val.to_string() +
+          ",\"index\":" +
+          (scene_idx + 1).to_string() +
+          ",\"data\":\"data:image/jpeg;base64," +
+          b64 +
+          "\"}",
+        )
         scene_idx = scene_idx + 1
       }
     }
     // Send completion
-    sse_send(res, "message", "{\"type\":\"complete\",\"total\":" + scene_idx.to_string() + "}")
+    sse_send(
+      res,
+      "message",
+      "{\"type\":\"complete\",\"total\":" + scene_idx.to_string() + "}",
+    )
     res_end(res, "")
     // Cleanup
     rm_dir_recursive(tmp_dir)

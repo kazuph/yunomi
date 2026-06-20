@@ -1,0 +1,8 @@
+import {
+  "kazuph/yunomi/core",
+}
+
+options(
+  "is-main": true,
+  link: { "js": { "exports": [ ], "format": "esm" } },
+)

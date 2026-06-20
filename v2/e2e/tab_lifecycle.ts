@@ -1,9 +1,9 @@
 /**
  * Tab Lifecycle E2E Test (the "duplicate tab" bug)
  *
- * 1. A lingering tab whose server died must auto-reload when a NEW
+ * 1. A lingering tab whose server died must retire itself when a NEW
  *    server reuses the same port (SSE "hello" instance-id change),
- *    so it becomes the new session's tab instead of a stale zombie.
+ *    so it never joins the new session as a stale tab.
  * 2. After Submit & Exit, a tab the browser refuses to close must park
  *    itself on about:blank so it no longer poses as a live review.
  *
@@ -68,7 +68,7 @@ const browser = await chromium.launch();
 try {
   const page = await browser.newPage();
 
-  // --- 1. zombie tab revives on server restart (port reuse) ---
+  // --- 1. zombie tab retires on server restart (port reuse) ---
   const a = await startServer(docA);
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
   const titleA = await page.evaluate(() => document.body.innerText.includes("Session Alpha"));
@@ -77,29 +77,39 @@ try {
   await page.waitForTimeout(500);
 
   const b = await startServer(docB);
-  // EventSource reconnects on its own schedule; the new hello id must reload the page
-  const revived = await page
-    .waitForFunction(() => document.body.innerText.includes("Session Beta"), undefined, { timeout: 15000 })
+  // EventSource reconnects on its own schedule; the new hello id must retire the stale page.
+  const retired = await page
+    .waitForFunction(() => location.href === "about:blank", undefined, { timeout: 15000 })
     .then(() => true)
     .catch(() => false);
-  assert(revived, "ポート再利用の新サーバ起動で残骸タブが自動リロードして新セッションを表示する");
+  const closedAfterRestart = page.isClosed();
+  const showsBeta = closedAfterRestart
+    ? false
+    : await page.evaluate(() => document.body.innerText.includes("Session Beta")).catch(() => false);
+  assert(retired || closedAfterRestart, "ポート再利用の新サーバ起動で残骸タブは閉じるか about:blank に退避する", {
+    retired,
+    closed: closedAfterRestart,
+    url: closedAfterRestart ? "(closed)" : page.url(),
+  });
+  assert(!showsBeta, "残骸タブは新セッションの内容を表示しない", { showsBeta });
 
   // --- 2. submit parks the tab on about:blank when close is refused ---
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.locator("#send-and-exit").click();
-  const modal = await page.waitForSelector("#submit-modal", { timeout: 3000 }).catch(() => null);
+  const fresh = await browser.newPage();
+  await fresh.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await fresh.locator("#send-and-exit").click();
+  const modal = await fresh.waitForSelector("#submit-modal", { timeout: 3000 }).catch(() => null);
   assert(modal !== null, "Submit & Exit でSubmitモーダルが開く");
   if (modal) {
-    await page.locator("#modal-approve").click();
-    const parked = await page
+    await fresh.locator("#modal-approve").click();
+    const parked = await fresh
       .waitForFunction(() => location.href === "about:blank", undefined, { timeout: 8000 })
       .then(() => true)
       .catch(() => false);
-    const closed = page.isClosed();
+    const closed = fresh.isClosed();
     assert(parked || closed, "Submit後、タブはcloseされるか about:blank に退避する", {
       parked,
       closed,
-      url: closed ? "(closed)" : page.url(),
+      url: closed ? "(closed)" : fresh.url(),
     });
   }
   await stop(b);

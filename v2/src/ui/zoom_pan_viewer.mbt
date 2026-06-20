@@ -2,7 +2,8 @@
 ///  Replaces JS-based window.__createZPV with native MoonBit logic
 ///  Features: mouse drag, wheel zoom, touch pinch, minimap support
 
-///| State for a single ZoomPanViewer instance
+///|
+/// State for a single ZoomPanViewer instance
 struct ZPVState {
   viewport : Element
   wrapper : Element
@@ -28,7 +29,8 @@ struct ZPVState {
   handles : Array[ListenerHandle]
 }
 
-///| Create a new ZoomPanViewer with the given configuration
+///|
+/// Create a new ZoomPanViewer with the given configuration
 ///  This replaces the JS window.__createZPV function
 pub fn create_zoom_pan_viewer_moonbit(
   viewport : Element,
@@ -43,7 +45,7 @@ pub fn create_zoom_pan_viewer_moonbit(
   _mm_pad : Double,
   zoom_min : Double,
   zoom_max : Double,
-  use_ctrl_for_zoom : Bool
+  use_ctrl_for_zoom : Bool,
 ) -> ZPVState {
   let state = ZPVState::{
     viewport,
@@ -78,7 +80,7 @@ pub fn create_zoom_pan_viewer_moonbit(
   setup_double_click(state)
 
   // Initial fit: wait until the viewport has a real size.
-  request_fit_to_viewport_when_ready(state, fn() {})
+  request_fit_to_viewport_when_ready(state, fn() {  })
 
   // Setup minimap if enabled
   if has_minimap {
@@ -88,12 +90,15 @@ pub fn create_zoom_pan_viewer_moonbit(
   state
 }
 
-///| Setup mouse drag events
+///|
+/// Setup mouse drag events
 fn setup_mouse_events(state : ZPVState) -> Unit {
   // Pointer down on viewport
   let h1 = on_with_handle(state.viewport, "pointerdown", fn(e) {
     let button = get_event_button(e)
-    if button != 0 { return }
+    if button != 0 {
+      return
+    }
     prevent_default(e)
     state.is_dragging = true
     state.drag_start_x = get_event_client_x(e).to_double() - state.pan_x
@@ -105,7 +110,9 @@ fn setup_mouse_events(state : ZPVState) -> Unit {
 
   // Pointer move on document
   let h2 = on_with_handle(query_body(), "pointermove", fn(e) {
-    if !state.is_dragging { return }
+    if !state.is_dragging {
+      return
+    }
     prevent_default(e)
     let client_x = get_event_client_x(e).to_double()
     let client_y = get_event_client_y(e).to_double()
@@ -117,7 +124,9 @@ fn setup_mouse_events(state : ZPVState) -> Unit {
 
   // Pointer up on document
   let h3 = on_with_handle(query_body(), "pointerup", fn(_) {
-    if !state.is_dragging { return }
+    if !state.is_dragging {
+      return
+    }
     state.is_dragging = false
     set_style(state.viewport, "cursor", "grab")
   })
@@ -125,7 +134,9 @@ fn setup_mouse_events(state : ZPVState) -> Unit {
 
   // Pointer leave/cancel
   let h4 = on_with_handle(query_body(), "pointercancel", fn(_) {
-    if !state.is_dragging { return }
+    if !state.is_dragging {
+      return
+    }
     state.is_dragging = false
     set_style(state.viewport, "cursor", "grab")
   })
@@ -139,85 +150,114 @@ fn setup_mouse_events(state : ZPVState) -> Unit {
   state.handles.push(h5)
 }
 
-///| Setup wheel zoom events
+///|
+/// Setup wheel zoom events
 fn setup_wheel_events(state : ZPVState) -> Unit {
-  let h = on_with_handle(state.viewport, "wheel", fn(e) {
-    prevent_default(e)
+  let h = on_with_handle(
+    state.viewport,
+    "wheel",
+    fn(e) {
+      prevent_default(e)
 
-    let delta_x = get_event_delta_x(e)
-    let delta_y = get_event_delta_y(e)
-    let client_x = get_event_client_x(e).to_double()
-    let client_y = get_event_client_y(e).to_double()
+      let delta_x = get_event_delta_x(e)
+      let delta_y = get_event_delta_y(e)
+      let client_x = get_event_client_x(e).to_double()
+      let client_y = get_event_client_y(e).to_double()
 
-    if state.use_ctrl_for_zoom {
-      let ctrl_pressed = event_ctrl_key(e) || event_meta_key(e)
-      if ctrl_pressed {
-        // Zoom at cursor
+      if state.use_ctrl_for_zoom {
+        let ctrl_pressed = event_ctrl_key(e) || event_meta_key(e)
+        if ctrl_pressed {
+          // Zoom at cursor
+          let factor = if delta_y > 0.0 { 0.9 } else { 1.1 }
+          zoom_at_point(state, factor, client_x, client_y)
+        } else {
+          // Pan
+          state.pan_x -= delta_x
+          state.pan_y -= delta_y
+          update_transform(state)
+        }
+      } else {
+        // Always zoom
         let factor = if delta_y > 0.0 { 0.9 } else { 1.1 }
         zoom_at_point(state, factor, client_x, client_y)
-      } else {
-        // Pan
-        state.pan_x -= delta_x
-        state.pan_y -= delta_y
-        update_transform(state)
       }
-    } else {
-      // Always zoom
-      let factor = if delta_y > 0.0 { 0.9 } else { 1.1 }
-      zoom_at_point(state, factor, client_x, client_y)
-    }
-  }, capture=false, passive=false)
+    },
+    capture=false,
+    passive=false,
+  )
   state.handles.push(h)
 }
 
-///| Setup touch pinch events
+///|
+/// Setup touch pinch events
 fn setup_touch_events(state : ZPVState) -> Unit {
   // Touch start for pinch detection
-  let h1 = on_with_handle(state.viewport, "touchstart", fn(e) {
-    let touches = get_touches(e)
-    if touches.length() == 2 {
-      prevent_default(e)
-      let t1 = touches[0]
-      let t2 = touches[1]
-      let dx = touch_get_client_x(t2) - touch_get_client_x(t1)
-      let dy = touch_get_client_y(t2) - touch_get_client_y(t1)
-      state.pinch_start_dist = math_sqrt(dx * dx + dy * dy)
-      state.pinch_center_x = (touch_get_client_x(t1) + touch_get_client_x(t2)) / 2.0
-      state.pinch_center_y = (touch_get_client_y(t1) + touch_get_client_y(t2)) / 2.0
-    }
-  }, capture=false, passive=false)
+  let h1 = on_with_handle(
+    state.viewport,
+    "touchstart",
+    fn(e) {
+      let touches = get_touches(e)
+      if touches.length() == 2 {
+        prevent_default(e)
+        let t1 = touches[0]
+        let t2 = touches[1]
+        let dx = touch_get_client_x(t2) - touch_get_client_x(t1)
+        let dy = touch_get_client_y(t2) - touch_get_client_y(t1)
+        state.pinch_start_dist = math_sqrt(dx * dx + dy * dy)
+        state.pinch_center_x = (touch_get_client_x(t1) + touch_get_client_x(t2)) /
+          2.0
+        state.pinch_center_y = (touch_get_client_y(t1) + touch_get_client_y(t2)) /
+          2.0
+      }
+    },
+    capture=false,
+    passive=false,
+  )
   state.handles.push(h1)
 
   // Touch move for pinch zoom
-  let h2 = on_with_handle(state.viewport, "touchmove", fn(e) {
-    let touches = get_touches(e)
-    if touches.length() == 2 {
-      prevent_default(e)
-      let t1 = touches[0]
-      let t2 = touches[1]
-      let dx = touch_get_client_x(t2) - touch_get_client_x(t1)
-      let dy = touch_get_client_y(t2) - touch_get_client_y(t1)
-      let current_dist = math_sqrt(dx * dx + dy * dy)
+  let h2 = on_with_handle(
+    state.viewport,
+    "touchmove",
+    fn(e) {
+      let touches = get_touches(e)
+      if touches.length() == 2 {
+        prevent_default(e)
+        let t1 = touches[0]
+        let t2 = touches[1]
+        let dx = touch_get_client_x(t2) - touch_get_client_x(t1)
+        let dy = touch_get_client_y(t2) - touch_get_client_y(t1)
+        let current_dist = math_sqrt(dx * dx + dy * dy)
 
-      if state.pinch_start_dist > 0.0 {
-        let scale = current_dist / state.pinch_start_dist
-        if math_abs(scale - 1.0) > 0.01 {
-          zoom_at_point(state, scale, state.pinch_center_x, state.pinch_center_y)
-          state.pinch_start_dist = current_dist
+        if state.pinch_start_dist > 0.0 {
+          let scale = current_dist / state.pinch_start_dist
+          if math_abs(scale - 1.0) > 0.01 {
+            zoom_at_point(
+              state,
+              scale,
+              state.pinch_center_x,
+              state.pinch_center_y,
+            )
+            state.pinch_start_dist = current_dist
+          }
         }
+
+        // Update pan based on center movement
+        let new_center_x = (touch_get_client_x(t1) + touch_get_client_x(t2)) /
+          2.0
+        let new_center_y = (touch_get_client_y(t1) + touch_get_client_y(t2)) /
+          2.0
+        state.pan_x += new_center_x - state.pinch_center_x
+        state.pan_y += new_center_y - state.pinch_center_y
+        state.pinch_center_x = new_center_x
+        state.pinch_center_y = new_center_y
+
+        update_transform(state)
       }
-
-      // Update pan based on center movement
-      let new_center_x = (touch_get_client_x(t1) + touch_get_client_x(t2)) / 2.0
-      let new_center_y = (touch_get_client_y(t1) + touch_get_client_y(t2)) / 2.0
-      state.pan_x += new_center_x - state.pinch_center_x
-      state.pan_y += new_center_y - state.pinch_center_y
-      state.pinch_center_x = new_center_x
-      state.pinch_center_y = new_center_y
-
-      update_transform(state)
-    }
-  }, capture=false, passive=false)
+    },
+    capture=false,
+    passive=false,
+  )
   state.handles.push(h2)
 
   // Touch end/cancel
@@ -232,7 +272,8 @@ fn setup_touch_events(state : ZPVState) -> Unit {
   state.handles.push(h4)
 }
 
-///| Setup double-click to reset
+///|
+/// Setup double-click to reset
 fn setup_double_click(state : ZPVState) -> Unit {
   let h = on_with_handle(state.viewport, "dblclick", fn(_) {
     fit_to_viewport(state)
@@ -240,7 +281,8 @@ fn setup_double_click(state : ZPVState) -> Unit {
   state.handles.push(h)
 }
 
-///| Update CSS transform on wrapper
+///|
+/// Update CSS transform on wrapper
 fn update_transform(state : ZPVState) -> Unit {
   let transform = "translate(\{state.pan_x}px, \{state.pan_y}px) scale(\{state.current_zoom})"
   set_style(state.wrapper, "transform", transform)
@@ -258,8 +300,14 @@ fn update_transform(state : ZPVState) -> Unit {
   }
 }
 
-///| Zoom at specific point
-fn zoom_at_point(state : ZPVState, factor : Double, client_x : Double, client_y : Double) -> Unit {
+///|
+/// Zoom at specific point
+fn zoom_at_point(
+  state : ZPVState,
+  factor : Double,
+  client_x : Double,
+  client_y : Double,
+) -> Unit {
   let old_zoom = state.current_zoom
   let new_zoom = clamp_double(old_zoom * factor, state.zoom_min, state.zoom_max)
 
@@ -279,7 +327,8 @@ fn zoom_at_point(state : ZPVState, factor : Double, client_x : Double, client_y 
   update_transform(state)
 }
 
-///| Zoom by factor at center
+///|
+/// Zoom by factor at center
 fn zoom_at_center(state : ZPVState, factor : Double) -> Unit {
   let rect = get_bounding_rect(state.viewport)
   let center_x = rect[0] + rect[2] / 2.0
@@ -287,12 +336,16 @@ fn zoom_at_center(state : ZPVState, factor : Double) -> Unit {
   zoom_at_point(state, factor, center_x, center_y)
 }
 
-///| Fit content to viewport
+///|
+/// Fit content to viewport
 fn fit_to_viewport_now(state : ZPVState) -> Bool {
   let rect = get_bounding_rect(state.viewport)
   let vp_w = rect[2]
   let vp_h = rect[3]
-  if vp_w <= 0.0 || vp_h <= 0.0 || state.natural_width <= 0.0 || state.natural_height <= 0.0 {
+  if vp_w <= 0.0 ||
+    vp_h <= 0.0 ||
+    state.natural_width <= 0.0 ||
+    state.natural_height <= 0.0 {
     return false
   }
 
@@ -311,15 +364,20 @@ fn fit_to_viewport_now(state : ZPVState) -> Bool {
   true
 }
 
-///| Fit content to viewport when layout is stable
-pub fn request_fit_to_viewport_when_ready(state : ZPVState, on_ready : () -> Unit) -> Unit {
+///|
+/// Fit content to viewport when layout is stable
+pub fn request_fit_to_viewport_when_ready(
+  state : ZPVState,
+  on_ready : () -> Unit,
+) -> Unit {
   request_fit_to_viewport_when_ready_impl(state, on_ready, 0)
 }
 
+///|
 fn request_fit_to_viewport_when_ready_impl(
   state : ZPVState,
   on_ready : () -> Unit,
-  attempt : Int
+  attempt : Int,
 ) -> Unit {
   if fit_to_viewport_now(state) {
     on_ready()
@@ -338,12 +396,14 @@ fn request_fit_to_viewport_when_ready_impl(
   )
 }
 
-///| Fit content to viewport
+///|
+/// Fit content to viewport
 pub fn fit_to_viewport(state : ZPVState) -> Unit {
   ignore(fit_to_viewport_now(state))
 }
 
-///| Fit content to viewport width (may overflow vertically)
+///|
+/// Fit content to viewport width (may overflow vertically)
 pub fn fit_to_width(state : ZPVState) -> Unit {
   let rect = get_bounding_rect(state.viewport)
   let vp_w = rect[2]
@@ -360,14 +420,16 @@ pub fn fit_to_width(state : ZPVState) -> Unit {
   update_transform(state)
 }
 
-///| Setup minimap indicators
+///|
+/// Setup minimap indicators
 fn setup_minimap(state : ZPVState) -> Unit {
   // Minimap is drawn via CSS/marker elements in the HTML
   // This function initializes the viewport indicator position
   update_minimap_viewport(state)
 }
 
-///| Update minimap viewport indicator position
+///|
+/// Update minimap viewport indicator position
 fn update_minimap_viewport(state : ZPVState) -> Unit {
   if is_null(state.minimap_viewport_el) || state.current_zoom <= 0.0 {
     return
@@ -377,11 +439,17 @@ fn update_minimap_viewport(state : ZPVState) -> Unit {
     return
   }
   let minimap = closest(state.minimap_viewport_el, ".minimap")
-  if is_null(minimap) { return }
+  if is_null(minimap) {
+    return
+  }
   let minimap_content = query_in(minimap, ".minimap-content")
-  if is_null(minimap_content) { return }
+  if is_null(minimap_content) {
+    return
+  }
   let minimap_subject = query_in(minimap_content, "svg, img")
-  if is_null(minimap_subject) { return }
+  if is_null(minimap_subject) {
+    return
+  }
 
   let minimap_rect = get_bounding_rect(minimap)
   let subject_rect = get_bounding_rect(minimap_subject)
@@ -391,8 +459,16 @@ fn update_minimap_viewport(state : ZPVState) -> Unit {
   let visible_h = vp_rect[3] / state.current_zoom
   let visible_left = clamp_double(world_x, 0.0, state.natural_width)
   let visible_top = clamp_double(world_y, 0.0, state.natural_height)
-  let visible_right = clamp_double(world_x + visible_w, 0.0, state.natural_width)
-  let visible_bottom = clamp_double(world_y + visible_h, 0.0, state.natural_height)
+  let visible_right = clamp_double(
+    world_x + visible_w,
+    0.0,
+    state.natural_width,
+  )
+  let visible_bottom = clamp_double(
+    world_y + visible_h,
+    0.0,
+    state.natural_height,
+  )
   let scale_x = subject_rect[2] / state.natural_width
   let scale_y = subject_rect[3] / state.natural_height
   let offset_x = subject_rect[0] - minimap_rect[0]
@@ -416,33 +492,39 @@ fn update_minimap_viewport(state : ZPVState) -> Unit {
   set_style(state.minimap_viewport_el, "top", "\{mm_y}px")
 }
 
-///| Destroy a ZoomPanViewer instance and clean up all listeners
+///|
+/// Destroy a ZoomPanViewer instance and clean up all listeners
 pub fn destroy_zoom_pan_viewer(state : ZPVState) -> Unit {
   // Remove all event listeners
   state.handles.each(fn(h) { unlisten(h) })
 }
 
-///| Zoom in by 25%
+///|
+/// Zoom in by 25%
 pub fn zoom_in(state : ZPVState) -> Unit {
   zoom_at_center(state, 1.25)
 }
 
-///| Zoom out by 20%
+///|
+/// Zoom out by 20%
 pub fn zoom_out(state : ZPVState) -> Unit {
   zoom_at_center(state, 0.8)
 }
 
-///| Get current zoom level
+///|
+/// Get current zoom level
 pub fn get_zoom(state : ZPVState) -> Double {
   state.current_zoom
 }
 
-///| Reset to fit viewport
+///|
+/// Reset to fit viewport
 pub fn reset_view(state : ZPVState) -> Unit {
   fit_to_viewport(state)
 }
 
-///| Configuration struct for creating viewer (kept for API compatibility)
+///|
+/// Configuration struct for creating viewer (kept for API compatibility)
 pub(all) struct ZoomPanConfig {
   viewport : Element
   wrapper : Element
@@ -459,7 +541,8 @@ pub(all) struct ZoomPanConfig {
   use_ctrl_for_zoom : Bool
 }
 
-///| Create viewer from config (convenience function)
+///|
+/// Create viewer from config (convenience function)
 pub fn new_zoom_pan_viewer(config : ZoomPanConfig) -> ZPVState {
   create_zoom_pan_viewer_moonbit(
     config.viewport,
@@ -478,14 +561,25 @@ pub fn new_zoom_pan_viewer(config : ZoomPanConfig) -> ZPVState {
   )
 }
 
+///|
 fn min_double(a : Double, b : Double) -> Double {
-  if a < b { a } else { b }
+  if a < b {
+    a
+  } else {
+    b
+  }
 }
 
+///|
 fn max_double(a : Double, b : Double) -> Double {
-  if a > b { a } else { b }
+  if a > b {
+    a
+  } else {
+    b
+  }
 }
 
+///|
 fn clamp_double(value : Double, min_ : Double, max_ : Double) -> Double {
   if value < min_ {
     min_

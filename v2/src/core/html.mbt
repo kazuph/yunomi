@@ -1,4 +1,5 @@
-///| HTML entity escaping
+///|
+/// HTML entity escaping
 pub fn escape_html(s : String) -> String {
   let buf = StringBuilder::new()
   let chars = s.to_array()
@@ -15,7 +16,8 @@ pub fn escape_html(s : String) -> String {
   buf.to_string()
 }
 
-///| Escape string for embedding in JavaScript (also prevents script injection)
+///|
+/// Escape string for embedding in JavaScript (also prevents script injection)
 pub fn escape_js_string(s : String) -> String {
   let buf = StringBuilder::new()
   let chars = s.to_array()
@@ -33,7 +35,8 @@ pub fn escape_js_string(s : String) -> String {
   buf.to_string()
 }
 
-///| Serialize CsvData as JSON for DATA variable injection
+///|
+/// Serialize CsvData as JSON for DATA variable injection
 fn serialize_csv_data_json(data : CsvData) -> String {
   let buf = StringBuilder::new()
   buf.write_string("{\"headers\":[")
@@ -65,7 +68,8 @@ fn serialize_csv_data_json(data : CsvData) -> String {
   buf.to_string()
 }
 
-///| Serialize source lines as JSON array of single-element arrays (cli.cjs DATA format)
+///|
+/// Serialize source lines as JSON array of single-element arrays (cli.cjs DATA format)
 pub fn serialize_source_lines_json(lines : Array[String]) -> String {
   let buf = StringBuilder::new()
   buf.write_char('[')
@@ -81,7 +85,8 @@ pub fn serialize_source_lines_json(lines : Array[String]) -> String {
   buf.to_string()
 }
 
-///| Minimal monochrome icons for header action buttons (lucide-style outlines)
+///|
+/// Minimal monochrome icons for header action buttons (lucide-style outlines)
 pub let icon_svg_media : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><circle cx=\"9\" cy=\"9\" r=\"2\"/><path d=\"m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21\"/></svg>"
 
 ///|
@@ -96,23 +101,36 @@ pub let icon_svg_moon : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 
 ///|
 pub let icon_svg_sun : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/></svg>"
 
+///|
 fn build_page_start(
   buf : StringBuilder,
   filename : String,
-  file_path~ : String = "",
-  tab_title~ : String = ""
+  file_path? : String = "",
+  tab_title? : String = "",
 ) -> Unit {
-  buf.write_string("<!DOCTYPE html><html lang=\"en\" data-theme=\"light\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
-  buf.write_string("<meta http-equiv=\"Cache-Control\" content=\"no-store, no-cache, must-revalidate\">")
+  buf.write_string(
+    "<!DOCTYPE html><html lang=\"en\" data-theme=\"light\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
+  )
+  buf.write_string(
+    "<meta http-equiv=\"Cache-Control\" content=\"no-store, no-cache, must-revalidate\">",
+  )
   buf.write_string("<meta http-equiv=\"Pragma\" content=\"no-cache\">")
   buf.write_string("<meta http-equiv=\"Expires\" content=\"0\">")
   buf.write_string("<title>")
-  buf.write_string(escape_html(if tab_title.length() > 0 { tab_title } else { filename }))
+  buf.write_string(
+    escape_html(if tab_title.length() > 0 { tab_title } else { filename }),
+  )
   buf.write_string(" | yunomi</title>")
   // highlight.js CDN stylesheets (dark/light theme support)
-  buf.write_string("<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css\" id=\"hljs-theme-dark\" disabled>")
-  buf.write_string("<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css\" id=\"hljs-theme-light\">")
-  buf.write_string("<script src=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js\"></script>")
+  buf.write_string(
+    "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github-dark.min.css\" id=\"hljs-theme-dark\" disabled>",
+  )
+  buf.write_string(
+    "<link rel=\"stylesheet\" href=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/styles/github.min.css\" id=\"hljs-theme-light\">",
+  )
+  buf.write_string(
+    "<script src=\"https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11/build/highlight.min.js\"></script>",
+  )
   buf.write_string("<style>")
   buf.write_string(build_css())
   buf.write_string("</style></head><body>")
@@ -131,7 +149,7 @@ fn build_page_start(
       last_slash
     }
     if dir_end >= 0 {
-      let dir_path = file_path[0:dir_end + 1].to_string()
+      let dir_path = file_path[0:dir_end + 1].to_owned()
       buf.write_string("<span class=\"title-path\">")
       buf.write_string(escape_html(dir_path))
       buf.write_string("</span>")
@@ -141,111 +159,194 @@ fn build_page_start(
   buf.write_string(escape_html(filename))
   buf.write_string("</span></h1>")
   buf.write_string("</div><div class=\"actions\">")
-  buf.write_string("<span class=\"sse-dot sse-dot-connected\" id=\"sse-status\" role=\"status\" aria-live=\"polite\" title=\"Connected\"></span>")
-  buf.write_string("<button class=\"pill\" id=\"pill-comments\" title=\"Click anywhere to comment / ESC to cancel\">Comments <strong id=\"comment-count\">0</strong></button>")
-  buf.write_string("<button class=\"media-sidebar-toggle\" id=\"media-sidebar-toggle\" title=\"Show / hide media thumbnail list\" aria-label=\"Toggle media gallery\">")
+  buf.write_string(
+    "<span class=\"sse-dot sse-dot-connected\" id=\"sse-status\" role=\"status\" aria-live=\"polite\" title=\"Connected\"></span>",
+  )
+  buf.write_string(
+    "<button class=\"pill\" id=\"pill-comments\" title=\"Click anywhere to comment / ESC to cancel\">Comments <strong id=\"comment-count\">0</strong></button>",
+  )
+  buf.write_string(
+    "<button class=\"media-sidebar-toggle\" id=\"media-sidebar-toggle\" title=\"Show / hide media thumbnail list\" aria-label=\"Toggle media gallery\">",
+  )
   buf.write_string(icon_svg_media)
-  buf.write_string("<span class=\"toggle-count\" id=\"media-toggle-count\"></span></button>")
-  buf.write_string("<button class=\"view-toggle\" id=\"view-toggle\" title=\"Hide source panel\" aria-label=\"Toggle source panel\">")
+  buf.write_string(
+    "<span class=\"toggle-count\" id=\"media-toggle-count\"></span></button>",
+  )
+  buf.write_string(
+    "<button class=\"view-toggle\" id=\"view-toggle\" title=\"Hide source panel\" aria-label=\"Toggle source panel\">",
+  )
   buf.write_string(icon_svg_code)
   buf.write_string("</button>")
-  buf.write_string("<button class=\"history-toggle\" id=\"history-toggle\" title=\"Show review history\" aria-label=\"Review history\">")
+  buf.write_string(
+    "<button class=\"history-toggle\" id=\"history-toggle\" title=\"Show review history\" aria-label=\"Review history\">",
+  )
   buf.write_string(icon_svg_clock)
   buf.write_string("</button>")
-  buf.write_string("<button class=\"theme-toggle\" id=\"theme-toggle\" title=\"Switch to dark theme\" aria-label=\"Toggle theme\"><span id=\"theme-icon\">")
+  buf.write_string(
+    "<button class=\"theme-toggle\" id=\"theme-toggle\" title=\"Switch to dark theme\" aria-label=\"Toggle theme\"><span id=\"theme-icon\">",
+  )
   buf.write_string(icon_svg_moon)
   buf.write_string("</span></button>")
-  buf.write_string("<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>")
+  buf.write_string(
+    "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>",
+  )
   buf.write_string("</div></header>")
 }
 
+///|
 fn build_comment_card(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"floating\" id=\"comment-card\">")
-  buf.write_string("<button class=\"card-close-x\" id=\"close-card\" title=\"Close\">&times;</button>")
+  buf.write_string(
+    "<button class=\"card-close-x\" id=\"close-card\" title=\"Close\">&times;</button>",
+  )
   buf.write_string("<header><h2 id=\"card-title\">Cell Comment</h2></header>")
-  buf.write_string("<div id=\"cell-preview\" style=\"font-size:12px; color: var(--muted); margin-bottom:4px;\"></div>")
+  buf.write_string(
+    "<div id=\"cell-preview\" style=\"font-size:12px; color: var(--muted); margin-bottom:4px;\"></div>",
+  )
   buf.write_string("<div style=\"position:relative\">")
-  buf.write_string("<button class=\"icon-only copy-btn-float\" id=\"copy-selection\" title=\"Copy selected lines\">&#128203;</button>")
-  buf.write_string("<textarea id=\"comment-input\" placeholder=\"Enter your comment or note\"></textarea>")
+  buf.write_string(
+    "<button class=\"icon-only copy-btn-float\" id=\"copy-selection\" title=\"Copy selected lines\">&#128203;</button>",
+  )
+  buf.write_string(
+    "<textarea id=\"comment-input\" placeholder=\"Enter your comment or note\"></textarea>",
+  )
   buf.write_string("</div>")
-  buf.write_string("<div class=\"image-attach-area image-attach-small\" id=\"comment-image-area\">")
+  buf.write_string(
+    "<div class=\"image-attach-area image-attach-small\" id=\"comment-image-area\">",
+  )
   buf.write_string("<label>Image (Paste, max 1)</label>")
-  buf.write_string("<div class=\"image-preview-list\" id=\"comment-image-preview\"></div>")
+  buf.write_string(
+    "<div class=\"image-preview-list\" id=\"comment-image-preview\"></div>",
+  )
   buf.write_string("</div>")
   buf.write_string("<div class=\"actions card-actions-split\">")
-  buf.write_string("<button class=\"danger-text\" id=\"clear-comment\">Delete</button>")
-  buf.write_string("<button class=\"primary\" id=\"save-comment\">Save</button>")
+  buf.write_string(
+    "<button class=\"danger-text\" id=\"clear-comment\">Delete</button>",
+  )
+  buf.write_string(
+    "<button class=\"primary\" id=\"save-comment\">Save</button>",
+  )
   buf.write_string("</div>")
   buf.write_string("</div>")
 }
 
+///|
 fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"submit-modal\">")
   buf.write_string("<div class=\"modal-dialog\">")
   buf.write_string("<h3>Submit Review</h3>")
   buf.write_string("<p class=\"modal-summary\" id=\"modal-summary\"></p>")
-  buf.write_string("<label for=\"global-comment\">Overall comment (optional)</label>")
-  buf.write_string("<textarea id=\"global-comment\" placeholder=\"Add a summary or overall feedback...\"></textarea>")
-  buf.write_string("<div class=\"mermaid-error-area\" id=\"mermaid-error-area\" style=\"display:none;\">")
-  buf.write_string("<div style=\"background:var(--danger-bg, #fff3f3);border:1px solid var(--danger-border, #e88);border-radius:6px;padding:8px 12px;margin-bottom:12px;\">")
-  buf.write_string("<strong style=\"color:var(--danger-text, #c33);\">Mermaid Errors</strong>")
-  buf.write_string("<ul id=\"mermaid-error-list\" style=\"margin:4px 0 0 16px;padding:0;font-size:12px;color:var(--danger-text, #c33);\"></ul>")
+  buf.write_string(
+    "<label for=\"global-comment\">Overall comment (optional)</label>",
+  )
+  buf.write_string(
+    "<textarea id=\"global-comment\" placeholder=\"Add a summary or overall feedback...\"></textarea>",
+  )
+  buf.write_string(
+    "<div class=\"mermaid-error-area\" id=\"mermaid-error-area\" style=\"display:none;\">",
+  )
+  buf.write_string(
+    "<div style=\"background:var(--danger-bg, #fff3f3);border:1px solid var(--danger-border, #e88);border-radius:6px;padding:8px 12px;margin-bottom:12px;\">",
+  )
+  buf.write_string(
+    "<strong style=\"color:var(--danger-text, #c33);\">Mermaid Errors</strong>",
+  )
+  buf.write_string(
+    "<ul id=\"mermaid-error-list\" style=\"margin:4px 0 0 16px;padding:0;font-size:12px;color:var(--danger-text, #c33);\"></ul>",
+  )
   buf.write_string("</div></div>")
   buf.write_string("<div class=\"image-attach-area\" id=\"submit-image-area\">")
-  buf.write_string("<label id=\"submit-image-label\">Attach images (Paste, 0/10)</label>")
-  buf.write_string("<div class=\"image-preview-list\" id=\"submit-image-preview\"></div>")
+  buf.write_string(
+    "<label id=\"submit-image-label\">Attach images (Paste, 0/10)</label>",
+  )
+  buf.write_string(
+    "<div class=\"image-preview-list\" id=\"submit-image-preview\"></div>",
+  )
   buf.write_string("</div>")
   buf.write_string("<div class=\"modal-actions modal-actions-decision\">")
-  buf.write_string("<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">\u{2705} Approve</button>")
+  buf.write_string(
+    "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">\u{2705} Approve</button>",
+  )
   buf.write_string("<button id=\"modal-cancel\">Cancel</button>")
-  buf.write_string("<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">\u{1F504} Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>")
+  buf.write_string(
+    "<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">\u{1F504} Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>",
+  )
   buf.write_string("</div></div></div>")
 }
 
+///|
 fn build_comment_list_aside(buf : StringBuilder) -> Unit {
   buf.write_string("<aside class=\"comment-list collapsed\">")
   buf.write_string("<h3>Comments</h3>")
   buf.write_string("<ol id=\"comment-list\"></ol>")
-  buf.write_string("<p class=\"hint\">Click \"Submit &amp; Exit\" to send comments and stop the server.</p>")
+  buf.write_string(
+    "<p class=\"hint\">Click \"Submit &amp; Exit\" to send comments and stop the server.</p>",
+  )
   buf.write_string("</aside>")
 }
 
+///|
 fn build_history_panel(buf : StringBuilder) -> Unit {
   buf.write_string("<aside class=\"history-panel\" id=\"history-panel\">")
   buf.write_string("<div class=\"history-panel-header\">")
   buf.write_string("<h3>Review History</h3>")
-  buf.write_string("<button class=\"history-panel-close\" id=\"history-panel-close\">&#10005;</button>")
+  buf.write_string(
+    "<button class=\"history-panel-close\" id=\"history-panel-close\">&#10005;</button>",
+  )
   buf.write_string("</div>")
-  buf.write_string("<div class=\"history-panel-body\" id=\"history-panel-body\">")
+  buf.write_string(
+    "<div class=\"history-panel-body\" id=\"history-panel-body\">",
+  )
   buf.write_string("<div class=\"history-empty\">No review history yet.</div>")
   buf.write_string("</div></aside>")
 }
 
+///|
 fn build_recovery_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"recovery-modal\">")
-  buf.write_string("<div class=\"modal-dialog\"><h3>Restore Previous Comments?</h3>")
-  buf.write_string("<p class=\"modal-summary\" id=\"recovery-summary\">Found saved comments from a previous session.</p>")
+  buf.write_string(
+    "<div class=\"modal-dialog\"><h3>Restore Previous Comments?</h3>",
+  )
+  buf.write_string(
+    "<p class=\"modal-summary\" id=\"recovery-summary\">Found saved comments from a previous session.</p>",
+  )
   buf.write_string("<div class=\"modal-actions\">")
   buf.write_string("<button id=\"recovery-discard\">Discard</button>")
-  buf.write_string("<button class=\"primary\" id=\"recovery-restore\">Restore</button>")
+  buf.write_string(
+    "<button class=\"primary\" id=\"recovery-restore\">Restore</button>",
+  )
   buf.write_string("</div></div></div>")
 }
 
-///| Build questions modal HTML (cli.cjs compatible overlay structure)
-fn build_questions_modal(buf : StringBuilder, questions : Array[YunomiQuestion]) -> Unit {
+///|
+/// Build questions modal HTML (cli.cjs compatible overlay structure)
+fn build_questions_modal(
+  buf : StringBuilder,
+  questions : Array[YunomiQuestion],
+) -> Unit {
   if questions.length() == 0 {
     return
   }
   // Overlay
-  buf.write_string("<div class=\"yunomi-questions-overlay\" id=\"yunomi-questions-overlay\">")
-  buf.write_string("<div class=\"yunomi-questions-modal\" id=\"yunomi-questions-modal\">")
-  buf.write_string("<div class=\"yunomi-questions-header\"><h2>\u{1F4CB} AI\u{304B}\u{3089}\u{306E}\u{8CEA}\u{554F} <span id=\"yunomi-questions-count\"></span></h2>")
-  buf.write_string("<button class=\"btn\" id=\"yunomi-questions-close\">\u{2715}</button></div>")
-  buf.write_string("<div class=\"yunomi-questions-body\" id=\"yunomi-questions-body\">")
+  buf.write_string(
+    "<div class=\"yunomi-questions-overlay\" id=\"yunomi-questions-overlay\">",
+  )
+  buf.write_string(
+    "<div class=\"yunomi-questions-modal\" id=\"yunomi-questions-modal\">",
+  )
+  buf.write_string(
+    "<div class=\"yunomi-questions-header\"><h2>\u{1F4CB} AI\u{304B}\u{3089}\u{306E}\u{8CEA}\u{554F} <span id=\"yunomi-questions-count\"></span></h2>",
+  )
+  buf.write_string(
+    "<button class=\"btn\" id=\"yunomi-questions-close\">\u{2715}</button></div>",
+  )
+  buf.write_string(
+    "<div class=\"yunomi-questions-body\" id=\"yunomi-questions-body\">",
+  )
   // Unresolved questions
   let mut unresolved_count = 0
   for q in questions {
-    if !(q.resolved) {
+    if !q.resolved {
       unresolved_count = unresolved_count + 1
     }
   }
@@ -257,7 +358,15 @@ fn build_questions_modal(buf : StringBuilder, questions : Array[YunomiQuestion])
     buf.write_string(escape_html(q.id))
     buf.write_string("\">")
     buf.write_string("<div class=\"q-header\">\u{23F3} <strong>")
-    buf.write_string(escape_html(if q.id.length() > 0 { q.id } else { "Q" + (i + 1).to_string() }))
+    buf.write_string(
+      escape_html(
+        if q.id.length() > 0 {
+          q.id
+        } else {
+          "Q" + (i + 1).to_string()
+        },
+      ),
+    )
     buf.write_string("</strong> <span class=\"q-check\" id=\"q-check-")
     buf.write_string(i.to_string())
     buf.write_string("\"></span></div>")
@@ -281,7 +390,9 @@ fn build_questions_modal(buf : StringBuilder, questions : Array[YunomiQuestion])
     }
     buf.write_string("<textarea class=\"q-answer\" data-qi=\"")
     buf.write_string(i.to_string())
-    buf.write_string("\" placeholder=\"\u{56DE}\u{7B54}\u{3092}\u{5165}\u{529B}...\" style=\"width:100%;min-height:60px;margin-top:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px\">")
+    buf.write_string(
+      "\" placeholder=\"\u{56DE}\u{7B54}\u{3092}\u{5165}\u{529B}...\" style=\"width:100%;min-height:60px;margin-top:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px\">",
+    )
     buf.write_string(escape_html(q.answer))
     buf.write_string("</textarea>")
     buf.write_string("</div>")
@@ -290,15 +401,27 @@ fn build_questions_modal(buf : StringBuilder, questions : Array[YunomiQuestion])
   let resolved_count = questions.length() - unresolved_count
   if resolved_count > 0 {
     buf.write_string("<div class=\"yunomi-resolved-section\">")
-    buf.write_string("<button class=\"yunomi-resolved-toggle\">\u{2705} \u{89E3}\u{6C7A}\u{6E08}\u{307F} (")
+    buf.write_string(
+      "<button class=\"yunomi-resolved-toggle\">\u{2705} \u{89E3}\u{6C7A}\u{6E08}\u{307F} (",
+    )
     buf.write_string(resolved_count.to_string())
     buf.write_string(")</button><div class=\"yunomi-resolved-list\">")
     for i, q in questions {
-      if !(q.resolved) {
+      if !q.resolved {
         continue
       }
-      buf.write_string("<div class=\"question-card resolved\"><div class=\"q-header\">\u{2705} <strong>")
-      buf.write_string(escape_html(if q.id.length() > 0 { q.id } else { "Q" + (i + 1).to_string() }))
+      buf.write_string(
+        "<div class=\"question-card resolved\"><div class=\"q-header\">\u{2705} <strong>",
+      )
+      buf.write_string(
+        escape_html(
+          if q.id.length() > 0 {
+            q.id
+          } else {
+            "Q" + (i + 1).to_string()
+          },
+        ),
+      )
       buf.write_string("</strong></div><div class=\"q-body\">")
       buf.write_string(escape_html(q.question))
       buf.write_string("</div>")
@@ -313,35 +436,50 @@ fn build_questions_modal(buf : StringBuilder, questions : Array[YunomiQuestion])
   }
   buf.write_string("</div>")
   buf.write_string("<div class=\"yunomi-questions-footer\">")
-  buf.write_string("<button class=\"btn\" id=\"yunomi-questions-later\">\u{5F8C}\u{3067}\u{56DE}\u{7B54}\u{3059}\u{308B}</button>")
+  buf.write_string(
+    "<button class=\"btn\" id=\"yunomi-questions-later\">\u{5F8C}\u{3067}\u{56DE}\u{7B54}\u{3059}\u{308B}</button>",
+  )
   buf.write_string("</div></div></div>")
   // Questions bar (shown after closing modal with unanswered questions)
-  buf.write_string("<div class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar\">")
-  buf.write_string("<span id=\"yunomi-questions-bar-message\">\u{1F5C2}\u{FE0F} \u{672A}\u{56DE}\u{7B54}\u{306E}\u{8CEA}\u{554F}\u{304C}<span id=\"yunomi-questions-bar-count\">")
+  buf.write_string(
+    "<div class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar\">",
+  )
+  buf.write_string(
+    "<span id=\"yunomi-questions-bar-message\">\u{1F5C2}\u{FE0F} \u{672A}\u{56DE}\u{7B54}\u{306E}\u{8CEA}\u{554F}\u{304C}<span id=\"yunomi-questions-bar-count\">",
+  )
   buf.write_string(unresolved_count.to_string())
   buf.write_string("</span>\u{4EF6}\u{3042}\u{308A}\u{307E}\u{3059}</span>")
-  buf.write_string("<button class=\"btn\" id=\"yunomi-questions-bar-open\">\u{8CEA}\u{554F}\u{3092}\u{898B}\u{308B}</button>")
+  buf.write_string(
+    "<button class=\"btn\" id=\"yunomi-questions-bar-open\">\u{8CEA}\u{554F}\u{3092}\u{898B}\u{308B}</button>",
+  )
   buf.write_string("</div>")
 }
 
-///| Build questions notice bar (legacy, now integrated into questions modal)
-fn build_questions_notice(buf : StringBuilder, questions : Array[YunomiQuestion]) -> Unit {
+///|
+/// Build questions notice bar (legacy, now integrated into questions modal)
+fn build_questions_notice(
+  buf : StringBuilder,
+  questions : Array[YunomiQuestion],
+) -> Unit {
   if questions.length() == 0 {
     return
   }
   // Notice is now handled by the questions bar, but keep for backward compatibility
   let mut pending = 0
   for q in questions {
-    if !(q.resolved) {
+    if !q.resolved {
       pending = pending + 1
     }
   }
   if pending > 0 {
-    buf.write_string("<div id=\"questions-notice\" style=\"display:none\"></div>")
+    buf.write_string(
+      "<div id=\"questions-notice\" style=\"display:none\"></div>",
+    )
   }
 }
 
-///| Serialize questions array to JSON
+///|
+/// Serialize questions array to JSON
 fn serialize_questions_json(questions : Array[YunomiQuestion]) -> String {
   let buf = StringBuilder::new()
   buf.write_char('[')
@@ -370,7 +508,8 @@ fn serialize_questions_json(questions : Array[YunomiQuestion]) -> String {
   buf.to_string()
 }
 
-///| JSON-encode a string value with quotes
+///|
+/// JSON-encode a string value with quotes
 fn json_quote(s : String) -> String {
   let buf = StringBuilder::new()
   buf.write_char('"')
@@ -379,15 +518,18 @@ fn json_quote(s : String) -> String {
   buf.to_string()
 }
 
+///|
 fn build_script_footer(
   buf : StringBuilder,
   port : Int,
   mode : String,
-  filename : String
+  filename : String,
 ) -> Unit {
   // Mermaid CDN for markdown mode
   if mode == "markdown" {
-    buf.write_string("<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script>")
+    buf.write_string(
+      "<script src=\"https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js\"></script>",
+    )
     buf.write_string("<script>")
     buf.write_string("window.__mermaidErrors=[];")
     buf.write_string("window.__collectMermaidErrors=async function(){")
@@ -398,30 +540,54 @@ fn build_script_footer(
     buf.write_string("var noSvg=!d.querySelector('svg');")
     buf.write_string("var errSvg=!!d.querySelector('.error-icon');")
     buf.write_string("if(noSvg||errSvg){")
-    buf.write_string("var line=parseInt(d.getAttribute('data-source-line'))||0;")
+    buf.write_string(
+      "var line=parseInt(d.getAttribute('data-source-line'))||0;",
+    )
     buf.write_string("var src=d.getAttribute('data-source')||'';")
     buf.write_string("var msg='Mermaid render failed';")
-    buf.write_string("try{await mermaid.parse(src);}catch(e){msg=e.message||String(e);}")
-    buf.write_string("console.error('[yunomi] Mermaid error at line '+line+':',msg);")
-    buf.write_string("window.__mermaidErrors.push({line:line,message:msg,source:src});")
+    buf.write_string(
+      "try{await mermaid.parse(src);}catch(e){msg=e.message||String(e);}",
+    )
+    buf.write_string(
+      "console.error('[yunomi] Mermaid error at line '+line+':',msg);",
+    )
+    buf.write_string(
+      "window.__mermaidErrors.push({line:line,message:msg,source:src});",
+    )
     buf.write_string("var container=d.closest('.mermaid-container');")
-    buf.write_string("if(container&&!container.querySelector('.mermaid-error-banner')){")
+    buf.write_string(
+      "if(container&&!container.querySelector('.mermaid-error-banner')){",
+    )
     buf.write_string("var banner=document.createElement('div');")
     buf.write_string("banner.className='mermaid-error-banner';")
-    buf.write_string("banner.textContent='\\u26A0 Mermaid error (line '+line+'): '+msg;")
+    buf.write_string(
+      "banner.textContent='\\u26A0 Mermaid error (line '+line+'): '+msg;",
+    )
     buf.write_string("container.prepend(banner);")
     buf.write_string("}")
     buf.write_string("}")
     buf.write_string("}")
     buf.write_string("};")
-    buf.write_string("mermaid.initialize({startOnLoad:false,logLevel:0,theme:document.documentElement.getAttribute('data-theme')==='light'?'default':'dark',securityLevel:'loose'});")
-    buf.write_string("mermaid.run().then(function(){return window.__collectMermaidErrors();}).catch(function(e){console.error('[yunomi] Mermaid render error:',e);return window.__collectMermaidErrors();});")
+    buf.write_string(
+      "mermaid.initialize({startOnLoad:false,logLevel:0,theme:document.documentElement.getAttribute('data-theme')==='light'?'default':'dark',securityLevel:'loose'});",
+    )
+    buf.write_string(
+      "mermaid.run().then(function(){return window.__collectMermaidErrors();}).catch(function(e){console.error('[yunomi] Mermaid render error:',e);return window.__collectMermaidErrors();});",
+    )
     buf.write_string("window.__reRenderMermaid=function(theme){")
-    buf.write_string("document.querySelectorAll('.mermaid-error-banner').forEach(function(b){b.remove();});")
-    buf.write_string("mermaid.initialize({startOnLoad:false,logLevel:0,theme:theme!=='light'?'dark':'default',securityLevel:'loose'});")
+    buf.write_string(
+      "document.querySelectorAll('.mermaid-error-banner').forEach(function(b){b.remove();});",
+    )
+    buf.write_string(
+      "mermaid.initialize({startOnLoad:false,logLevel:0,theme:theme!=='light'?'dark':'default',securityLevel:'loose'});",
+    )
     buf.write_string("var divs=document.querySelectorAll('.mermaid');")
-    buf.write_string("divs.forEach(function(d){d.removeAttribute('data-processed');d.innerHTML=d.getAttribute('data-source');});")
-    buf.write_string("if(divs.length>0)mermaid.run({nodes:Array.from(divs)}).then(function(){return window.__collectMermaidErrors();}).catch(function(e){console.error('[yunomi] Mermaid render error:',e);return window.__collectMermaidErrors();});")
+    buf.write_string(
+      "divs.forEach(function(d){d.removeAttribute('data-processed');d.innerHTML=d.getAttribute('data-source');});",
+    )
+    buf.write_string(
+      "if(divs.length>0)mermaid.run({nodes:Array.from(divs)}).then(function(){return window.__collectMermaidErrors();}).catch(function(e){console.error('[yunomi] Mermaid render error:',e);return window.__collectMermaidErrors();});",
+    )
     buf.write_string("};")
     // Mermaid fullscreen is handled by ui.js (ZoomPanViewer-based)
     buf.write_string("</script>")
@@ -431,8 +597,12 @@ fn build_script_footer(
     buf.write_string("<script>")
     buf.write_string("if(typeof hljs!=='undefined'){")
     buf.write_string("var preview=document.querySelector('.md-preview');")
-    buf.write_string("if(preview){preview.querySelectorAll('pre code').forEach(function(block){")
-    buf.write_string("if(block.closest('.mermaid-container')||block.classList.contains('hljs'))return;")
+    buf.write_string(
+      "if(preview){preview.querySelectorAll('pre code').forEach(function(block){",
+    )
+    buf.write_string(
+      "if(block.closest('.mermaid-container')||block.classList.contains('hljs'))return;",
+    )
     buf.write_string("hljs.highlightElement(block);")
     buf.write_string("});}")
     buf.write_string("}")
@@ -448,12 +618,13 @@ fn build_script_footer(
   buf.write_string("\";</script></body></html>")
 }
 
-///| Build complete HTML page for CSV viewer (cli.cjs compatible selectors)
+///|
+/// Build complete HTML page for CSV viewer (cli.cjs compatible selectors)
 pub fn build_csv_html(
   data : CsvData,
   filename : String,
   port : Int,
-  tab_title~ : String = ""
+  tab_title? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -505,12 +676,13 @@ pub fn build_csv_html(
   buf.to_string()
 }
 
-///| Build HTML page for diff viewer
+///|
+/// Build HTML page for diff viewer
 pub fn build_diff_html(
   data : DiffData,
   filename : String,
   port : Int,
-  tab_title~ : String = ""
+  tab_title? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -531,7 +703,7 @@ pub fn build_diff_html(
       buf.write_string(" <span class=\"diff-label binary\">binary</span>")
     }
     buf.write_string("</div>")
-    if !(file.is_binary) {
+    if !file.is_binary {
       for hunk in file.hunks {
         buf.write_string("<div class=\"diff-hunk-header\">@@ -")
         buf.write_string(hunk.old_start.to_string())
@@ -550,42 +722,44 @@ pub fn build_diff_html(
         let mut old_line = hunk.old_start
         let mut new_line = hunk.new_start
         for line in hunk.lines {
-        let css_class = match line.kind {
-          Addition => "diff-line addition"
-          Deletion => "diff-line deletion"
-          Context => "diff-line"
-        }
-        buf.write_string("<div class=\"")
-        buf.write_string(css_class)
-        buf.write_string("\" data-file=\"")
-        buf.write_string(escape_html(display_path))
-        buf.write_string("\">")
-        match line.kind {
-          Deletion => {
-            buf.write_string("<span class=\"line-num\">")
-            buf.write_string(old_line.to_string())
-            buf.write_string("</span><span class=\"line-num\"></span>")
-            old_line = old_line + 1
+          let css_class = match line.kind {
+            Addition => "diff-line addition"
+            Deletion => "diff-line deletion"
+            Context => "diff-line"
           }
-          Addition => {
-            buf.write_string("<span class=\"line-num\"></span><span class=\"line-num\">")
-            buf.write_string(new_line.to_string())
-            buf.write_string("</span>")
-            new_line = new_line + 1
+          buf.write_string("<div class=\"")
+          buf.write_string(css_class)
+          buf.write_string("\" data-file=\"")
+          buf.write_string(escape_html(display_path))
+          buf.write_string("\">")
+          match line.kind {
+            Deletion => {
+              buf.write_string("<span class=\"line-num\">")
+              buf.write_string(old_line.to_string())
+              buf.write_string("</span><span class=\"line-num\"></span>")
+              old_line = old_line + 1
+            }
+            Addition => {
+              buf.write_string(
+                "<span class=\"line-num\"></span><span class=\"line-num\">",
+              )
+              buf.write_string(new_line.to_string())
+              buf.write_string("</span>")
+              new_line = new_line + 1
+            }
+            Context => {
+              buf.write_string("<span class=\"line-num\">")
+              buf.write_string(old_line.to_string())
+              buf.write_string("</span><span class=\"line-num\">")
+              buf.write_string(new_line.to_string())
+              buf.write_string("</span>")
+              old_line = old_line + 1
+              new_line = new_line + 1
+            }
           }
-          Context => {
-            buf.write_string("<span class=\"line-num\">")
-            buf.write_string(old_line.to_string())
-            buf.write_string("</span><span class=\"line-num\">")
-            buf.write_string(new_line.to_string())
-            buf.write_string("</span>")
-            old_line = old_line + 1
-            new_line = new_line + 1
-          }
-        }
-        buf.write_string("<span class=\"line-content\">")
-        buf.write_string(escape_html(line.content))
-        buf.write_string("</span></div>")
+          buf.write_string("<span class=\"line-content\">")
+          buf.write_string(escape_html(line.content))
+          buf.write_string("</span></div>")
         }
       }
     }
@@ -599,12 +773,13 @@ pub fn build_diff_html(
   buf.to_string()
 }
 
-///| Build HTML page for text viewer
+///|
+/// Build HTML page for text viewer
 pub fn build_text_html(
   lines : Array[String],
   filename : String,
   port : Int,
-  tab_title~ : String = ""
+  tab_title? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)

@@ -1,6 +1,9 @@
 ///| Parse CSV/TSV content (RFC4180 compliant)
+
 ///| Returns flat 2D array: first row is headers, rest are data rows
-///| Empty input returns empty array
+
+///|
+/// Empty input returns empty array
 pub fn parse_csv(input : String, delimiter : Char) -> Array[Array[String]] {
   if input.is_empty() {
     return []
@@ -75,7 +78,8 @@ pub fn parse_csv(input : String, delimiter : Char) -> Array[Array[String]] {
   rows
 }
 
-///| Convert flat 2D CSV array to CsvData (headers + rows)
+///|
+/// Convert flat 2D CSV array to CsvData (headers + rows)
 pub fn csv_data_from_flat(flat : Array[Array[String]]) -> CsvData {
   if flat.is_empty() {
     { headers: [], rows: [] }

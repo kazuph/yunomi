@@ -1,5 +1,7 @@
 ///| Parse unified diff format
-///| Supports both `diff --git` format and legacy `---/+++` format
+
+///|
+/// Supports both `diff --git` format and legacy `---/+++` format
 pub fn parse_diff(input : String) -> DiffData {
   let files : Array[DiffFile] = []
   let lines = split_to_lines(input)
@@ -35,16 +37,14 @@ pub fn parse_diff(input : String) -> DiffData {
       }
       let result = collect_hunks(lines, i, len)
       i = result.1
-      files.push(
-        {
-          old_path: paths.0,
-          new_path: paths.1,
-          is_new,
-          is_deleted,
-          is_binary,
-          hunks: result.0,
-        },
-      )
+      files.push({
+        old_path: paths.0,
+        new_path: paths.1,
+        is_new,
+        is_deleted,
+        is_binary,
+        hunks: result.0,
+      })
     } else if line.has_prefix("--- ") {
       // Legacy format (no diff --git prefix)
       let old_path = strip_diff_prefix(safe_slice(line, 4))
@@ -56,25 +56,25 @@ pub fn parse_diff(input : String) -> DiffData {
       }
       let result = collect_hunks(lines, i, len)
       i = result.1
-      files.push(
-        {
-          old_path,
-          new_path,
-          is_new: false,
-          is_deleted: false,
-          is_binary: false,
-          hunks: result.0,
-        },
-      )
+      files.push({
+        old_path,
+        new_path,
+        is_new: false,
+        is_deleted: false,
+        is_binary: false,
+        hunks: result.0,
+      })
     } else {
       i = i + 1
     }
   }
-  DiffData::{ files }
+  DiffData::{ files, }
 }
 
 ///| Extract old_path and new_path from "diff --git a/X b/Y"
-///| Non-greedy: finds first " b/" as separator
+
+///|
+/// Non-greedy: finds first " b/" as separator
 fn extract_git_paths(line : String) -> (String, String) {
   // "diff --git a/" = 13 characters
   let rest = safe_slice(line, 13)
@@ -99,11 +99,12 @@ fn extract_git_paths(line : String) -> (String, String) {
   }
 }
 
-///| Collect hunks starting from position i
+///|
+/// Collect hunks starting from position i
 fn collect_hunks(
   lines : Array[String],
   start : Int,
-  len : Int
+  len : Int,
 ) -> (Array[DiffHunk], Int) {
   let hunks : Array[DiffHunk] = []
   let mut i = start
@@ -115,9 +116,7 @@ fn collect_hunks(
       i = i + 1
       while i < len {
         let l = lines[i]
-        if l.has_prefix("@@ ") ||
-          l.has_prefix("diff ") ||
-          l.has_prefix("--- ") {
+        if l.has_prefix("@@ ") || l.has_prefix("diff ") || l.has_prefix("--- ") {
           break
         }
         if l.has_prefix("+") {
@@ -131,16 +130,14 @@ fn collect_hunks(
         }
         i = i + 1
       }
-      hunks.push(
-        {
-          old_start: header.0,
-          old_count: header.1,
-          new_start: header.2,
-          new_count: header.3,
-          context: header.4,
-          lines: hunk_lines,
-        },
-      )
+      hunks.push({
+        old_start: header.0,
+        old_count: header.1,
+        new_start: header.2,
+        new_count: header.3,
+        context: header.4,
+        lines: hunk_lines,
+      })
     } else if line.has_prefix("diff ") || line.has_prefix("--- ") {
       break
     } else {
@@ -150,7 +147,8 @@ fn collect_hunks(
   (hunks, i)
 }
 
-///| Strip a/ or b/ prefix from diff paths
+///|
+/// Strip a/ or b/ prefix from diff paths
 fn strip_diff_prefix(path : String) -> String {
   if path.has_prefix("a/") || path.has_prefix("b/") {
     safe_slice(path, 2)
@@ -159,7 +157,8 @@ fn strip_diff_prefix(path : String) -> String {
   }
 }
 
-///| Parse hunk header: @@ -old_start,old_count +new_start,new_count @@ context
+///|
+/// Parse hunk header: @@ -old_start,old_count +new_start,new_count @@ context
 fn parse_hunk_header(line : String) -> (Int, Int, Int, Int, String) {
   let mut old_start = 0
   let mut old_count = 0
@@ -218,7 +217,8 @@ fn parse_hunk_header(line : String) -> (Int, Int, Int, Int, String) {
   (old_start, old_count, new_start, new_count, context)
 }
 
-///| Parse integer from char array starting at position
+///|
+/// Parse integer from char array starting at position
 fn parse_int_from(chars : Array[Char], start : Int, len : Int) -> (Int, Int) {
   let mut n = 0
   let mut i = start

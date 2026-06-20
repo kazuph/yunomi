@@ -1,11 +1,12 @@
-///| File format modes
+///|
+/// File format modes
 pub(all) enum FileMode {
   Csv
   Tsv
   Markdown
   Diff
   Text
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 ///|
 pub fn FileMode::to_string(self : FileMode) -> String {
@@ -29,26 +30,29 @@ pub fn FileMode::from_extension(ext : String) -> FileMode {
   }
 }
 
-///| A single review comment
+///|
+/// A single review comment
 pub(all) struct Comment {
   row : Int
   col : Int
   text : String
   value : String
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
-///| A mermaid diagram error
+///|
+/// A mermaid diagram error
 pub(all) struct MermaidError {
   line : Int
   message : String
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
-///| Review action: handoff (send to AI) or final submit
+///|
+/// Review action: handoff (send to AI) or final submit
 pub(all) enum ReviewAction {
   Handoff
   FinalApprove
   FinalRequestChanges
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 ///|
 pub fn ReviewAction::to_string(self : ReviewAction) -> String {
@@ -69,11 +73,12 @@ pub fn ReviewAction::from_string(s : String) -> ReviewAction? {
   }
 }
 
-///| Review decision: approve or request changes
+///|
+/// Review decision: approve or request changes
 pub(all) enum ReviewDecision {
   Approve
   RequestChanges
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
 ///|
 pub fn ReviewDecision::to_string(self : ReviewDecision) -> String {
@@ -92,7 +97,8 @@ pub fn ReviewDecision::from_string(s : String) -> ReviewDecision? {
   }
 }
 
-///| Review result for one file
+///|
+/// Review result for one file
 pub(all) struct ReviewResult {
   file : String
   mode : FileMode
@@ -102,15 +108,17 @@ pub(all) struct ReviewResult {
   mermaid_errors : Array[MermaidError]
   decision : ReviewDecision?
   action : ReviewAction?
-} derive(Show)
+} derive(Debug)
 
-///| Parsed CSV data
+///|
+/// Parsed CSV data
 pub(all) struct CsvData {
   headers : Array[String]
   rows : Array[Array[String]]
-} derive(Show)
+} derive(Debug)
 
-///| A single diff hunk
+///|
+/// A single diff hunk
 pub(all) struct DiffHunk {
   old_start : Int
   old_count : Int
@@ -118,22 +126,25 @@ pub(all) struct DiffHunk {
   new_count : Int
   context : String
   lines : Array[DiffLine]
-} derive(Show)
+} derive(Debug)
 
-///| A line in a diff
+///|
+/// A line in a diff
 pub(all) struct DiffLine {
   kind : DiffLineKind
   content : String
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
-///| Type of diff line
+///|
+/// Type of diff line
 pub(all) enum DiffLineKind {
   Context
   Addition
   Deletion
-} derive(Show, Eq)
+} derive(Debug, Eq)
 
-///| A parsed diff file entry
+///|
+/// A parsed diff file entry
 pub(all) struct DiffFile {
   old_path : String
   new_path : String
@@ -141,26 +152,29 @@ pub(all) struct DiffFile {
   is_deleted : Bool
   is_binary : Bool
   hunks : Array[DiffHunk]
-} derive(Show)
+} derive(Debug)
 
-///| Parsed diff data
+///|
+/// Parsed diff data
 pub(all) struct DiffData {
   files : Array[DiffFile]
-} derive(Show)
+} derive(Debug)
 
-///| A yunomi question from frontmatter
+///|
+/// A yunomi question from frontmatter
 pub(all) struct YunomiQuestion {
   id : String
   question : String
   resolved : Bool
   answer : String
   options : Array[String]
-} derive(Show)
+} derive(Debug)
 
-///| Parsed markdown data
+///|
+/// Parsed markdown data
 pub(all) struct MarkdownData {
   source : String
   html : String
   frontmatter : Map[String, String]
   questions : Array[YunomiQuestion]
-} derive(Show)
+} derive(Debug)

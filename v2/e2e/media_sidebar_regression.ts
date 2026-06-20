@@ -288,14 +288,15 @@ async function measureNavState(page: Page, index: number): Promise<NavState> {
   }, { idx: index, exts: VIDEO_EXTS });
 }
 
-// Wait until the smooth scroll towards media `index` settles (target rect
-// stable for several consecutive polls) instead of a fixed sleep.
+// Wait until keyboard/click navigation actually selected `index` and the
+// target media is visibly in the viewport.
 async function waitForNavSettle(page: Page, index: number): Promise<void> {
   await page.waitForFunction(
     ({ idx, exts }) => {
-      const w = window as any;
       const preview = document.querySelector(".md-preview");
       if (!preview) return false;
+      const activeIndex = Number(document.querySelector(".media-sidebar-thumb.active")?.getAttribute("data-media-index") ?? "-1");
+      if (activeIndex !== idx) return false;
       const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
         if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
         if (el.tagName !== "VIDEO") return true;
@@ -304,18 +305,10 @@ async function waitForNavSettle(page: Page, index: number): Promise<void> {
       });
       const target = mediaEls[idx];
       if (!target) return false;
-      const top = target.getBoundingClientRect().top;
-      if (!w.__navSettle || w.__navSettle.idx !== idx) {
-        w.__navSettle = { idx, top, stable: 0 };
-        return false;
-      }
-      if (Math.abs(w.__navSettle.top - top) < 0.5) {
-        w.__navSettle.stable++;
-      } else {
-        w.__navSettle.top = top;
-        w.__navSettle.stable = 0;
-      }
-      return w.__navSettle.stable >= 3;
+      const rect = target.getBoundingClientRect();
+      const visible = Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0);
+      const visibleRatio = visible / Math.min(rect.height || 1, window.innerHeight);
+      return visibleRatio >= 0.5;
     },
     { idx: index, exts: VIDEO_EXTS },
     { timeout: 10000, polling: 100 },
@@ -566,6 +559,70 @@ try {
       "inline timeline サムネクリックで timeline にフォーカスが残る",
       timelinePrimed,
     );
+
+    await page.locator(`.media-sidebar-thumb[data-media-index="${inlineVideoTarget.videoIndex}"]`).click();
+    await waitForNavSettle(page, inlineVideoTarget.videoIndex);
+    const sidebarSelectedVideo = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      video.currentTime = 0;
+      return {
+        currentTime: video.currentTime,
+        activeIndex: Number(document.querySelector(".media-sidebar-thumb.active")?.getAttribute("data-media-index") ?? "-1"),
+        activeElementClass: (document.activeElement as HTMLElement | null)?.className || "",
+      };
+    }, inlineVideoTarget.videoIndex);
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      return (mediaEls[idx] as HTMLVideoElement).currentTime > 0.1;
+    }, inlineVideoTarget.videoIndex, { timeout: 5000 }).catch(() => {});
+    const afterSidebarRight = await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      return {
+        currentTime: video.currentTime,
+        activeIndex: Number(document.querySelector(".media-sidebar-thumb.active")?.getAttribute("data-media-index") ?? "-1"),
+      };
+    }, inlineVideoTarget.videoIndex);
+    assert(
+      afterSidebarRight.currentTime > sidebarSelectedVideo.currentTime &&
+        afterSidebarRight.activeIndex === inlineVideoTarget.videoIndex,
+      "ArrowRight はサイドバーで選択中の inline 動画 timeline も横移動する",
+      { sidebarSelectedVideo, afterSidebarRight },
+    );
+
+    await page.evaluate((idx) => {
+      const preview = document.querySelector(".md-preview")!;
+      const mediaEls = Array.from(preview.querySelectorAll("img, video.video-preview, .mermaid-container")).filter((el) => {
+        if (el.tagName === "IMG" && el.closest(".video-timeline")) return false;
+        if (el.tagName !== "VIDEO") return true;
+        const src = (el.getAttribute("src") || "").toLowerCase();
+        return [".mp4", ".mov", ".webm", ".avi", ".mkv", ".m4v", ".ogv"].some((ext) => src.endsWith(ext));
+      });
+      const video = mediaEls[idx] as HTMLVideoElement;
+      video.currentTime = 0;
+      const wrapper = video.closest(".video-overlay-wrapper")!;
+      (wrapper.querySelector(".video-timeline .timeline-thumb") as HTMLElement).click();
+    }, inlineVideoTarget.videoIndex);
 
     await page.keyboard.press("ArrowRight");
     await page.waitForFunction((idx) => {

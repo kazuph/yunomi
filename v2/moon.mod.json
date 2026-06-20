@@ -1,7 +1,0 @@
-{
-  "name": "kazuph/yunomi",
-  "version": "0.1.0",
-  "preferred-target": "js",
-  "source": "src",
-  "description": "Browser-based file review tool for human-in-the-loop AI workflows"
-}

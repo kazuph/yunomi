@@ -2,7 +2,8 @@
 ///  Replaces JS-based window.__createVTL with native MoonBit logic
 ///  Features: SSE-based thumbnails, scene detection, keyboard navigation
 
-///| State for a single VideoTimeline instance
+///|
+/// State for a single VideoTimeline instance
 struct VTLState {
   video_el : Element
   container : Element
@@ -21,13 +22,15 @@ struct VTLState {
   handles : Array[ListenerHandle]
 }
 
-///| Thumbnail data entry
+///|
+/// Thumbnail data entry
 struct ThumbData {
   element : Element
   time : Double
 }
 
-///| Format seconds to MM:SS
+///|
+/// Format seconds to MM:SS
 fn format_time(seconds : Double) -> String {
   let m = (seconds / 60.0).to_int()
   let s = (seconds % 60.0).to_int()
@@ -38,7 +41,8 @@ fn format_time(seconds : Double) -> String {
   }
 }
 
-///| Create a new VideoTimeline with the given configuration.
+///|
+/// Create a new VideoTimeline with the given configuration.
 ///  With autostart=false the timeline element (and its height) is created
 ///  immediately but thumbnail loading waits for start_timeline_loading —
 ///  used for inline timelines so lazy loading causes no layout shift.
@@ -49,7 +53,7 @@ pub fn create_video_timeline_moonbit(
   scene_threshold : Double,
   stabilization_threshold : Double,
   prevent_bubble : Bool,
-  autostart~ : Bool = true
+  autostart? : Bool = true,
 ) -> VTLState {
   // Create timeline element
   let timeline_el = create_element("div")
@@ -82,9 +86,7 @@ pub fn create_video_timeline_moonbit(
 
   // Setup click handler to prevent bubble if needed
   if prevent_bubble {
-    let h = on_with_handle(timeline_el, "click", fn(e) {
-      stop_propagation(e)
-    })
+    let h = on_with_handle(timeline_el, "click", fn(e) { stop_propagation(e) })
     state.handles.push(h)
   }
 
@@ -100,7 +102,8 @@ pub fn create_video_timeline_moonbit(
   state
 }
 
-///| Begin thumbnail loading for a timeline created with autostart=false.
+///|
+/// Begin thumbnail loading for a timeline created with autostart=false.
 ///  Safe to call multiple times; only the first call connects.
 pub fn start_timeline_loading(state : VTLState) -> Unit {
   if state.started {
@@ -110,28 +113,29 @@ pub fn start_timeline_loading(state : VTLState) -> Unit {
   start_sse_connection(state)
 }
 
-///| Start SSE connection for thumbnail streaming
+///|
+/// Start SSE connection for thumbnail streaming
 fn start_sse_connection(state : VTLState) -> Unit {
   let encoded_path = url_encode(state.video_path)
-  let url = "/video-timeline?path=" + encoded_path +
-            "&scene=" + state.scene_threshold.to_string() +
-            "&stabilization=" + state.stabilization_threshold.to_string()
+  let url = "/video-timeline?path=" +
+    encoded_path +
+    "&scene=" +
+    state.scene_threshold.to_string() +
+    "&stabilization=" +
+    state.stabilization_threshold.to_string()
 
   let es = new_event_source_url(url)
   state.event_source = es
 
   // Setup SSE message handler
-  sse_on_message(es, fn(data) {
-    handle_sse_message(state, data)
-  })
+  sse_on_message(es, fn(data) { handle_sse_message(state, data) })
 
   // Setup error handler
-  sse_on_error(es, fn() {
-    handle_sse_error(state)
-  })
+  sse_on_error(es, fn() { handle_sse_error(state) })
 }
 
-///| Handle SSE message
+///|
+/// Handle SSE message
 fn handle_sse_message(state : VTLState, data : String) -> Unit {
   // Parse JSON message
   let msg_type = parse_sse_type(data)
@@ -141,7 +145,7 @@ fn handle_sse_message(state : VTLState, data : String) -> Unit {
       // Remove loading indicator on first thumbnail
       if state.is_loading {
         let loading = query_in(state.timeline_el, ".timeline-loading")
-        if !(is_null(loading)) {
+        if !is_null(loading) {
           remove_element(loading)
         }
         state.is_loading = false
@@ -189,7 +193,7 @@ fn handle_sse_message(state : VTLState, data : String) -> Unit {
       // Show "no scenes" message if no thumbnails
       if state.thumbs.is_empty() {
         let loading = query_in(state.timeline_el, ".timeline-loading")
-        if !(is_null(loading)) {
+        if !is_null(loading) {
           set_text_content(loading, "No scene changes detected")
         }
       }
@@ -204,10 +208,11 @@ fn handle_sse_message(state : VTLState, data : String) -> Unit {
   }
 }
 
-///| Handle SSE error
+///|
+/// Handle SSE error
 fn handle_sse_error(state : VTLState) -> Unit {
   // Close connection
-  if !(is_event_source_null(state.event_source)) {
+  if !is_event_source_null(state.event_source) {
     sse_close(state.event_source)
     state.event_source = create_null_event_source()
   }
@@ -216,7 +221,8 @@ fn handle_sse_error(state : VTLState) -> Unit {
   remove_element(state.timeline_el)
 }
 
-///| Setup video time update listener
+///|
+/// Setup video time update listener
 fn setup_timeupdate_listener(state : VTLState) -> Unit {
   let h = on_with_handle(state.video_el, "timeupdate", fn(_e) {
     let current = video_get_current_time(state.video_el)
@@ -225,9 +231,12 @@ fn setup_timeupdate_listener(state : VTLState) -> Unit {
   state.handles.push(h)
 }
 
-///| Update active thumbnail highlighting
+///|
+/// Update active thumbnail highlighting
 fn update_active_thumb(state : VTLState, current_time : Double) -> Unit {
-  if state.thumbs.is_empty() { return }
+  if state.thumbs.is_empty() {
+    return
+  }
 
   // Find closest thumbnail
   let mut closest_idx = -1
@@ -243,7 +252,8 @@ fn update_active_thumb(state : VTLState, current_time : Double) -> Unit {
 
   if closest_idx != state.active_thumb_idx {
     // Remove active from previous
-    if state.active_thumb_idx >= 0 && state.active_thumb_idx < state.thumbs.length() {
+    if state.active_thumb_idx >= 0 &&
+      state.active_thumb_idx < state.thumbs.length() {
       let prev = state.thumbs[state.active_thumb_idx].element
       remove_class(prev, "active")
     }
@@ -260,28 +270,37 @@ fn update_active_thumb(state : VTLState, current_time : Double) -> Unit {
   }
 }
 
-///| Setup keyboard navigation for scene thumbnails.
+///|
+/// Setup keyboard navigation for scene thumbnails.
 ///  Left / Right stay within the timeline. Up / Down intentionally bubble to
 ///  the media sidebar so document media navigation keeps one clear owner.
 fn setup_timeline_keyboard_navigation(state : VTLState) -> Unit {
-  let h = on_with_handle(state.timeline_el, "keydown", fn(e) {
-    let key = event_key(e)
-    if key == "ArrowLeft" {
-      prevent_default(e)
-      stop_propagation(e)
-      navigate(state, -1)
-    } else if key == "ArrowRight" {
-      prevent_default(e)
-      stop_propagation(e)
-      navigate(state, 1)
-    }
-  })
+  let h = on_with_handle(
+    state.timeline_el,
+    "keydown",
+    fn(e) {
+      let key = event_key(e)
+      if key == "ArrowLeft" {
+        prevent_default(e)
+        stop_propagation(e)
+        navigate(state, -1)
+      } else if key == "ArrowRight" {
+        prevent_default(e)
+        stop_propagation(e)
+        navigate(state, 1)
+      }
+    },
+    passive=false,
+  )
   state.handles.push(h)
 }
 
-///| Navigate to next/prev scene
+///|
+/// Navigate to next/prev scene
 pub fn navigate(state : VTLState, direction : Int) -> Unit {
-  if state.thumbs.is_empty() { return }
+  if state.thumbs.is_empty() {
+    return
+  }
 
   let current = video_get_current_time(state.video_el)
 
@@ -305,10 +324,11 @@ pub fn navigate(state : VTLState, direction : Int) -> Unit {
   }
 }
 
-///| Destroy a VideoTimeline instance
+///|
+/// Destroy a VideoTimeline instance
 pub fn destroy_video_timeline(state : VTLState) -> Unit {
   // Close SSE if open
-  if !(is_event_source_null(state.event_source)) {
+  if !is_event_source_null(state.event_source) {
     sse_close(state.event_source)
   }
 
@@ -319,11 +339,12 @@ pub fn destroy_video_timeline(state : VTLState) -> Unit {
   remove_element(state.timeline_el)
 }
 
-///| Recreate timeline with new parameters
+///|
+/// Recreate timeline with new parameters
 pub fn recreate_timeline(
   state : VTLState,
   new_scene_threshold : Double,
-  new_stabilization_threshold : Double
+  new_stabilization_threshold : Double,
 ) -> VTLState {
   let video_el = state.video_el
   let container = state.container
@@ -335,11 +356,7 @@ pub fn recreate_timeline(
 
   // Create new one with updated params
   create_video_timeline_moonbit(
-    video_el,
-    container,
-    video_path,
-    new_scene_threshold,
-    new_stabilization_threshold,
+    video_el, container, video_path, new_scene_threshold, new_stabilization_threshold,
     prevent_bubble,
   )
 }
@@ -348,7 +365,8 @@ pub fn recreate_timeline(
 // SSE Parsing helpers (JSON parsing via FFI)
 // =============================================================================
 
-///| Parse SSE message type from JSON
+///|
+/// Parse SSE message type from JSON
 extern "js" fn parse_sse_type(json : String) -> String =
   #|(json) => {
   #|  try {
@@ -357,7 +375,8 @@ extern "js" fn parse_sse_type(json : String) -> String =
   #|  } catch(e) { return ''; }
   #|}
 
-///| Parse SSE time from JSON
+///|
+/// Parse SSE time from JSON
 extern "js" fn parse_sse_time(json : String) -> Double =
   #|(json) => {
   #|  try {
@@ -366,7 +385,8 @@ extern "js" fn parse_sse_time(json : String) -> Double =
   #|  } catch(e) { return 0; }
   #|}
 
-///| Parse SSE src from JSON
+///|
+/// Parse SSE src from JSON
 extern "js" fn parse_sse_src(json : String) -> String =
   #|(json) => {
   #|  try {
@@ -375,33 +395,40 @@ extern "js" fn parse_sse_src(json : String) -> String =
   #|  } catch(e) { return ''; }
   #|}
 
-///| URL encode string
+///|
+/// URL encode string
 extern "js" fn url_encode(s : String) -> String =
   #|(s) => encodeURIComponent(s)
 
-///| Null event source
+///|
+/// Null event source
 extern "js" fn create_null_event_source() -> EventSource =
   #|() => null
 
-///| Check if event source is null
+///|
+/// Check if event source is null
 extern "js" fn is_event_source_null(es : EventSource) -> Bool =
   #|(es) => es == null || es == undefined
 
-///| SSE on error handler
+///|
+/// SSE on error handler
 extern "js" fn sse_on_error(es : EventSource, handler : () -> Unit) -> Unit =
   #|(es, handler) => {
   #|  if (es) es.onerror = handler;
   #|}
 
-///| Video get current time
+///|
+/// Video get current time
 extern "js" fn video_get_current_time(el : Element) -> Double =
   #|(el) => el?.currentTime || 0
 
-///| Video set current time
+///|
+/// Video set current time
 extern "js" fn video_set_current_time(el : Element, time : Double) -> Unit =
   #|(el, time) => { if (el) el.currentTime = time; }
 
-///| Scroll element into view (nearest block/inline)
+///|
+/// Scroll element into view (nearest block/inline)
 extern "js" fn scroll_into_view_nearest(el : Element) -> Unit =
   #|(el) => {
   #|  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });

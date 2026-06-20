@@ -1,7 +1,9 @@
 ///| Tests for build_diff_html new behavior
-///| AIRV-008: is_new/is_deleted/is_binary labels + binary hunk skip
-///| AIRV-009: hunk header @@ -old,count +new,count @@ context
 
+///| AIRV-008: is_new/is_deleted/is_binary labels + binary hunk skip
+
+///|
+/// AIRV-009: hunk header @@ -old,count +new,count @@ context
 test "diff html: new file shows new file label" {
   // AIRV-008: is_new=true → diff-label "new file" in file header
   let data : DiffData = {
@@ -17,11 +19,15 @@ test "diff html: new file shows new file label" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("new file"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("new file"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: deleted file shows deleted label" {
   // AIRV-008: is_deleted=true → diff-label "deleted" in file header
   let data : DiffData = {
@@ -37,11 +43,15 @@ test "diff html: deleted file shows deleted label" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("deleted"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("deleted"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: binary file shows binary label" {
   // AIRV-008: is_binary=true → diff-label "binary" in file header
   let data : DiffData = {
@@ -57,11 +67,15 @@ test "diff html: binary file shows binary label" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("binary"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("binary"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: binary file skips hunk rendering" {
   // AIRV-008: is_binary=true → hunks not rendered even when present
   let data : DiffData = {
@@ -87,15 +101,22 @@ test "diff html: binary file skips hunk rendering" {
   }
   let html = build_diff_html(data, "test.diff", 4989)
   // No hunk header div when binary (check for opening tag, not CSS selector)
-  inspect(html.contains("<div class=\"diff-hunk-header\">"), content=(
-    #|false
-  ))
+  debug_inspect(
+    html.contains("<div class=\"diff-hunk-header\">"),
+    content=(
+      #|false
+    ),
+  )
   // No line content when binary
-  inspect(html.contains("binary content"), content=(
-    #|false
-  ))
+  debug_inspect(
+    html.contains("binary content"),
+    content=(
+      #|false
+    ),
+  )
 }
 
+///|
 test "diff html: normal file has no label span" {
   // AIRV-008: is_new=false, is_deleted=false, is_binary=false → no diff-label span
   let data : DiffData = {
@@ -112,11 +133,15 @@ test "diff html: normal file has no label span" {
   }
   let html = build_diff_html(data, "test.diff", 4989)
   // No label span in DOM (check for opening tag, not CSS selector)
-  inspect(html.contains("<span class=\"diff-label"), content=(
-    #|false
-  ))
+  debug_inspect(
+    html.contains("<span class=\"diff-label"),
+    content=(
+      #|false
+    ),
+  )
 }
 
+///|
 test "diff html: hunk header format @@ -old,count +new,count @@" {
   // AIRV-009: hunk header with standard @@ format matches cli.cjs:789
   let data : DiffData = {
@@ -141,11 +166,15 @@ test "diff html: hunk header format @@ -old,count +new,count @@" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("@@ -1,3 +1,4 @@"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("@@ -1,3 +1,4 @@"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: hunk header includes context after @@" {
   // AIRV-009: context string appended after @@ separator
   let data : DiffData = {
@@ -170,14 +199,21 @@ test "diff html: hunk header includes context after @@" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("@@ -10,5 +10,6 @@"), content=(
-    #|true
-  ))
-  inspect(html.contains("function example()"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("@@ -10,5 +10,6 @@"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("function example()"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: hunk header element has diff-hunk-header class" {
   // AIRV-009: hunk header div uses class diff-hunk-header
   let data : DiffData = {
@@ -202,11 +238,15 @@ test "diff html: hunk header element has diff-hunk-header class" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("diff-hunk-header"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("diff-hunk-header"),
+    content=(
+      #|true
+    ),
+  )
 }
 
+///|
 test "diff html: multiple hunks each have headers" {
   // AIRV-009: every hunk gets its own header
   let data : DiffData = {
@@ -239,10 +279,16 @@ test "diff html: multiple hunks each have headers" {
     ],
   }
   let html = build_diff_html(data, "test.diff", 4989)
-  inspect(html.contains("@@ -1,2 +1,2 @@"), content=(
-    #|true
-  ))
-  inspect(html.contains("@@ -20,3 +20,3 @@"), content=(
-    #|true
-  ))
+  debug_inspect(
+    html.contains("@@ -1,2 +1,2 @@"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("@@ -20,3 +20,3 @@"),
+    content=(
+      #|true
+    ),
+  )
 }

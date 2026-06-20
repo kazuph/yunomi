@@ -3,8 +3,8 @@
  *
  * The server announces a per-process instance id as the SSE "hello"
  * event. A lingering browser tab that reconnects after a server restart
- * sees a different id and reloads itself, so reused ports never show
- * stale sessions (the "duplicate tab" bug).
+ * sees a different id and should retire itself instead of joining the new
+ * review session.
  *
  * Run: node --experimental-strip-types v2/e2e/session_hello.ts
  */
@@ -94,7 +94,7 @@ try {
 
   const b = await startServer(md);
   const idB = await readHello();
-  assert(idB.length > 0 && idB !== idA1, "同一ポートで再起動した新サーバは異なるidを配る（残骸タブが自動リロードできる）", { idA1, idB });
+  assert(idB.length > 0 && idB !== idA1, "同一ポートで再起動した新サーバは異なるidを配る（残骸タブを退避させられる）", { idA1, idB });
   await stop(b);
 } finally {
   rmSync(WORK_DIR, { recursive: true, force: true });

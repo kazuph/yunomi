@@ -1,4 +1,5 @@
-///| Build the main CSS styles
+///|
+/// Build the main CSS styles
 fn build_css() -> String {
   let css =
     #|/* Dark theme (default) — warm-modern with copper accent */

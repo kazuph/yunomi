@@ -7,23 +7,26 @@
 ///  Full-size viewing is delegated to the fullscreen viewers
 ///  (click an image / video / mermaid in the preview itself).
 
-///| Media item types
+///|
+/// Media item types
 enum MediaType {
   Image
   Video
   Mermaid
 }
 
-///| Media item data
+///|
+/// Media item data
 struct MediaItem {
   type_ : MediaType
   element : Element
   src : String
   alt : String
-  svg : Element  // For mermaid type
+  svg : Element // For mermaid type
 }
 
-///| MediaSidebar state
+///|
+/// MediaSidebar state
 struct MediaSidebarState {
   preview : Element
   sidebar : Element
@@ -39,13 +42,17 @@ struct MediaSidebarState {
   handles : Array[ListenerHandle]
 }
 
-///| Global sidebar instance
-let global_sidebar : Ref[MediaSidebarState?] = Ref::new(None)
+///|
+/// Global sidebar instance
+let global_sidebar : Ref[MediaSidebarState?] = Ref(None)
 
-///| Initialize media sidebar for the current page
+///|
+/// Initialize media sidebar for the current page
 pub fn init_media_sidebar() -> Unit {
   // Check if already initialized
-  if global_sidebar.val is Some(_) { return }
+  if global_sidebar.val is Some(_) {
+    return
+  }
 
   // Find required elements
   let md_layout = query(".md-layout")
@@ -56,15 +63,19 @@ pub fn init_media_sidebar() -> Unit {
   let toggle_count = query("#media-toggle-count")
 
   // Check if all required elements exist
-  if is_null(md_layout) || is_null(preview) ||
-     is_null(sidebar) || is_null(thumbs_c) ||
-     is_null(toggle_btn) {
+  if is_null(md_layout) ||
+    is_null(preview) ||
+    is_null(sidebar) ||
+    is_null(thumbs_c) ||
+    is_null(toggle_btn) {
     return
   }
 
   // Collect media items from preview
   let items = collect_media_items(preview)
-  if items.is_empty() { return }
+  if items.is_empty() {
+    return
+  }
 
   // Create state
   let state = MediaSidebarState::{
@@ -82,7 +93,7 @@ pub fn init_media_sidebar() -> Unit {
   // Show toggle button and sidebar
   set_style(toggle_btn, "display", "")
   add_class(toggle_btn, "has-media")
-  if !(is_null(toggle_count)) {
+  if !is_null(toggle_count) {
     set_text_content(toggle_count, items.length().to_string())
   }
   remove_class(sidebar, "hidden")
@@ -91,9 +102,7 @@ pub fn init_media_sidebar() -> Unit {
   create_thumbnails(state)
 
   // Setup toggle button
-  let h1 = on_with_handle(toggle_btn, "click", fn(_e) {
-    toggle_sidebar(state)
-  })
+  let h1 = on_with_handle(toggle_btn, "click", fn(_e) { toggle_sidebar(state) })
   state.handles.push(h1)
 
   // Setup keyboard navigation
@@ -106,7 +115,8 @@ pub fn init_media_sidebar() -> Unit {
   global_sidebar.val = Some(state)
 }
 
-///| Collect media items from preview element
+///|
+/// Collect media items from preview element
 fn collect_media_items(preview : Element) -> Array[MediaItem] {
   let items : Array[MediaItem] = []
   let mut img_count = 0
@@ -114,7 +124,9 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
   let mut mermaid_count = 0
 
   // Find all images, videos, and mermaid containers
-  let all_media = query_all_in(preview, "img,video.video-preview,.mermaid-container")
+  let all_media = query_all_in(
+    preview, "img,video.video-preview,.mermaid-container",
+  )
 
   all_media.each(fn(el) {
     let tag = get_tag_name(el)
@@ -122,13 +134,21 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
 
     if tag == "IMG" {
       // Skip ghost images (empty src attribute resolves to the page URL)
-      if get_attribute(el, "src") == "" { return }
+      if get_attribute(el, "src") == "" {
+        return
+      }
       // Skip inline video-timeline scene thumbnails (not document media)
-      if !(is_null(closest(el, ".video-timeline"))) { return }
+      if !is_null(closest(el, ".video-timeline")) {
+        return
+      }
       img_count = img_count + 1
       let src = get_src(el)
       let alt = get_attribute(el, "alt")
-      let alt_text = if alt == "" { "Image " + img_count.to_string() } else { alt }
+      let alt_text = if alt == "" {
+        "Image " + img_count.to_string()
+      } else {
+        alt
+      }
       items.push(MediaItem::{
         type_: Image,
         element: el,
@@ -139,17 +159,21 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
     } else if tag == "VIDEO" && has_video_class {
       let src = get_attribute(el, "src")
       let has_video_ext = src.to_lower().has_suffix(".mp4") ||
-                          src.to_lower().has_suffix(".mov") ||
-                          src.to_lower().has_suffix(".webm") ||
-                          src.to_lower().has_suffix(".avi") ||
-                          src.to_lower().has_suffix(".mkv") ||
-                          src.to_lower().has_suffix(".m4v") ||
-                          src.to_lower().has_suffix(".ogv")
+        src.to_lower().has_suffix(".mov") ||
+        src.to_lower().has_suffix(".webm") ||
+        src.to_lower().has_suffix(".avi") ||
+        src.to_lower().has_suffix(".mkv") ||
+        src.to_lower().has_suffix(".m4v") ||
+        src.to_lower().has_suffix(".ogv")
 
       if has_video_ext {
         video_count = video_count + 1
         let title = get_attribute(el, "title")
-        let alt_text = if title == "" { "Video " + video_count.to_string() } else { title }
+        let alt_text = if title == "" {
+          "Video " + video_count.to_string()
+        } else {
+          title
+        }
         items.push(MediaItem::{
           type_: Video,
           element: el,
@@ -174,7 +198,8 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
   items
 }
 
-///| Create thumbnail elements
+///|
+/// Create thumbnail elements
 fn create_thumbnails(state : MediaSidebarState) -> Unit {
   state.items.eachi(fn(idx, item) {
     let thumb = create_element("div")
@@ -222,7 +247,7 @@ fn create_thumbnails(state : MediaSidebarState) -> Unit {
         let wrapper = create_element("div")
         set_class_name(wrapper, "media-sidebar-thumb-mermaid")
 
-        if !(is_null(item.svg)) {
+        if !is_null(item.svg) {
           let cloned = clone_svg_for_thumbnail(item.svg, idx)
           append_child(wrapper, cloned)
         } else {
@@ -242,21 +267,27 @@ fn create_thumbnails(state : MediaSidebarState) -> Unit {
     })
     state.handles.push(h)
 
-    let h_key = on_with_handle(thumb, "keydown", fn(e) {
-      let key = event_key(e)
-      if key == "Enter" || key == " " {
-        prevent_default(e)
-        stop_propagation(e)
-        navigate_to(state, idx)
-      }
-    })
+    let h_key = on_with_handle(
+      thumb,
+      "keydown",
+      fn(e) {
+        let key = event_key(e)
+        if key == "Enter" || key == " " {
+          prevent_default(e)
+          stop_propagation(e)
+          navigate_to(state, idx)
+        }
+      },
+      passive=false,
+    )
     state.handles.push(h_key)
 
     append_child(state.thumbs_container, thumb)
   })
 }
 
-///| Clone SVG for thumbnail with proper ID handling
+///|
+/// Clone SVG for thumbnail with proper ID handling
 fn clone_svg_for_thumbnail(svg : Element, idx : Int) -> Element {
   let cloned = clone_node_deep(svg)
   let orig_id = get_attribute(svg, "id")
@@ -267,7 +298,7 @@ fn clone_svg_for_thumbnail(svg : Element, idx : Int) -> Element {
 
     // Update style references
     let style_el = query_in(cloned, "style")
-    if !(is_null(style_el)) {
+    if !is_null(style_el) {
       let style_text = get_text_content(style_el)
       let updated = replace_all_text(style_text, orig_id, new_id)
       set_text_content(style_el, updated)
@@ -292,9 +323,12 @@ fn clone_svg_for_thumbnail(svg : Element, idx : Int) -> Element {
   cloned
 }
 
-///| Scroll the preview to the media item and flash a highlight ring
+///|
+/// Scroll the preview to the media item and flash a highlight ring
 fn navigate_to(state : MediaSidebarState, idx : Int) -> Unit {
-  if idx < 0 || idx >= state.items.length() { return }
+  if idx < 0 || idx >= state.items.length() {
+    return
+  }
 
   let item = state.items[idx]
   state.active_idx = idx
@@ -303,7 +337,7 @@ fn navigate_to(state : MediaSidebarState, idx : Int) -> Unit {
   update_thumbnail_active_state(state, idx)
 
   // Clear previous highlight immediately
-  if !(is_null(state.highlighted)) {
+  if !is_null(state.highlighted) {
     remove_class(state.highlighted, "media-nav-highlight")
   }
 
@@ -318,14 +352,20 @@ fn navigate_to(state : MediaSidebarState, idx : Int) -> Unit {
   state.highlighted = target
   state.highlight_seq = state.highlight_seq + 1
   let seq = state.highlight_seq
-  ignore(set_timeout(fn() {
-    if state.highlight_seq == seq {
-      remove_class(target, "media-nav-highlight")
-    }
-  }, 1600))
+  ignore(
+    set_timeout(
+      fn() {
+        if state.highlight_seq == seq {
+          remove_class(target, "media-nav-highlight")
+        }
+      },
+      1600,
+    ),
+  )
 }
 
-///| Update thumbnail active state
+///|
+/// Update thumbnail active state
 fn update_thumbnail_active_state(state : MediaSidebarState, idx : Int) -> Unit {
   let all_thumbs = query_all_in(state.thumbs_container, ".media-sidebar-thumb")
 
@@ -339,24 +379,24 @@ fn update_thumbnail_active_state(state : MediaSidebarState, idx : Int) -> Unit {
   })
 }
 
-///| Clear active selection and highlight
+///|
+/// Clear active selection and highlight
 fn clear_active(state : MediaSidebarState) -> Unit {
   state.active_idx = -1
 
-  if !(is_null(state.highlighted)) {
+  if !is_null(state.highlighted) {
     remove_class(state.highlighted, "media-nav-highlight")
     state.highlighted = null_element()
   }
 
   let all_thumbs = query_all_in(state.thumbs_container, ".media-sidebar-thumb")
-  all_thumbs.each(fn(thumb) {
-    remove_class(thumb, "active")
-  })
+  all_thumbs.each(fn(thumb) { remove_class(thumb, "active") })
 }
 
-///| Toggle sidebar visibility
+///|
+/// Toggle sidebar visibility
 fn toggle_sidebar(state : MediaSidebarState) -> Unit {
-  state.is_visible = !(state.is_visible)
+  state.is_visible = !state.is_visible
 
   if state.is_visible {
     remove_class(state.sidebar, "hidden")
@@ -366,13 +406,20 @@ fn toggle_sidebar(state : MediaSidebarState) -> Unit {
   }
 }
 
-///| Navigate thumbnails (scrolls preview to prev/next media)
+///|
+/// Navigate thumbnails (scrolls preview to prev/next media)
 fn navigate_thumbs(state : MediaSidebarState, direction : Int) -> Unit {
   let total = state.items.length()
-  if total == 0 { return }
+  if total == 0 {
+    return
+  }
 
   let new_idx = if state.active_idx == -1 {
-    if direction > 0 { 0 } else { total - 1 }
+    if direction > 0 {
+      0
+    } else {
+      total - 1
+    }
   } else {
     state.active_idx + direction
   }
@@ -390,16 +437,79 @@ fn navigate_thumbs(state : MediaSidebarState, direction : Int) -> Unit {
   }
 }
 
-///| Resolve the document media index for a focused inline video timeline.
-fn media_index_for_timeline_focus(state : MediaSidebarState, active : Element) -> Int {
+///|
+/// Move within the active inline video timeline, if the active media is video.
+fn navigate_active_video_timeline(
+  state : MediaSidebarState,
+  direction : Int,
+) -> Bool {
+  if state.active_idx < 0 || state.active_idx >= state.items.length() {
+    return false
+  }
+  let item = state.items[state.active_idx]
+  match item.type_ {
+    Video => ()
+    _ => return false
+  }
+
+  let wrapper = closest(item.element, ".video-overlay-wrapper")
+  if is_null(wrapper) {
+    return false
+  }
+  let thumbs = query_all_in(wrapper, ".video-timeline .timeline-thumb")
+  if thumbs.length() < 2 {
+    return false
+  }
+
+  let current = video_get_current_time(item.element)
+  let mut current_idx = 0
+  let mut closest_dist = 1000000000.0
+  for i, thumb in thumbs {
+    let time = parse_float(get_dataset(thumb, "time"))
+    let delta = time - current
+    let dist = if delta < 0.0 { 0.0 - delta } else { delta }
+    if dist < closest_dist {
+      closest_dist = dist
+      current_idx = i
+    }
+  }
+
+  let raw_target = current_idx + direction
+  let target_idx = if raw_target < 0 {
+    0
+  } else if raw_target >= thumbs.length() {
+    thumbs.length() - 1
+  } else {
+    raw_target
+  }
+
+  let target = thumbs[target_idx]
+  let target_time = parse_float(get_dataset(target, "time"))
+  video_set_current_time(item.element, target_time)
+  scroll_into_view_nearest(target)
+  true
+}
+
+///|
+/// Resolve the document media index for a focused inline video timeline.
+fn media_index_for_timeline_focus(
+  state : MediaSidebarState,
+  active : Element,
+) -> Int {
   let timeline = closest(active, ".video-timeline")
-  if is_null(timeline) { return -1 }
+  if is_null(timeline) {
+    return -1
+  }
 
   let wrapper = closest(timeline, ".video-overlay-wrapper")
-  if is_null(wrapper) { return -1 }
+  if is_null(wrapper) {
+    return -1
+  }
 
   let video = query_in(wrapper, "video.video-preview")
-  if is_null(video) { return -1 }
+  if is_null(video) {
+    return -1
+  }
 
   let mut found = -1
   state.items.eachi(fn(idx, item) {
@@ -410,72 +520,97 @@ fn media_index_for_timeline_focus(state : MediaSidebarState, active : Element) -
   found
 }
 
-///| Setup keyboard navigation
+///|
+/// Setup keyboard navigation
 fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
-  let h = on_with_handle(query_body(), "keydown", fn(e) {
-    if !(state.is_visible) { return }
-
-    // Check if fullscreen overlays are visible
-    let img_fs = query("#image-fullscreen")
-    let vid_fs = query("#video-fullscreen")
-    let mermaid_fs = query("#mermaid-fullscreen")
-
-    if (!(is_null(img_fs)) && has_class(img_fs, "visible")) ||
-       (!(is_null(vid_fs)) && has_class(vid_fs, "visible")) ||
-       (!(is_null(mermaid_fs)) && has_class(mermaid_fs, "visible")) {
-      return
-    }
-
-    // Ignore if typing in input
-    let active = get_active_element()
-    let tag = get_tag_name(active)
-    if tag == "INPUT" || tag == "TEXTAREA" {
-      return
-    }
-
-    let key = event_key(e)
-
-    // Escape to clear active selection
-    if key == "Escape" && state.active_idx != -1 {
-      prevent_default(e)
-      clear_active(state)
-      return
-    }
-
-    // Arrow navigation
-    let focused_thumb = has_class(active, "media-sidebar-thumb")
-    let focused_timeline_idx = media_index_for_timeline_focus(state, active)
-    if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
-      if key == "ArrowUp" {
-        prevent_default(e)
-        if focused_timeline_idx != -1 {
-          state.active_idx = focused_timeline_idx
-        }
-        navigate_thumbs(state, -1)
-      } else if key == "ArrowDown" {
-        prevent_default(e)
-        if focused_timeline_idx != -1 {
-          state.active_idx = focused_timeline_idx
-        }
-        navigate_thumbs(state, 1)
+  let h = on_with_handle(
+    query_body(),
+    "keydown",
+    fn(e) {
+      if !state.is_visible {
+        return
       }
-    }
-  })
+
+      // Check if fullscreen overlays are visible
+      let img_fs = query("#image-fullscreen")
+      let vid_fs = query("#video-fullscreen")
+      let mermaid_fs = query("#mermaid-fullscreen")
+
+      if (!is_null(img_fs) && has_class(img_fs, "visible")) ||
+        (!is_null(vid_fs) && has_class(vid_fs, "visible")) ||
+        (!is_null(mermaid_fs) && has_class(mermaid_fs, "visible")) {
+        return
+      }
+
+      // Ignore if typing in input
+      let active = get_active_element()
+      let tag = get_tag_name(active)
+      if tag == "INPUT" || tag == "TEXTAREA" {
+        return
+      }
+
+      let key = event_key(e)
+
+      // Escape to clear active selection
+      if key == "Escape" && state.active_idx != -1 {
+        prevent_default(e)
+        clear_active(state)
+        return
+      }
+
+      // Arrow navigation
+      let focused_thumb = has_class(active, "media-sidebar-thumb")
+      let focused_timeline_idx = media_index_for_timeline_focus(state, active)
+      if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
+        if key == "ArrowLeft" {
+          if navigate_active_video_timeline(state, -1) {
+            prevent_default(e)
+          }
+        } else if key == "ArrowRight" {
+          if navigate_active_video_timeline(state, 1) {
+            prevent_default(e)
+          }
+        } else if key == "ArrowUp" {
+          prevent_default(e)
+          if focused_timeline_idx != -1 {
+            state.active_idx = focused_timeline_idx
+          }
+          navigate_thumbs(state, -1)
+        } else if key == "ArrowDown" {
+          prevent_default(e)
+          if focused_timeline_idx != -1 {
+            state.active_idx = focused_timeline_idx
+          }
+          navigate_thumbs(state, 1)
+        }
+      }
+    },
+    passive=false,
+  )
   state.handles.push(h)
 }
 
-///| Setup mermaid mutation observer
+///|
+/// Setup mermaid mutation observer
 fn setup_mermaid_observer(state : MediaSidebarState) -> Unit {
   let check_mermaid = fn() {
     state.items.eachi(fn(idx, item) {
-      if !(is_mermaid_type(item.type_)) { return }
+      if !is_mermaid_type(item.type_) {
+        return
+      }
 
       let svg = query_in(item.element, "svg")
-      if is_null(svg) { return }
+      if is_null(svg) {
+        return
+      }
 
       // Check if SVG has content
-      let has_content = query_in(svg, ".node,.cluster,.edgePath,.label,path,rect,circle,text")
-      if is_null(has_content) { return }
+      let has_content = query_in(
+        svg, ".node,.cluster,.edgePath,.label,path,rect,circle,text",
+      )
+      if is_null(has_content) {
+        return
+      }
 
       if get_dataset(item.element, "updated") == "true" {
         return
@@ -484,11 +619,18 @@ fn setup_mermaid_observer(state : MediaSidebarState) -> Unit {
       set_dataset(item.element, "updated", "true")
 
       // Update thumbnail
-      let thumb = query_in(state.thumbs_container, "[data-media-index='" + idx.to_string() + "']")
-      if is_null(thumb) { return }
+      let thumb = query_in(
+        state.thumbs_container,
+        "[data-media-index='" + idx.to_string() + "']",
+      )
+      if is_null(thumb) {
+        return
+      }
 
       let mw = query_in(thumb, ".media-sidebar-thumb-mermaid")
-      if is_null(mw) { return }
+      if is_null(mw) {
+        return
+      }
 
       clear_children(mw)
       let cloned = clone_svg_for_thumbnail(svg, idx)
@@ -507,14 +649,16 @@ fn setup_mermaid_observer(state : MediaSidebarState) -> Unit {
   let _ = set_timeout(check_mermaid, 3000)
 }
 
-///| Get currently focused element
+///|
+/// Get currently focused element
 extern "js" fn get_active_element() -> Element =
   #|() => document.activeElement
 
-///| Setup mutation observer (returns handle)
+///|
+/// Setup mutation observer (returns handle)
 extern "js" fn setup_mutation_observer(
   target : Element,
-  callback : () -> Unit
+  callback : () -> Unit,
 ) -> ListenerHandle =
   #|(target, callback) => {
   #|  const observer = new MutationObserver(callback);
@@ -522,6 +666,7 @@ extern "js" fn setup_mutation_observer(
   #|  return { disconnect: () => observer.disconnect() };
   #|}
 
+///|
 fn is_mermaid_type(type_ : MediaType) -> Bool {
   match type_ {
     Mermaid => true

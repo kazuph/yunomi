@@ -1,4 +1,5 @@
-///| Safe substring from start index to end (returns empty if out of range)
+///|
+/// Safe substring from start index to end (returns empty if out of range)
 ///  Uses chars array length (code points) not String.length() (UTF-16 units)
 ///  to avoid index-out-of-bounds with emoji/surrogate pairs.
 pub fn safe_slice(s : String, start : Int) -> String {
@@ -15,7 +16,8 @@ pub fn safe_slice(s : String, start : Int) -> String {
   }
 }
 
-///| Safe substring from start to end index
+///|
+/// Safe substring from start to end index
 ///  Uses chars array length (code points) not String.length() (UTF-16 units).
 pub fn safe_slice_range(s : String, start : Int, end : Int) -> String {
   let chars = s.to_array()
@@ -33,7 +35,8 @@ pub fn safe_slice_range(s : String, start : Int, end : Int) -> String {
   }
 }
 
-///| Parse integer from string (returns 0 for invalid input)
+///|
+/// Parse integer from string (returns 0 for invalid input)
 pub fn parse_int_safe(s : String) -> Int {
   let mut n = 0
   let chars = s.to_array()
@@ -45,16 +48,18 @@ pub fn parse_int_safe(s : String) -> Int {
   n
 }
 
-///| Split string into lines as String array
+///|
+/// Split string into lines as String array
 pub fn split_to_lines(input : String) -> Array[String] {
   let result : Array[String] = []
   for sv in input.split("\n") {
-    result.push(sv.to_string())
+    result.push(sv.to_owned())
   }
   result
 }
 
-///| Quote the source line a review comment refers to (0-based row).
+///|
+/// Quote the source line a review comment refers to (0-based row).
 ///  Trims surrounding whitespace/CR and caps at 300 chars so the verdict
 ///  YAML stays readable. Out-of-range rows yield "" (line gets omitted).
 pub fn quote_source_line(lines : Array[String], row : Int) -> String {
@@ -69,9 +74,11 @@ pub fn quote_source_line(lines : Array[String], row : Int) -> String {
     start = start + 1
   }
   while end > start &&
-        (chars[end - 1] == ' ' ||
-        chars[end - 1] == '\t' ||
-        chars[end - 1] == '\r') {
+        (
+          chars[end - 1] == ' ' ||
+          chars[end - 1] == '\t' ||
+          chars[end - 1] == '\r'
+        ) {
     end = end - 1
   }
   let truncated = end - start > 300
@@ -86,7 +93,8 @@ pub fn quote_source_line(lines : Array[String], row : Int) -> String {
   buf.to_string()
 }
 
-///| Safe path containment check that avoids prefix bypass.
+///|
+/// Safe path containment check that avoids prefix bypass.
 ///  Ensures `child` is either exactly `base` or lives strictly under `base`
 ///  by comparing with a trailing path separator — so `/a/b` does NOT match `/a/bad`.
 ///  Both arguments are expected to be already normalized via `path.resolve`.

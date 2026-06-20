@@ -1,0 +1,10 @@
+import {
+  "kazuph/yunomi/core",
+  "moonbitlang/core/double",
+  "moonbitlang/core/strconv",
+}
+
+options(
+  "is-main": true,
+  link: { "js": { "exports": [ "init_app" ], "format": "esm" } },
+)
