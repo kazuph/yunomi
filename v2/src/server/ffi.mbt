@@ -227,10 +227,6 @@ fn child_exec_file(cmd : String, args : Array[String]) -> Unit {
 fn open_browser(url : String) -> Unit {
   let platform = get_platform()
   if platform == "darwin" {
-    // Try to reuse existing tab first
-    if try_activate_existing_tab(url) {
-      return
-    }
     child_exec_file("open", [url])
   } else if platform == "win32" {
     child_exec_file("cmd", ["/c", "start", url])
@@ -259,36 +255,6 @@ fn json_encode_value(s : String) -> String {
   buf.to_string()
 }
 
-///|
-/// Try to activate an existing browser tab (macOS only)
-fn try_activate_existing_tab(url : String) -> Bool {
-  if get_platform() != "darwin" {
-    return false
-  }
-  // Chrome AppleScript
-  let chrome_script = "set found to false\ntell application \"System Events\"\n  if exists process \"Google Chrome\" then\n    tell application \"Google Chrome\"\n      set targetUrl to \"\{url}\"\n      repeat with w in windows\n        set tabIndex to 1\n        repeat with t in tabs of w\n          if URL of t starts with targetUrl then\n            set active tab index of w to tabIndex\n            set index of w to 1\n            activate\n            set found to true\n            exit repeat\n          end if\n          set tabIndex to tabIndex + 1\n        end repeat\n        if found then exit repeat\n      end repeat\n    end tell\n  end if\nend tell\nfound"
-  let chrome_result = spawn_sync_result(
-    "osascript",
-    "[\"-e\", " + json_encode_value(chrome_script) + "]",
-  )
-  if chrome_result.contains("true") {
-    console_log("Activated existing Chrome tab: \{url}")
-    return true
-  }
-  // Safari fallback
-  let safari_script = "set found to false\ntell application \"System Events\"\n  if exists process \"Safari\" then\n    tell application \"Safari\"\n      set targetUrl to \"\{url}\"\n      repeat with w in windows\n        repeat with t in tabs of w\n          if URL of t starts with targetUrl then\n            set current tab of w to t\n            set index of w to 1\n            activate\n            set found to true\n            exit repeat\n          end if\n        end repeat\n        if found then exit repeat\n      end repeat\n    end tell\n  end if\nend tell\nfound"
-  let safari_result = spawn_sync_result(
-    "osascript",
-    "[\"-e\", " + json_encode_value(safari_script) + "]",
-  )
-  if safari_result.contains("true") {
-    console_log("Activated existing Safari tab: \{url}")
-    return true
-  }
-  false
-}
-
-///|
 extern "js" fn get_platform() -> String =
   #|() => process.platform
 
@@ -484,11 +450,6 @@ extern "js" fn js_obj_stdout(obj : JsValue) -> String =
   #|(obj) => obj?.stdout || ""
 
 ///|
-/// Spawn/exec options objects
-extern "js" fn js_spawn_opts_utf8() -> JsValue =
-  #|() => ({ encoding: "utf8", timeout: 3000 })
-
-///|
 extern "js" fn js_spawn_opts_pipe() -> JsValue =
   #|() => ({ stdio: ["pipe", "pipe", "pipe"] })
 
@@ -595,19 +556,6 @@ extern "js" fn on_spawn_error(proc : JsValue, handler : () -> Unit) -> Unit =
   #|(proc, handler) => proc.on("error", () => handler())
 
 ///| ----- MoonBit wrapper functions -----
-
-///|
-/// Execute command synchronously and return stdout
-fn spawn_sync_result(cmd : String, args_json : String) -> String {
-  try_call_string(
-    fn() {
-      js_obj_stdout(
-        child_spawn_sync(cmd, js_parse_json(args_json), js_spawn_opts_utf8()),
-      )
-    },
-    "",
-  )
-}
 
 ///|
 /// SHA256 hash (first 16 chars)

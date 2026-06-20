@@ -1402,6 +1402,7 @@ pub fn build_markdown_html(
   port : Int,
   file_path? : String = "",
   tab_title? : String = "",
+  server_instance_id? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, file_path~, tab_title~)
@@ -1490,6 +1491,6 @@ pub fn build_markdown_html(
     buf.write_string(serialize_questions_json(md.questions))
     buf.write_string(";</script>")
   }
-  build_script_footer(buf, port, "markdown", filename)
+  build_script_footer(buf, port, "markdown", filename, server_instance_id~)
   buf.to_string()
 }

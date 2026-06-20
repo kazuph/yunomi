@@ -524,6 +524,7 @@ fn build_script_footer(
   port : Int,
   mode : String,
   filename : String,
+  server_instance_id? : String = "",
 ) -> Unit {
   // Mermaid CDN for markdown mode
   if mode == "markdown" {
@@ -615,6 +616,8 @@ fn build_script_footer(
   buf.write_string(escape_js_string(mode))
   buf.write_string("\";window.__YUNOMI_FILENAME__=\"")
   buf.write_string(escape_js_string(filename))
+  buf.write_string("\";window.__YUNOMI_SERVER_INSTANCE__=\"")
+  buf.write_string(escape_js_string(server_instance_id))
   buf.write_string("\";</script></body></html>")
 }
 
@@ -625,6 +628,7 @@ pub fn build_csv_html(
   filename : String,
   port : Int,
   tab_title? : String = "",
+  server_instance_id? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -672,7 +676,7 @@ pub fn build_csv_html(
   buf.write_string("<script>const DATA = ")
   buf.write_string(serialize_csv_data_json(data))
   buf.write_string(";</script>")
-  build_script_footer(buf, port, "csv", filename)
+  build_script_footer(buf, port, "csv", filename, server_instance_id~)
   buf.to_string()
 }
 
@@ -683,6 +687,7 @@ pub fn build_diff_html(
   filename : String,
   port : Int,
   tab_title? : String = "",
+  server_instance_id? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -769,7 +774,7 @@ pub fn build_diff_html(
   build_submit_modal(buf)
   build_history_panel(buf)
   build_recovery_modal(buf)
-  build_script_footer(buf, port, "diff", filename)
+  build_script_footer(buf, port, "diff", filename, server_instance_id~)
   buf.to_string()
 }
 
@@ -780,6 +785,7 @@ pub fn build_text_html(
   filename : String,
   port : Int,
   tab_title? : String = "",
+  server_instance_id? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -799,6 +805,6 @@ pub fn build_text_html(
   build_submit_modal(buf)
   build_history_panel(buf)
   build_recovery_modal(buf)
-  build_script_footer(buf, port, "text", filename)
+  build_script_footer(buf, port, "text", filename, server_instance_id~)
   buf.to_string()
 }

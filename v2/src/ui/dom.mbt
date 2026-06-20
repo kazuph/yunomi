@@ -282,6 +282,30 @@ extern "js" fn get_yunomi_filename() -> String =
   #|() => window.__YUNOMI_FILENAME__ || ""
 
 ///|
+extern "js" fn get_yunomi_server_instance() -> String =
+  #|() => window.__YUNOMI_SERVER_INSTANCE__ || ""
+
+///|
+extern "js" fn retire_if_stale_review_session(current : String) -> Bool =
+  #|(current) => {
+  #|  if (!current) return false;
+  #|  const tabKey = "yunomi:tab-id";
+  #|  const serverKey = "yunomi:server-instance";
+  #|  try {
+  #|    const tabId = sessionStorage.getItem(tabKey) || "";
+  #|    const previous = sessionStorage.getItem(serverKey) || "";
+  #|    if (tabId && previous !== current) {
+  #|      sessionStorage.setItem(serverKey, current);
+  #|      return true;
+  #|    }
+  #|    sessionStorage.setItem(serverKey, current);
+  #|    return false;
+  #|  } catch (_) {
+  #|    return false;
+  #|  }
+  #|}
+
+///|
 extern "js" fn get_or_create_tab_id() -> String =
   #|() => {
   #|  const key = "yunomi:tab-id";

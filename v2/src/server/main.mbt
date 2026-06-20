@@ -633,11 +633,23 @@ fn load_and_build_html(ctx : ServerContext) -> String {
       let delimiter = if ctx.mode == @core.FileMode::Tsv { '\t' } else { ',' }
       let flat = @core.parse_csv(content, delimiter)
       let data = @core.csv_data_from_flat(flat)
-      @core.build_csv_html(data, ctx.filename, ctx.port, tab_title~)
+      @core.build_csv_html(
+        data,
+        ctx.filename,
+        ctx.port,
+        tab_title~,
+        server_instance_id=server_instance_id.val,
+      )
     }
     @core.FileMode::Diff => {
       let data = @core.parse_diff(content)
-      @core.build_diff_html(data, ctx.filename, ctx.port, tab_title~)
+      @core.build_diff_html(
+        data,
+        ctx.filename,
+        ctx.port,
+        tab_title~,
+        server_instance_id=server_instance_id.val,
+      )
     }
     @core.FileMode::Markdown => {
       let md = @core.parse_markdown(content)
@@ -647,11 +659,18 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         ctx.port,
         file_path=ctx.file_path,
         tab_title~,
+        server_instance_id=server_instance_id.val,
       )
     }
     @core.FileMode::Text => {
       let lines = @core.split_to_lines(content)
-      @core.build_text_html(lines, ctx.filename, ctx.port, tab_title~)
+      @core.build_text_html(
+        lines,
+        ctx.filename,
+        ctx.port,
+        tab_title~,
+        server_instance_id=server_instance_id.val,
+      )
     }
   }
 }
