@@ -442,6 +442,43 @@ try {
       state,
     );
   }
+  await page.keyboard.press("Escape");
+  for (let i = 0; i < thumbSummary.actual; i++) {
+    await page.keyboard.press("j");
+    await waitForNavSettle(page, i);
+    const state = await measureNavState(page, i);
+    assert(
+      state.activeIndex === i && state.highlightedIndex === i && state.highlightCount === 1,
+      `j だけでメディア ${i + 1}/${thumbSummary.actual} へ順番に移動する`,
+      state,
+    );
+  }
+  await page.keyboard.press("k");
+  await waitForNavSettle(page, thumbSummary.actual - 2);
+  const afterK = await measureNavState(page, thumbSummary.actual - 2);
+  assert(
+    afterK.activeIndex === thumbSummary.actual - 2 &&
+      afterK.highlightedIndex === thumbSummary.actual - 2,
+    "k は ArrowUp と同じく前のメディアへ戻る",
+    afterK,
+  );
+  await page.locator("#send-and-exit").click();
+  await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  const beforeDialogKeys = await measureNavState(page, thumbSummary.actual - 2);
+  for (const key of ["h", "j", "k", "l"]) {
+    await page.keyboard.press(key);
+  }
+  const afterDialogKeys = await measureNavState(page, thumbSummary.actual - 2);
+  assert(
+    afterDialogKeys.activeIndex === beforeDialogKeys.activeIndex &&
+      afterDialogKeys.highlightedIndex === beforeDialogKeys.highlightedIndex,
+    "submit dialog 表示中は hjkl でメディア移動しない",
+    { beforeDialogKeys, afterDialogKeys },
+  );
+  await page.locator("#modal-cancel").click();
+  await page.waitForSelector("#submit-modal.visible", { state: "detached", timeout: 5000 }).catch(async () => {
+    await page.waitForFunction(() => !document.querySelector("#submit-modal")?.classList.contains("visible"));
+  });
 
   // --- Scroll-navigator spec: the 45vw sidebar viewer panel is gone ---
   const viewerGone = await page.evaluate(() => ({

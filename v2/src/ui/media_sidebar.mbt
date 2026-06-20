@@ -521,6 +521,27 @@ fn media_index_for_timeline_focus(
 }
 
 ///|
+fn media_nav_key(key : String) -> String {
+  match key {
+    "h" | "H" => "ArrowLeft"
+    "j" | "J" => "ArrowDown"
+    "k" | "K" => "ArrowUp"
+    "l" | "L" => "ArrowRight"
+    _ => key
+  }
+}
+
+///|
+fn review_dialog_visible() -> Bool {
+  let submit = query("#submit-modal")
+  let recovery = query("#recovery-modal")
+  let questions = query("#yunomi-questions-overlay")
+  (!is_null(submit) && has_class(submit, "visible")) ||
+  (!is_null(recovery) && has_class(recovery, "visible")) ||
+  (!is_null(questions) && has_class(questions, "visible"))
+}
+
+///|
 /// Setup keyboard navigation
 fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
   let h = on_with_handle(
@@ -549,7 +570,11 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
         return
       }
 
-      let key = event_key(e)
+      if review_dialog_visible() {
+        return
+      }
+
+      let key = media_nav_key(event_key(e))
 
       // Escape to clear active selection
       if key == "Escape" && state.active_idx != -1 {

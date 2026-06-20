@@ -3666,12 +3666,12 @@ fn setup_image_fullscreen_moonbit() -> Unit {
     if key == "Escape" {
       close_image_fullscreen_moonbit(overlay)
       prevent_default(e)
-    } else if key == "ArrowLeft" {
+    } else if key == "ArrowLeft" || key == "h" || key == "H" {
       navigate_image_fullscreen_moonbit(
         -1, overlay, fs_content, fs_wrapper, fs_zoom_info, fs_counter,
       )
       prevent_default(e)
-    } else if key == "ArrowRight" {
+    } else if key == "ArrowRight" || key == "l" || key == "L" {
       navigate_image_fullscreen_moonbit(
         1, overlay, fs_content, fs_wrapper, fs_zoom_info, fs_counter,
       )
@@ -3889,23 +3889,23 @@ fn setup_video_fullscreen_moonbit() -> Unit {
     if key == "Escape" {
       close_video_fullscreen_moonbit(overlay, container)
       prevent_default(e)
-    } else if key == "ArrowLeft" || key == "j" {
+    } else if key == "ArrowLeft" || key == "h" || key == "H" {
       if fs_video_timeline.val is Some(_) {
         navigate(fs_video_timeline.val.unwrap(), -1)
       }
       prevent_default(e)
-    } else if key == "ArrowRight" || key == "l" {
+    } else if key == "ArrowRight" || key == "l" || key == "L" {
       if fs_video_timeline.val is Some(_) {
         navigate(fs_video_timeline.val.unwrap(), 1)
       }
       prevent_default(e)
-    } else if key == "ArrowUp" {
+    } else if key == "ArrowUp" || key == "k" || key == "K" {
       navigate_video_fullscreen_moonbit(-1, overlay, container, fs_counter)
       prevent_default(e)
-    } else if key == "ArrowDown" {
+    } else if key == "ArrowDown" || key == "j" || key == "J" {
       navigate_video_fullscreen_moonbit(1, overlay, container, fs_counter)
       prevent_default(e)
-    } else if key == " " || key == "k" {
+    } else if key == " " {
       let vid = query_in(container, "video")
       if !is_null(vid) {
         if video_is_paused(vid) {
