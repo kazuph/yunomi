@@ -359,7 +359,7 @@ fn navigate_to(state : MediaSidebarState, idx : Int) -> Unit {
           remove_class(target, "media-nav-highlight")
         }
       },
-      1600,
+      3000,
     ),
   )
 }
@@ -536,9 +536,11 @@ fn review_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
   let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
+  let comment = query("#comment-card")
   (!is_null(submit) && has_class(submit, "visible")) ||
   (!is_null(recovery) && has_class(recovery, "visible")) ||
-  (!is_null(questions) && has_class(questions, "visible"))
+  (!is_null(questions) && has_class(questions, "visible")) ||
+  (!is_null(comment) && get_computed_style(comment, "display") != "none")
 }
 
 ///|
@@ -571,6 +573,10 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
       }
 
       if review_dialog_visible() {
+        return
+      }
+
+      if event_shift_key(e) {
         return
       }
 
@@ -673,11 +679,6 @@ fn setup_mermaid_observer(state : MediaSidebarState) -> Unit {
   let _ = set_timeout(check_mermaid, 1000)
   let _ = set_timeout(check_mermaid, 3000)
 }
-
-///|
-/// Get currently focused element
-extern "js" fn get_active_element() -> Element =
-  #|() => document.activeElement
 
 ///|
 /// Setup mutation observer (returns handle)

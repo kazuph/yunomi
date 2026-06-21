@@ -43,6 +43,15 @@ extern "js" fn get_text_content(el : Element) -> String =
   #|(el) => el?.textContent || ""
 
 ///|
+extern "js" fn get_text_content_without_comment_buttons(el : Element) -> String =
+  #|(el) => {
+  #|  if (!el) return "";
+  #|  const clone = el.cloneNode(true);
+  #|  clone.querySelectorAll?.(".yunomi-comment-button").forEach((btn) => btn.remove());
+  #|  return clone.textContent || "";
+  #|}
+
+///|
 extern "js" fn get_value(el : Element) -> String =
   #|(el) => el?.value || ""
 
@@ -138,6 +147,10 @@ extern "js" fn event_meta_key(e : Event) -> Bool =
 ///|
 extern "js" fn event_ctrl_key(e : Event) -> Bool =
   #|(e) => e.ctrlKey || false
+
+///|
+extern "js" fn event_shift_key(e : Event) -> Bool =
+  #|(e) => e.shiftKey || false
 
 ///|
 extern "js" fn _event_is_composing(e : Event) -> Bool =
@@ -590,6 +603,14 @@ extern "js" fn parent_element(el : Element) -> Element =
   #|(el) => el?.parentElement
 
 ///|
+extern "js" fn get_active_element() -> Element =
+  #|() => document.activeElement
+
+///|
+extern "js" fn blur_active_element() -> Unit =
+  #|() => document.activeElement?.blur?.()
+
+///|
 /// Previous element sibling
 extern "js" fn previous_element_sibling(el : Element) -> Element =
   #|(el) => el?.previousElementSibling
@@ -972,6 +993,114 @@ extern "js" fn get_computed_style(el : Element, prop : String) -> String =
 /// Get children count
 extern "js" fn _children_count(el : Element) -> Int =
   #|(el) => el?.children?.length || 0
+
+///|
+extern "js" fn normalize_preview_commentable(el : Element) -> Element =
+  #|(el) => {
+  #|  if (!el) return null;
+  #|  if (el.classList?.contains("yunomi-comment-button")) {
+  #|    el = el.__yunomiCommentTarget || el.parentElement;
+  #|  }
+  #|  const timeline = el.closest?.(".timeline-thumb-wrapper");
+  #|  if (timeline) return timeline;
+  #|  if (el.matches?.("img:not(.timeline-thumb), video.video-preview, .mermaid-container, td, th, pre, blockquote, li, p, h1, h2, h3, h4, h5, h6, summary")) {
+  #|    return el;
+  #|  }
+  #|  return el.closest?.("img:not(.timeline-thumb), video.video-preview, .mermaid-container, td, th, pre, blockquote, li, p, h1, h2, h3, h4, h5, h6, summary");
+  #|}
+
+///|
+extern "js" fn get_preview_comment_targets() -> Array[Element] =
+  #|() => {
+  #|  const preview = document.querySelector("#md-preview");
+  #|  if (!preview) return [];
+  #|  const selector = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const out = [];
+  #|  const seen = new Set();
+  #|  const visible = (el) => {
+  #|    if (!el || el.offsetParent === null) return false;
+  #|    if (el.closest("details:not([open])")) return false;
+  #|    const style = getComputedStyle(el);
+  #|    if (style.display === "none" || style.visibility === "hidden") return false;
+  #|    const rect = el.getBoundingClientRect();
+  #|    return rect.width > 0 && rect.height > 0;
+  #|  };
+  #|  for (const raw of preview.querySelectorAll(selector)) {
+  #|    const el = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|    if (el.matches?.("img.timeline-thumb")) continue;
+  #|    if (el.closest?.(".yunomi-comment-button")) continue;
+  #|    if (el.closest?.(".video-timeline") && !el.classList?.contains("timeline-thumb-wrapper")) continue;
+  #|    if (!visible(el)) continue;
+  #|    if (!seen.has(el)) {
+  #|      seen.add(el);
+  #|      out.push(el);
+  #|    }
+  #|  }
+  #|  return out;
+  #|}
+
+///|
+extern "js" fn table_cell_neighbor(el : Element, direction : String) -> Element =
+  #|(el, direction) => {
+  #|  const cell = el?.closest?.("td,th");
+  #|  if (!cell) return null;
+  #|  const row = cell.parentElement;
+  #|  if (!row) return null;
+  #|  const cells = Array.from(row.children).filter((n) => n.matches?.("td,th"));
+  #|  const idx = cells.indexOf(cell);
+  #|  if (direction === "left") return cells[Math.max(0, idx - 1)] || null;
+  #|  if (direction === "right") return cells[Math.min(cells.length - 1, idx + 1)] || null;
+  #|  const sibling = direction === "up" ? row.previousElementSibling : row.nextElementSibling;
+  #|  if (!sibling) return null;
+  #|  const nextCells = Array.from(sibling.children).filter((n) => n.matches?.("td,th"));
+  #|  return nextCells[Math.min(idx, nextCells.length - 1)] || null;
+  #|}
+
+///|
+extern "js" fn install_preview_comment_buttons(handler : (Element) -> Unit) -> Unit =
+  #|(handler) => {
+  #|  const preview = document.querySelector("#md-preview");
+  #|  if (!preview) return;
+  #|  const selector = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const hostFor = (target) => {
+  #|    if (!target) return null;
+  #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;
+  #|    if (target.matches?.("video.video-preview")) return target.closest(".video-overlay-wrapper") || target.parentElement;
+  #|    if (target.matches?.("img:not(.timeline-thumb)")) return target.parentElement;
+  #|    return target;
+  #|  };
+  #|  const decorate = () => {
+  #|    const seen = new Set();
+  #|    for (const raw of preview.querySelectorAll(selector)) {
+  #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
+  #|      if (seen.has(target)) continue;
+  #|      seen.add(target);
+  #|      const host = hostFor(target);
+  #|      if (!host || host.querySelector?.(":scope > .yunomi-comment-button")) continue;
+  #|      host.classList.add("yunomi-commentable");
+  #|      const btn = document.createElement("button");
+  #|      btn.type = "button";
+  #|      btn.className = "yunomi-comment-button";
+  #|      btn.textContent = "✎";
+  #|      btn.title = "Comment";
+  #|      btn.setAttribute("aria-label", "Comment");
+  #|      btn.__yunomiCommentTarget = target;
+  #|      btn.addEventListener("click", (e) => {
+  #|        e.preventDefault();
+  #|        e.stopPropagation();
+  #|        handler(target);
+  #|      });
+  #|      host.appendChild(btn);
+  #|    }
+  #|  };
+  #|  decorate();
+  #|  const observer = new MutationObserver(decorate);
+  #|  observer.observe(preview, { childList: true, subtree: true });
+  #|  setTimeout(decorate, 500);
+  #|  setTimeout(decorate, 1500);
+  #|  setTimeout(decorate, 3000);
+  #|}
 
 ///|
 /// Collect yunomi answers from question panel

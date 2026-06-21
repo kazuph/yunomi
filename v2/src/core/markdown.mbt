@@ -245,6 +245,8 @@ fn render_markdown_lines(lines : Array[String]) -> String {
         buf.write_string(escape_html(heading_key))
         buf.write_string("\" data-heading-level=\"")
         buf.write_string(level.to_string())
+        buf.write_string("\" data-source-line=\"")
+        buf.write_string((i + 1).to_string())
         buf.write_string(
           "\"><span class=\"heading-toggle-icon\">\u{25BC}</span>",
         )
@@ -300,7 +302,11 @@ fn render_markdown_lines(lines : Array[String]) -> String {
           "</div><button class=\"mermaid-fullscreen-btn\" title=\"Fullscreen\">\u{26F6}</button></div>\n",
         )
       } else {
-        buf.write_string("<pre><code")
+        buf.write_string("<pre data-source-start-line=\"")
+        buf.write_string(code_block_start_line.to_string())
+        buf.write_string("\" data-source-end-line=\"")
+        buf.write_string(code_block_end_line.to_string())
+        buf.write_string("\"><code")
         if lang.length() > 0 {
           buf.write_string(" class=\"language-")
           buf.write_string(escape_html(lang))
@@ -315,12 +321,17 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     // Blockquote
     if line.has_prefix(">") {
       let quote_lines : Array[String] = []
+      let quote_start_line = i + 1
       while i < len && lines[i].has_prefix(">") {
         let content = trim(safe_slice(lines[i], 1))
         quote_lines.push(content)
         i = i + 1
       }
-      buf.write_string("<blockquote>")
+      buf.write_string("<blockquote data-source-start-line=\"")
+      buf.write_string(quote_start_line.to_string())
+      buf.write_string("\" data-source-end-line=\"")
+      buf.write_string(i.to_string())
+      buf.write_string("\">")
       for ql in quote_lines {
         buf.write_string("<p>")
         buf.write_string(render_inline(ql))
@@ -333,20 +344,27 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if line.has_prefix("- ") || line.has_prefix("* ") {
       buf.write_string("<ul>\n")
       while i < len && (lines[i].has_prefix("- ") || lines[i].has_prefix("* ")) {
+        let item_line = i + 1
         let item_text = safe_slice(lines[i], 2)
         // Task list: - [ ] or - [x]
         if item_text.has_prefix("[ ] ") {
           buf.write_string(
-            "<li class=\"task-list-item\"><input type=\"checkbox\" disabled /> ",
+            "<li class=\"task-list-item\" data-source-line=\"",
           )
+          buf.write_string(item_line.to_string())
+          buf.write_string("\"><input type=\"checkbox\" disabled /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
         } else if item_text.has_prefix("[x] ") || item_text.has_prefix("[X] ") {
           buf.write_string(
-            "<li class=\"task-list-item\"><input type=\"checkbox\" checked disabled /> ",
+            "<li class=\"task-list-item\" data-source-line=\"",
           )
+          buf.write_string(item_line.to_string())
+          buf.write_string("\"><input type=\"checkbox\" checked disabled /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
         } else {
-          buf.write_string("<li>")
+          buf.write_string("<li data-source-line=\"")
+          buf.write_string(item_line.to_string())
+          buf.write_string("\">")
           buf.write_string(render_inline(item_text))
         }
         buf.write_string("</li>\n")
@@ -359,8 +377,11 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if is_ordered_list_item(line) {
       buf.write_string("<ol>\n")
       while i < len && is_ordered_list_item(lines[i]) {
+        let item_line = i + 1
         let content = extract_ordered_list_content(lines[i])
-        buf.write_string("<li>")
+        buf.write_string("<li data-source-line=\"")
+        buf.write_string(item_line.to_string())
+        buf.write_string("\">")
         buf.write_string(render_inline(content))
         buf.write_string("</li>\n")
         i = i + 1
@@ -372,19 +393,25 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if i + 1 < len && is_table_separator(lines[i + 1]) {
       buf.write_string("<div class=\"table-container\">\n")
       buf.write_string("<table>\n<thead>\n<tr>\n")
+      let header_line = i + 1
       let headers = parse_table_row(line)
       for h in headers {
-        buf.write_string("<th>")
+        buf.write_string("<th data-source-line=\"")
+        buf.write_string(header_line.to_string())
+        buf.write_string("\">")
         buf.write_string(render_inline(trim(h)))
         buf.write_string("</th>\n")
       }
       buf.write_string("</tr>\n</thead>\n<tbody>\n")
       i = i + 2 // skip header + separator
       while i < len && lines[i].contains("|") {
+        let row_line = i + 1
         let cells = parse_table_row(lines[i])
         buf.write_string("<tr>\n")
         for cell in cells {
-          buf.write_string("<td>")
+          buf.write_string("<td data-source-line=\"")
+          buf.write_string(row_line.to_string())
+          buf.write_string("\">")
           buf.write_string(render_inline(trim(cell)))
           buf.write_string("</td>\n")
         }
@@ -397,6 +424,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     // Paragraph (collect contiguous non-empty, non-block lines)
     let para_buf = StringBuilder::new()
     let mut para_first = true
+    let para_start_line = i + 1
     while i < len && trim(lines[i]).length() > 0 && !is_block_start(lines[i]) {
       if !para_first {
         para_buf.write_string(" ")
@@ -407,7 +435,11 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     }
     let para_text = para_buf.to_string()
     if para_text.length() > 0 {
-      buf.write_string("<p>")
+      buf.write_string("<p data-source-start-line=\"")
+      buf.write_string(para_start_line.to_string())
+      buf.write_string("\" data-source-end-line=\"")
+      buf.write_string(i.to_string())
+      buf.write_string("\">")
       buf.write_string(render_inline(para_text))
       buf.write_string("</p>\n")
     }

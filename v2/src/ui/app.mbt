@@ -32,6 +32,17 @@ let comments : Map[String, AppComment] = {}
 let active_key : Ref[String] = Ref("")
 
 ///|
+/// Currently highlighted target for keyboard-driven comments
+let selected_comment_row : Ref[Int] = Ref(-1)
+
+///|
+let selected_comment_col : Ref[Int] = Ref(0)
+
+///|
+let selected_comment_el : Ref[Element] = Ref(null_element())
+
+///|
+///|
 /// Scroll sync state
 let scroll_sync_raf : Ref[Int] = Ref(0)
 
@@ -521,7 +532,7 @@ fn resolve_comment_target_preview(target : Element) -> String {
   if is_null(target) {
     return ""
   }
-  let content = get_text_content(target)
+  let content = get_text_content_without_comment_buttons(target)
   if content.length() > 0 {
     return content
   }
@@ -761,6 +772,8 @@ pub fn init_app() -> Unit {
   if mode == "markdown" {
     setup_scroll_sync()
     setup_preview_click()
+    setup_preview_comment_buttons()
+    setup_comment_keyboard_shortcuts()
     setup_preview_mouseup()
     // Initialize heading toggles (collapsible sections)
     init_heading_toggles()
@@ -935,6 +948,9 @@ fn show_comment_card(
   if is_null(card) || is_null(textarea) {
     return
   }
+  selected_comment_row.val = row
+  selected_comment_col.val = col
+  selected_comment_el.val = target
   populate_comment_card(target, key, row, col, textarea)
   position_comment_card(card, target, true)
   focus_element(textarea)
@@ -946,6 +962,7 @@ fn hide_comment_card() -> Unit {
   if !is_null(card) {
     set_style(card, "display", "none")
   }
+  blur_active_element()
   active_key.val = ""
   // Clear preview highlight and source selection
   let old_highlights = query_all(".preview-highlight")
@@ -2765,7 +2782,7 @@ fn resolve_preview_block_text(block : Element) -> String {
   if is_null(block) {
     return ""
   }
-  let text = normalize_text(get_text_content(block))
+  let text = normalize_text(get_text_content_without_comment_buttons(block))
   if text.length() > 0 {
     return text
   }
@@ -2900,6 +2917,9 @@ fn select_source_range(
   } else {
     (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
   }
+  selected_comment_row.val = start_row - 1
+  selected_comment_col.val = col
+  selected_comment_el.val = preview_el
   let source_target = query("td[data-row=\"\{start_row - 1}\"][data-col=\"1\"]")
   // Position card: check if source is hidden (preview-only mode)
   let is_source_hidden = !is_null(md_right) && is_element_hidden(md_right)
@@ -2976,6 +2996,204 @@ fn _show_comment_card_below(
 }
 
 ///|
+fn select_comment_target_only(
+  start_row : Int,
+  end_row : Int,
+  preview_el : Element,
+  col? : Int = 0,
+) -> Unit {
+  scroll_sync_disabled_until.val = date_now() + 1000.0
+  if scroll_sync_raf.val != 0 {
+    cancel_animation_frame(scroll_sync_raf.val)
+    scroll_sync_raf.val = 0
+  }
+  let actual_end = if end_row > 0 { end_row } else { start_row }
+  let old_selected = query_all(".selected")
+  for el in old_selected {
+    remove_class(el, "selected")
+  }
+  let old_highlights = query_all(".preview-highlight")
+  for el in old_highlights {
+    remove_class(el, "preview-highlight")
+  }
+  if !is_null(preview_el) {
+    add_class(preview_el, "preview-highlight")
+    scroll_into_view_nearest(preview_el)
+  }
+  for r = start_row; r <= actual_end; r = r + 1 {
+    let row_idx = r - 1
+    let cell = query("td[data-row=\"\{row_idx}\"][data-col=\"1\"]")
+    if !is_null(cell) {
+      add_class(cell, "selected")
+    }
+  }
+  selected_comment_row.val = start_row - 1
+  selected_comment_col.val = col
+  selected_comment_el.val = preview_el
+  active_key.val = if start_row == actual_end {
+    (start_row - 1).to_string() + ":" + col.to_string()
+  } else {
+    (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
+  }
+  ignore(
+    set_timeout(
+      fn() {
+        scroll_sync_disabled_until.val = 0.0
+        scroll_active_pane.val = ""
+      },
+      300,
+    ),
+  )
+}
+
+///|
+fn open_selected_comment_target() -> Bool {
+  if selected_comment_row.val < 0 {
+    return false
+  }
+  let row = selected_comment_row.val
+  let target = if !is_null(selected_comment_el.val) {
+    selected_comment_el.val
+  } else {
+    query("td[data-row=\"\{row}\"][data-col=\"1\"]")
+  }
+  if is_null(target) {
+    return false
+  }
+  select_source_range(row + 1, row + 1, target, col=selected_comment_col.val)
+  true
+}
+
+///|
+fn open_or_select_preview_comment_target(
+  raw_target : Element,
+  open_card : Bool,
+) -> Bool {
+  if is_null(raw_target) {
+    return false
+  }
+  let target = normalize_preview_commentable(raw_target)
+  if is_null(target) {
+    return false
+  }
+  let mermaid_range = get_mermaid_source_range(target)
+  if mermaid_range.0 > 0 {
+    if open_card {
+      select_source_range(
+        mermaid_range.0,
+        mermaid_range.1,
+        closest(target, ".mermaid-container"),
+      )
+    } else {
+      select_comment_target_only(
+        mermaid_range.0,
+        mermaid_range.1,
+        closest(target, ".mermaid-container"),
+      )
+    }
+    return true
+  }
+  let timeline = closest(target, ".timeline-thumb-wrapper")
+  if !is_null(timeline) {
+    let wrapper = closest(timeline, ".video-overlay-wrapper")
+    let video = query_in(wrapper, "video.video-preview")
+    if !is_null(video) {
+      let heading = find_closest_heading_above(video)
+      let h_line = get_heading_source_line(heading)
+      let line = find_image_source_line(get_attr(video, "src"), h_line)
+      if line > 0 {
+        if open_card {
+          select_source_range(line, line, timeline)
+        } else {
+          select_comment_target_only(line, line, timeline)
+        }
+        return true
+      }
+    }
+  }
+  let tag = get_tag_name(target)
+  if tag == "IMG" {
+    let src = get_src(target)
+    let heading = find_closest_heading_above(target)
+    let h_line = get_heading_source_line(heading)
+    let line = find_image_source_line(src, h_line)
+    if line > 0 {
+      if open_card {
+        select_source_range(line, line, target)
+      } else {
+        select_comment_target_only(line, line, target)
+      }
+      return true
+    }
+  }
+  if tag == "VIDEO" {
+    let heading = find_closest_heading_above(target)
+    let h_line = get_heading_source_line(heading)
+    let line = find_image_source_line(get_attr(target, "src"), h_line)
+    if line > 0 {
+      if open_card {
+        select_source_range(line, line, target)
+      } else {
+        select_comment_target_only(line, line, target)
+      }
+      return true
+    }
+  }
+  let pre = closest(target, "pre")
+  if !is_null(pre) {
+    let code_text = get_text_content(pre)
+    let range = find_code_block_range(code_text)
+    if range.0 > 0 {
+      if open_card {
+        select_source_range(range.0, range.1, pre)
+      } else {
+        select_comment_target_only(range.0, range.1, pre)
+      }
+      return true
+    }
+  }
+  let block = resolve_preview_click_block(target)
+  if !is_null(block) {
+    let heading = find_closest_heading_above(block)
+    let h_line = get_heading_source_line(heading)
+    let media_line = find_media_source_line_in_block(block, h_line)
+    if media_line > 0 {
+      let media_anchor = resolve_preview_media_anchor(block)
+      if open_card {
+        select_source_range(media_line, media_line, media_anchor)
+      } else {
+        select_comment_target_only(media_line, media_line, media_anchor)
+      }
+      return true
+    }
+    let text = resolve_preview_block_text(block)
+    if text.length() == 0 {
+      return false
+    }
+    let block_tag = get_tag_name(block)
+    let line = if block_tag == "TD" || block_tag == "TH" {
+      find_table_source_line(text, h_line)
+    } else {
+      find_source_line(text, block, h_line)
+    }
+    if line > 0 {
+      let cell_col = if block_tag == "TD" || block_tag == "TH" {
+        get_cell_index(block) + 1
+      } else {
+        0
+      }
+      if open_card {
+        select_source_range(line, line, block, col=cell_col)
+      } else {
+        select_comment_target_only(line, line, block, col=cell_col)
+      }
+      return true
+    }
+  }
+  false
+}
+
+///|
 /// Setup preview click handler for markdown mode
 fn setup_preview_click() -> Unit {
   let preview = query("#md-preview")
@@ -2990,65 +3208,115 @@ fn setup_preview_click() -> Unit {
     if !is_null(closest(target, ".mermaid-fullscreen-btn")) {
       return
     }
-    let mermaid_range = get_mermaid_source_range(target)
-    if mermaid_range.0 > 0 {
-      select_source_range(
-        mermaid_range.0,
-        mermaid_range.1,
-        closest(target, ".mermaid-container"),
-      )
+    ignore(open_or_select_preview_comment_target(target, true))
+  })
+}
+
+///|
+fn setup_preview_comment_buttons() -> Unit {
+  let preview = query("#md-preview")
+  if is_null(preview) {
+    return
+  }
+  install_preview_comment_buttons(fn(target) {
+    ignore(open_or_select_preview_comment_target(target, true))
+  })
+}
+
+///|
+fn app_dialog_visible() -> Bool {
+  let submit = query("#submit-modal")
+  let recovery = query("#recovery-modal")
+  let questions = query("#yunomi-questions-overlay")
+  let comment = query("#comment-card")
+  (!is_null(submit) && has_class(submit, "visible")) ||
+  (!is_null(recovery) && has_class(recovery, "visible")) ||
+  (!is_null(questions) && has_class(questions, "visible")) ||
+  (!is_null(comment) && get_computed_style(comment, "display") != "none")
+}
+
+///|
+fn keyboard_shortcuts_blocked() -> Bool {
+  if app_dialog_visible() {
+    return true
+  }
+  let active = get_active_element()
+  let tag = get_tag_name(active)
+  tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT"
+}
+
+///|
+fn index_of_comment_target(targets : Array[Element], target : Element) -> Int {
+  if is_null(target) {
+    return -1
+  }
+  let normalized = normalize_preview_commentable(target)
+  for i, item in targets {
+    if elem_eq(item, normalized) {
+      return i
+    }
+  }
+  -1
+}
+
+///|
+fn select_preview_target_by_delta(delta : Int) -> Bool {
+  let targets = get_preview_comment_targets()
+  if targets.length() == 0 {
+    return false
+  }
+  let current_idx = index_of_comment_target(targets, selected_comment_el.val)
+  let next_idx = if current_idx < 0 {
+    if delta < 0 { targets.length() - 1 } else { 0 }
+  } else {
+    let candidate = current_idx + delta
+    if candidate < 0 {
+      0
+    } else if candidate >= targets.length() {
+      targets.length() - 1
+    } else {
+      candidate
+    }
+  }
+  open_or_select_preview_comment_target(targets[next_idx], false)
+}
+
+///|
+fn select_table_neighbor_or_delta(direction : String, fallback_delta : Int) -> Bool {
+  let neighbor = table_cell_neighbor(selected_comment_el.val, direction)
+  if !is_null(neighbor) {
+    return open_or_select_preview_comment_target(neighbor, false)
+  }
+  select_preview_target_by_delta(fallback_delta)
+}
+
+///|
+fn setup_comment_keyboard_shortcuts() -> Unit {
+  on_doc("keydown", fn(e) {
+    if keyboard_shortcuts_blocked() {
       return
     }
-    let tag = get_tag_name(target)
-    // Image click
-    if tag == "IMG" {
-      let src = get_src(target)
-      let heading = find_closest_heading_above(target)
-      let h_line = get_heading_source_line(heading)
-      let line = find_image_source_line(src, h_line)
-      if line > 0 {
-        select_source_range(line, line, target)
-      }
-      return
-    }
-    // Code block click (<pre> or <code> inside <pre>)
-    let pre = closest(target, "pre")
-    if !is_null(pre) {
-      let code_text = get_text_content(pre)
-      let range = find_code_block_range(code_text)
-      if range.0 > 0 {
-        select_source_range(range.0, range.1, pre)
-      }
-      return
-    }
-    // Generic block element click
-    let block = resolve_preview_click_block(target)
-    if !is_null(block) {
-      let heading = find_closest_heading_above(block)
-      let h_line = get_heading_source_line(heading)
-      let media_line = find_media_source_line_in_block(block, h_line)
-      if media_line > 0 {
-        let media_anchor = resolve_preview_media_anchor(block)
-        select_source_range(media_line, media_line, media_anchor)
-        return
-      }
-      let text = resolve_preview_block_text(block)
-      if text.length() == 0 {
-        return
-      }
-      let block_tag = get_tag_name(block)
-      let line = if block_tag == "TD" || block_tag == "TH" {
-        find_table_source_line(text, h_line)
-      } else {
-        find_source_line(text, block, h_line)
-      }
-      if line > 0 {
-        let cell_col = if block_tag == "TD" || block_tag == "TH" {
-          get_cell_index(block) + 1 // 1-indexed: col=0 is line comment, col>=1 is cell comment
-        } else {
-          0
+    let key = event_key(e)
+    if event_shift_key(e) {
+      match key {
+        "h" | "H" => {
+          prevent_default(e)
+          stop_propagation(e)
+          ignore(select_table_neighbor_or_delta("left", -1))
         }
-        select_source_range(line, line, block, col=cell_col)
+        "l" | "L" => {
+          prevent_default(e)
+          stop_propagation(e)
+          ignore(select_table_neighbor_or_delta("right", 1))
+        }
+        _ => ()
+      }
+      return
+    }
+    if key == "i" || key == "I" || key == "Enter" {
+      if open_selected_comment_target() {
+        prevent_default(e)
+        stop_propagation(e)
       }
     }
   })

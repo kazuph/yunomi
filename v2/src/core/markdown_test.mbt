@@ -25,13 +25,13 @@ test "parse markdown headings" {
 test "parse markdown paragraphs" {
   let md = parse_markdown("Hello world\n\nSecond paragraph")
   debug_inspect(
-    md.html.contains("<p>Hello world</p>"),
+    md.html.contains("<p data-source-start-line=\"1\" data-source-end-line=\"1\">Hello world</p>"),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("<p>Second paragraph</p>"),
+    md.html.contains("<p data-source-start-line=\"3\" data-source-end-line=\"3\">Second paragraph</p>"),
     content=(
       #|true
     ),
@@ -59,7 +59,7 @@ test "parse markdown bold and italic" {
 test "parse markdown code block" {
   let md = parse_markdown("```js\nconst x = 1;\n```")
   debug_inspect(
-    md.html.contains("<pre><code class=\"language-js\">"),
+    md.html.contains("<pre data-source-start-line=\"1\" data-source-end-line=\"3\"><code class=\"language-js\">"),
     content=(
       #|true
     ),
@@ -93,7 +93,7 @@ test "parse markdown unordered list" {
     ),
   )
   debug_inspect(
-    md.html.contains("<li>item 1</li>"),
+    md.html.contains("<li data-source-line=\"1\">item 1</li>"),
     content=(
       #|true
     ),
@@ -110,7 +110,7 @@ test "parse markdown ordered list" {
     ),
   )
   debug_inspect(
-    md.html.contains("<li>first</li>"),
+    md.html.contains("<li data-source-line=\"1\">first</li>"),
     content=(
       #|true
     ),
@@ -178,7 +178,7 @@ test "whitespace-only image target stays literal text" {
 test "parse markdown blockquote" {
   let md = parse_markdown("> quoted text")
   debug_inspect(
-    md.html.contains("<blockquote>"),
+    md.html.contains("<blockquote data-source-start-line=\"1\" data-source-end-line=\"1\">"),
     content=(
       #|true
     ),
@@ -206,13 +206,13 @@ test "parse markdown table" {
     ),
   )
   debug_inspect(
-    md.html.contains("<th>"),
+    md.html.contains("<th data-source-line=\"1\">"),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("<td>"),
+    md.html.contains("<td data-source-line=\"3\">"),
     content=(
       #|true
     ),

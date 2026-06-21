@@ -521,13 +521,13 @@ try {
     afterClick,
   );
 
-  // --- Highlight auto-clears after ~1.6s (poll instead of fixed sleep) ---
+  // --- Highlight auto-clears after a short dwell (poll instead of fixed sleep) ---
   const highlightCleared = await page.waitForFunction(
     () => document.querySelectorAll(".media-nav-highlight").length === 0,
     undefined,
-    { timeout: 5000 },
+    { timeout: 7000 },
   ).then(() => true).catch(() => false);
-  assert(highlightCleared, "ハイライトリングは約1.6秒で自動的に消える");
+  assert(highlightCleared, "ハイライトリングは短い表示後に自動的に消える");
 
   // --- Arrow navigation while sampling media counts: nothing may disappear
   //     mid-transition (guards the original "blank flash" complaint) ---

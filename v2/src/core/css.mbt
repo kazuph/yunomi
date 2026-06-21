@@ -390,7 +390,7 @@ fn build_css() -> String {
     #|}
     #|.floating {
     #|  position: fixed;
-    #|  z-index: 10;
+    #|  z-index: 120;
     #|  background: var(--card-bg);
     #|  border: 1px solid var(--border);
     #|  border-radius: var(--radius-lg);
@@ -2475,6 +2475,48 @@ fn build_css() -> String {
     #|  color: var(--muted);
     #|  text-align: center;
     #|  line-height: 1.2;
+    #|}
+    #|.yunomi-commentable {
+    #|  position: relative;
+    #|}
+    #|.yunomi-comment-button {
+    #|  position: absolute;
+    #|  top: 6px;
+    #|  right: 6px;
+    #|  width: 24px;
+    #|  height: 24px;
+    #|  border: 1px solid rgba(0, 0, 0, 0.18);
+    #|  border-radius: 6px;
+    #|  background: rgba(255, 255, 255, 0.92);
+    #|  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    #|  cursor: pointer;
+    #|  z-index: 4;
+    #|  opacity: 0.72;
+    #|  color: var(--accent);
+    #|  font-size: 15px;
+    #|  font-weight: 700;
+    #|  line-height: 1;
+    #|  display: inline-flex;
+    #|  align-items: center;
+    #|  justify-content: center;
+    #|  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
+    #|}
+    #|.yunomi-commentable:hover > .yunomi-comment-button,
+    #|.yunomi-comment-button:focus-visible {
+    #|  opacity: 1;
+    #|  transform: translateY(-1px);
+    #|  background: #fff;
+    #|}
+    #|.md-preview .video-timeline .timeline-thumb-wrapper.yunomi-commentable {
+    #|  position: relative;
+    #|}
+    #|.md-preview .video-timeline .timeline-thumb-wrapper > .yunomi-comment-button {
+    #|  top: 4px;
+    #|  right: 4px;
+    #|}
+    #|.video-overlay-wrapper > .yunomi-comment-button {
+    #|  top: 14px;
+    #|  right: 52px;
     #|}
     #|/* Fullscreen overlay */
     #|.fullscreen-overlay {
