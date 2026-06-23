@@ -639,6 +639,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         ctx.port,
         tab_title~,
         server_instance_id=server_instance_id.val,
+        mode=ctx.mode.to_string(),
       )
     }
     @core.FileMode::Diff => {

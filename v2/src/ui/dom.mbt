@@ -363,7 +363,7 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|    const data = JSON.parse(json);
   #|    const comments = data.comments;
   #|    if (!comments || typeof comments !== "object") return [];
-  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||""]);
+  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||""]);
   #|  } catch(e) { return []; }
   #|}
 
@@ -1014,7 +1014,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|() => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return [];
-  #|  const selector = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
   #|  const out = [];
   #|  const seen = new Set();
   #|  const visible = (el) => {
@@ -1061,7 +1061,7 @@ extern "js" fn install_preview_comment_buttons(handler : (Element) -> Unit) -> U
   #|(handler) => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return;
-  #|  const selector = "h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
   #|  const hostFor = (target) => {
   #|    if (!target) return null;
   #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;

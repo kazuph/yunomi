@@ -331,11 +331,11 @@ test "markdown html: mermaid fullscreen has zoom controls and minimap CSS" {
 }
 
 ///|
-test "markdown html: mermaid has fullscreen button per diagram" {
-  // Each mermaid code block should render with a fullscreen button
+test "markdown html: mermaid opens fullscreen from container without a fullscreen button" {
+  // Mermaid opens fullscreen from the diagram itself; no extra overlay button.
   let md : MarkdownData = {
     source: "```mermaid\ngraph LR\n  A-->B\n```",
-    html: "<div class=\"mermaid-container\"><pre class=\"mermaid\">graph LR\n  A--&gt;B</pre></div><button class=\"mermaid-fullscreen-btn\" title=\"Fullscreen\">\u{26F6}</button>",
+    html: "<div class=\"mermaid-container\"><pre class=\"mermaid\">graph LR\n  A--&gt;B</pre></div>",
     frontmatter: {},
     questions: [],
   }
@@ -343,7 +343,7 @@ test "markdown html: mermaid has fullscreen button per diagram" {
   debug_inspect(
     html.contains("mermaid-fullscreen-btn"),
     content=(
-      #|true
+      #|false
     ),
   )
   debug_inspect(

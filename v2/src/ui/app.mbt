@@ -5,6 +5,7 @@ struct AppComment {
   col : Int
   mut text : String
   mut image : String
+  mut value : String
 }
 
 ///|
@@ -515,13 +516,14 @@ fn populate_comment_card(
   }
   match comments.get(key) {
     Some(comment) => {
+      comment.value = build_comment_value(target, row, col)
       set_value(textarea, comment.text)
       current_comment_image.val = comment.image
     }
     None => {
       set_value(textarea, "")
       current_comment_image.val = ""
-      comments.set(key, { row, col, text: "", image: "" })
+      comments.set(key, { row, col, text: "", image: "", value: build_comment_value(target, row, col) })
     }
   }
   render_comment_image_preview()
@@ -531,6 +533,14 @@ fn populate_comment_card(
 fn resolve_comment_target_preview(target : Element) -> String {
   if is_null(target) {
     return ""
+  }
+  if has_class(target, "mermaid-container") {
+    let mermaid = query_in(target, ".mermaid")
+    let source = get_attr(mermaid, "data-source")
+    if source.length() > 0 {
+      return source
+    }
+    return "Mermaid diagram"
   }
   let content = get_text_content_without_comment_buttons(target)
   if content.length() > 0 {
@@ -557,9 +567,6 @@ fn resolve_comment_target_preview(target : Element) -> String {
       return "[video] " + extract_filename(src)
     }
   }
-  if has_class(target, "mermaid-container") {
-    return "Mermaid diagram"
-  }
   let image = query_in(target, "img")
   if !is_null(image) {
     return resolve_comment_target_preview(image)
@@ -570,9 +577,88 @@ fn resolve_comment_target_preview(target : Element) -> String {
   }
   let mermaid = query_in(target, ".mermaid-container")
   if !is_null(mermaid) {
-    return "Mermaid diagram"
+    return resolve_comment_target_preview(mermaid)
   }
   ""
+}
+
+///|
+fn format_comment_time(seconds : Double) -> String {
+  let m = (seconds / 60.0).to_int()
+  let s = (seconds % 60.0).to_int()
+  if s < 10 {
+    "\{m}:0\{s}"
+  } else {
+    "\{m}:\{s}"
+  }
+}
+
+///|
+fn source_line_for_row(row : Int) -> String {
+  let data = js_get_data()
+  if row >= 0 && row < data.length() && data[row].length() > 0 {
+    data[row][0]
+  } else {
+    ""
+  }
+}
+
+///|
+fn build_comment_value(target : Element, row : Int, col : Int) -> String {
+  let source_line = source_line_for_row(row)
+  if is_null(target) {
+    return source_line
+  }
+  let timeline = closest(target, ".timeline-thumb-wrapper")
+  if !is_null(timeline) {
+    let wrapper = closest(timeline, ".video-overlay-wrapper")
+    let video = query_in(wrapper, "video.video-preview")
+    let img = query_in(timeline, "img.timeline-thumb")
+    let time_raw = get_dataset(img, "time")
+    let seconds = parse_float(time_raw)
+    let label = resolve_comment_target_preview(timeline)
+    let src = get_attr(video, "src")
+    return "Video thumbnail \{format_comment_time(seconds)} (\{seconds.to_string()}s): " +
+      label +
+      " src=" +
+      src +
+      " | source: " +
+      source_line
+  }
+  let tag = get_tag_name(target)
+  if tag == "VIDEO" {
+    let seconds = video_get_current_time(target)
+    let label = resolve_comment_target_preview(target)
+    let src = get_attr(target, "src")
+    return "Video \{format_comment_time(seconds)} (\{seconds.to_string()}s): " +
+      label +
+      " src=" +
+      src +
+      " | source: " +
+      source_line
+  }
+  let wrapped_video = query_in(target, "video.video-preview")
+  if !is_null(wrapped_video) {
+    return build_comment_value(wrapped_video, row, col)
+  }
+  if col > 0 {
+    let cell_text = resolve_comment_target_preview(target)
+    return "Markdown table cell R\{row + 1} C\{col}: " +
+      cell_text +
+      " | source: " +
+      source_line
+  }
+  if has_class(target, "mermaid-container") {
+    return "Mermaid block lines \{row + 1}: " + source_line
+  }
+  let preview = resolve_comment_target_preview(target)
+  if preview.length() > 0 && source_line.length() > 0 && preview != source_line {
+    preview + " | source: " + source_line
+  } else if preview.length() > 0 {
+    preview
+  } else {
+    source_line
+  }
 }
 
 ///|
@@ -911,8 +997,9 @@ fn restore_comments() -> Unit {
         let row = str_to_int(entry[1])
         let col = str_to_int(entry[2])
         let text = entry[3]
+        let value = if entry.length() > 4 { entry[4] } else { "" }
         if text.length() > 0 {
-          comments.set(k, { row, col, text, image: "" })
+          comments.set(k, { row, col, text, image: "", value })
         }
       }
     }
@@ -1336,6 +1423,10 @@ fn build_review_payload() -> String {
       buf.write_string(comment.col.to_string())
       buf.write_string(",\"text\":")
       buf.write_string(json_encode_string(comment.text))
+      if comment.value.length() > 0 {
+        buf.write_string(",\"value\":")
+        buf.write_string(json_encode_string(comment.value))
+      }
       if comment.image.length() > 0 {
         buf.write_string(",\"image\":")
         buf.write_string(json_encode_string(comment.image))
@@ -1604,9 +1695,13 @@ fn persist_comments() -> Unit {
     buf.write_string(comment.row.to_string())
     buf.write_string(",\"col\":")
     buf.write_string(comment.col.to_string())
-    buf.write_string(",\"text\":")
-    buf.write_string(json_encode_string(comment.text))
-    buf.write_char('}')
+      buf.write_string(",\"text\":")
+      buf.write_string(json_encode_string(comment.text))
+      if comment.value.length() > 0 {
+        buf.write_string(",\"value\":")
+        buf.write_string(json_encode_string(comment.value))
+      }
+      buf.write_char('}')
     first.val = false
   })
   buf.write_string("},\"timestamp\":")
@@ -3205,9 +3300,6 @@ fn setup_preview_click() -> Unit {
     if is_null(target) {
       return
     }
-    if !is_null(closest(target, ".mermaid-fullscreen-btn")) {
-      return
-    }
     ignore(open_or_select_preview_comment_target(target, true))
   })
 }
@@ -3704,6 +3796,9 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
   // Click handler: open mermaid fullscreen (click anywhere on the diagram, like images)
   on_doc("click", fn(e) {
     let target = event_target(e)
+    if !is_null(closest(target, ".yunomi-comment-button")) {
+      return
+    }
     let container = closest(target, ".mermaid-container")
     if !is_null(container) {
       let svg = query_in(container, ".mermaid svg")

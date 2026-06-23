@@ -2015,23 +2015,6 @@ fn build_css() -> String {
     #|  color: #f88;
     #|  border-color: #744;
     #|}
-    #|.mermaid-fullscreen-btn {
-    #|  position: absolute;
-    #|  top: 8px;
-    #|  right: 8px;
-    #|  background: var(--selected-bg);
-    #|  border: 1px solid var(--border);
-    #|  border-radius: 6px;
-    #|  padding: 6px 10px;
-    #|  cursor: pointer;
-    #|  color: var(--text);
-    #|  font-size: 12px;
-    #|  z-index: 2;
-    #|  display: flex;
-    #|  align-items: center;
-    #|  gap: 4px;
-    #|}
-    #|.mermaid-fullscreen-btn:hover { background: var(--hover-bg); }
     #|/* Fullscreen overlay */
     #|.fullscreen-overlay {
     #|  position: fixed;
@@ -2517,6 +2500,11 @@ fn build_css() -> String {
     #|.video-overlay-wrapper > .yunomi-comment-button {
     #|  top: 14px;
     #|  right: 52px;
+    #|}
+    #|.mermaid-container > .yunomi-comment-button {
+    #|  top: 8px;
+    #|  right: 8px;
+    #|  z-index: 3;
     #|}
     #|/* Fullscreen overlay */
     #|.fullscreen-overlay {

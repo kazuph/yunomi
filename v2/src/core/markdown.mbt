@@ -298,9 +298,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
         buf.write_string(code_block_start_line.to_string())
         buf.write_string("\">")
         buf.write_string(escape_html(code_text))
-        buf.write_string(
-          "</div><button class=\"mermaid-fullscreen-btn\" title=\"Fullscreen\">\u{26F6}</button></div>\n",
-        )
+        buf.write_string("</div></div>\n")
       } else {
         buf.write_string("<pre data-source-start-line=\"")
         buf.write_string(code_block_start_line.to_string())

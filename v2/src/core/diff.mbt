@@ -68,7 +68,18 @@ pub fn parse_diff(input : String) -> DiffData {
       i = i + 1
     }
   }
-  DiffData::{ files, }
+  let sorted_files : Array[DiffFile] = []
+  for file in files {
+    if !file.is_binary {
+      sorted_files.push(file)
+    }
+  }
+  for file in files {
+    if file.is_binary {
+      sorted_files.push(file)
+    }
+  }
+  DiffData::{ files: sorted_files, }
 }
 
 ///| Extract old_path and new_path from "diff --git a/X b/Y"

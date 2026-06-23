@@ -833,8 +833,8 @@ try {
     afterEscape,
   );
 
-  // --- Fullscreen Mermaid minimap (full-size viewing now lives here) ---
-  await page.locator(".mermaid-fullscreen-btn").first().click();
+  // --- Fullscreen Mermaid minimap (full-size viewing opens from the diagram itself) ---
+  await page.locator(".mermaid-container").first().click({ position: { x: 30, y: 30 } });
   await page.waitForTimeout(800);
   const fullscreenMeasure = await measureMinimap(page, {
     source: "#fs-wrapper svg",

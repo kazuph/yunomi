@@ -629,6 +629,7 @@ pub fn build_csv_html(
   port : Int,
   tab_title? : String = "",
   server_instance_id? : String = "",
+  mode? : String = "csv",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -676,7 +677,7 @@ pub fn build_csv_html(
   buf.write_string("<script>const DATA = ")
   buf.write_string(serialize_csv_data_json(data))
   buf.write_string(";</script>")
-  build_script_footer(buf, port, "csv", filename, server_instance_id~)
+  build_script_footer(buf, port, mode, filename, server_instance_id~)
   buf.to_string()
 }
 
@@ -698,8 +699,22 @@ pub fn build_diff_html(
     } else {
       file.old_path
     }
-    buf.write_string("<div class=\"diff-file-header\">")
+    let mut diff_line_count = 0
+    for hunk in file.hunks {
+      diff_line_count = diff_line_count + hunk.lines.length()
+    }
+    let is_large = !file.is_binary && diff_line_count > 500
+    if is_large {
+      buf.write_string("<details class=\"diff-file diff-file-large\"><summary class=\"diff-file-header\">")
+    } else {
+      buf.write_string("<div class=\"diff-file-header\">")
+    }
     buf.write_string(escape_html(display_path))
+    if is_large {
+      buf.write_string(" <span class=\"diff-label large\">")
+      buf.write_string(diff_line_count.to_string())
+      buf.write_string(" lines</span>")
+    }
     if file.is_new {
       buf.write_string(" <span class=\"diff-label new\">new file</span>")
     } else if file.is_deleted {
@@ -707,7 +722,11 @@ pub fn build_diff_html(
     } else if file.is_binary {
       buf.write_string(" <span class=\"diff-label binary\">binary</span>")
     }
-    buf.write_string("</div>")
+    if is_large {
+      buf.write_string("</summary>")
+    } else {
+      buf.write_string("</div>")
+    }
     if !file.is_binary {
       for hunk in file.hunks {
         buf.write_string("<div class=\"diff-hunk-header\">@@ -")
@@ -767,6 +786,9 @@ pub fn build_diff_html(
           buf.write_string("</span></div>")
         }
       }
+    }
+    if is_large {
+      buf.write_string("</details>")
     }
   }
   buf.write_string("</div>")

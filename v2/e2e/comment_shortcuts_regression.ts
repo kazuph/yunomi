@@ -62,6 +62,12 @@ function waitForServerOutput(proc: ChildProcess): Promise<number> {
   });
 }
 
+function waitForExit(proc: ChildProcess): Promise<number | null> {
+  return new Promise((resolve) => {
+    proc.once("exit", (code) => resolve(code));
+  });
+}
+
 async function waitForHealth(port: number): Promise<void> {
   for (let i = 0; i < 50; i++) {
     try {
@@ -124,6 +130,14 @@ async function main(): Promise<void> {
     },
   );
 
+  let serverOutput = "";
+  proc.stdout!.on("data", (chunk: Buffer) => {
+    serverOutput += String(chunk);
+  });
+  proc.stderr!.on("data", (chunk: Buffer) => {
+    serverOutput += String(chunk);
+  });
+
   let browser: Browser | null = null;
   try {
     const port = await waitForServerOutput(proc);
@@ -142,11 +156,18 @@ async function main(): Promise<void> {
       markdown: !!document.querySelector("#md-preview p > .yunomi-comment-button, #md-preview li > .yunomi-comment-button, #md-preview blockquote > .yunomi-comment-button"),
       image: !!document.querySelector("#md-preview img:not(.timeline-thumb)")?.parentElement?.querySelector(":scope > .yunomi-comment-button"),
       video: !!document.querySelector("#md-preview .video-overlay-wrapper > .yunomi-comment-button"),
+      mermaid: !!document.querySelector("#md-preview .mermaid-container > .yunomi-comment-button"),
+      mermaidFullscreenButtons: document.querySelectorAll("#md-preview .mermaid-fullscreen-btn").length,
       total: document.querySelectorAll("#md-preview .yunomi-comment-button").length,
     }));
     assert(
-      buttonSummary.markdown && buttonSummary.image && buttonSummary.video && buttonSummary.total >= 3,
-      "Markdown・画像・動画にコメントアイコンが常設される",
+      buttonSummary.markdown &&
+        buttonSummary.image &&
+        buttonSummary.video &&
+        buttonSummary.mermaid &&
+        buttonSummary.mermaidFullscreenButtons === 0 &&
+        buttonSummary.total >= 4,
+      "Markdown・画像・動画・Mermaidにコメントアイコンが常設され、Mermaid全画面ボタンは出ない",
       buttonSummary,
     );
 
@@ -155,6 +176,15 @@ async function main(): Promise<void> {
     });
     const imageCard = await cardState(page);
     assert(imageCard.visible && imageCard.preview.length > 0, "画像右上のコメントアイコンでコメントカードが開く", imageCard);
+    await closeCard(page);
+
+    await page.locator("#md-preview .mermaid-container > .yunomi-comment-button").first().click();
+    const mermaidCard = await cardState(page);
+    assert(
+      mermaidCard.visible && mermaidCard.preview.includes("flowchart"),
+      "Mermaid右上のコメントアイコンでコメントカードが開く",
+      mermaidCard,
+    );
     await closeCard(page);
 
     await page.locator("#md-preview .video-overlay-wrapper > .yunomi-comment-button").first().click();
@@ -246,6 +276,26 @@ async function main(): Promise<void> {
       { tableStart, tableRight, enterCard },
     );
     await closeCard(page);
+    await page.evaluate(() => {
+      const cells = Array.from(document.querySelectorAll<HTMLElement>("#md-preview table:not(.frontmatter-table) td"));
+      const codeCell = cells.find((el) => (el.textContent || "").includes("page.goto('/')"));
+      codeCell?.click();
+    });
+    await page.waitForSelector("#comment-card", { state: "visible" });
+    const codeCellCard = await cardState(page);
+    assert(codeCellCard.preview.includes("page.goto"), "提出値検証用にコード表セルのコメントカードが開く", codeCellCard);
+    await page.locator("#comment-input").fill("table cell value check");
+    await page.locator("#save-comment").click();
+
+    await page.evaluate(() => {
+      const thumbs = Array.from(document.querySelectorAll<HTMLElement>("#md-preview .video-timeline .timeline-thumb-wrapper"));
+      const thumb = thumbs.find((el) => el.offsetParent !== null && el.querySelector(":scope > .yunomi-comment-button"));
+      thumb?.querySelector<HTMLButtonElement>(":scope > .yunomi-comment-button")?.click();
+    });
+    const valueTimelineCard = await cardState(page);
+    assert(valueTimelineCard.visible, "提出値検証用に動画サムネコメントカードが開く", valueTimelineCard);
+    await page.locator("#comment-input").fill("video timeline value check");
+    await page.locator("#save-comment").click();
 
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 3000 });
@@ -260,9 +310,23 @@ async function main(): Promise<void> {
       "送信ダイアログ表示中は Shift+hjkl と i/Enter が無効",
       { beforeModalKeys, afterModalKeys, modalStillVisible },
     );
+    const exitPromise = waitForExit(proc);
+    await page.locator("#modal-approve").click();
+    const exitCode = await exitPromise;
+    assert(exitCode === 0, "Submit後にサーバーが正常終了する", { exitCode });
+    assert(
+      serverOutput.includes("text: table cell value check") &&
+        serverOutput.includes("Markdown table cell") &&
+        serverOutput.includes("page.goto") &&
+        serverOutput.includes("text: video timeline value check") &&
+        serverOutput.includes("Video thumbnail") &&
+        serverOutput.includes("src=./videos/"),
+      "提出YAMLのvalueで表セルと動画サムネ時刻が復元できる",
+      serverOutput,
+    );
   } finally {
     if (browser) await browser.close();
-    proc.kill("SIGTERM");
+    if (proc.exitCode === null) proc.kill("SIGTERM");
   }
 
   if (failed > 0) {

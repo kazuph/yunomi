@@ -18,7 +18,7 @@ const ROOT = join(__dirname, "..", "..");
 const SERVER_JS = join(ROOT, "v2", "_build", "js", "release", "build", "server", "server.js");
 const FIXTURE_MD = join(ROOT, "examples", "preview-regression.md");
 const LOCK_DIR = join(tmpdir(), "yunomi-pr-verification-locks");
-const ARTIFACTS = join(ROOT, ".artifacts", "pr-verification");
+const ARTIFACTS = join(tmpdir(), "yunomi-pr-verification");
 
 mkdirSync(LOCK_DIR, { recursive: true });
 mkdirSync(ARTIFACTS, { recursive: true });
@@ -192,8 +192,9 @@ async function testB(): Promise<void> {
 
       assert(modalVisible, "Submit modal appeared after clicking Submit & Exit");
 
-      // Find and click confirm button inside modal
-      const confirmBtn = page.locator("#modal-submit");
+      // The current submit modal is decision-based: approving is the positive
+      // confirmation path, while request-changes is tested in smoke.ts.
+      const confirmBtn = page.locator("#modal-approve");
       const confirmExists = await confirmBtn.isVisible().catch(() => false);
 
       if (confirmExists) {
@@ -214,21 +215,9 @@ async function testB(): Promise<void> {
         await page.screenshot({ path: join(ARTIFACTS, "06-after-submit.png") });
 
         const exited = await serverExited;
-        assert(exited, "Server process exited after submit confirmation");
+        assert(exited, "Server process exited after approve confirmation");
       } else {
-        // Try alternative submit flow - look for any visible submit-like button
-        const allButtons = await page.$$("button");
-        let clicked = false;
-        for (const btn of allButtons) {
-          const text = (await btn.textContent() || "").trim().toLowerCase();
-          const vis = await btn.isVisible();
-          if (vis && (text.includes("submit") || text.includes("confirm")) && !(await btn.getAttribute("id"))?.includes("send-and-exit")) {
-            await btn.click();
-            clicked = true;
-            break;
-          }
-        }
-        assert(clicked, "Found and clicked a confirm button in submit modal");
+        assert(confirmExists, "Approve decision button (#modal-approve) is visible in submit modal");
       }
     }
   } finally {
