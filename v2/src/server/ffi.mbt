@@ -147,11 +147,19 @@ extern "js" fn req_url(req : JsValue) -> String =
   #|(req) => req.url
 
 ///|
+/// Reads the raw request body as a byte-accurate UTF-8 string.
+/// `body += chunk` (string-concatenating a Buffer) decodes each TCP chunk
+/// independently with Buffer#toString('utf8'); when a multi-byte UTF-8
+/// character (e.g. Japanese text) straddles a chunk boundary, each half
+/// decodes to U+FFFD on its own, corrupting or truncating the payload.
+/// Collecting raw Buffers and decoding once via Buffer.concat() after all
+/// chunks have arrived is byte-safe regardless of how the OS/network
+/// fragments the request.
 extern "js" fn read_body(req : JsValue, callback : (String) -> Unit) -> Unit =
   #|(req, cb) => {
-  #|  let body = "";
-  #|  req.on("data", (chunk) => { body += chunk; });
-  #|  req.on("end", () => cb(body));
+  #|  const chunks = [];
+  #|  req.on("data", (chunk) => { chunks.push(chunk); });
+  #|  req.on("end", () => cb(Buffer.concat(chunks).toString("utf8")));
   #|}
 
 ///|
@@ -166,6 +174,16 @@ extern "js" fn res_write_head(
 ///|
 extern "js" fn res_end(res : JsValue, data : String) -> Unit =
   #|(res, data) => res.end(data)
+
+///|
+/// Fires once the HTTP response has been fully handed off to the socket —
+/// the correct signal to wait on before exiting the process after a final
+/// submit, instead of guessing a fixed delay (see handle_submit/handle_
+/// request in main.mbt for why: process.exit() before this fires truncates
+/// the in-flight response, which the browser observes as
+/// net::ERR_EMPTY_RESPONSE / net::ERR_INCOMPLETE_CHUNKED_ENCODING).
+extern "js" fn res_on_finish(res : JsValue, callback : () -> Unit) -> Unit =
+  #|(res, cb) => res.on("finish", cb)
 
 ///|
 /// SSE helpers
@@ -489,6 +507,12 @@ extern "js" fn extract_base64_data(data : String) -> String =
 /// ISO timestamp (Date is a global)
 extern "js" fn iso_now() -> String =
   #|() => new Date().toISOString()
+
+///|
+/// Epoch milliseconds (Date is a global) — for correlating request timing
+/// (close-vs-reload race detection), not for display.
+extern "js" fn now_ms() -> Double =
+  #|() => Date.now()
 
 ///|
 /// JSON parse images array (JSON is a global)

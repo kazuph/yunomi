@@ -12,6 +12,14 @@ struct ServerContext {
   active_tab_instances : Map[String, String]
   mut pending_close_timer : JsValue
   mut finished : Bool
+  // Epoch-ms timestamp of the most recent GET / (or /index.html) request —
+  // i.e. the browser fetching the page document itself. Updated on every
+  // such request, including reloads.
+  mut last_index_get_ms : Double
+  // Epoch-ms timestamp of the most recent close signal (last active tab
+  // reporting itself closed). Used to correlate a close against a nearby
+  // index GET to distinguish "tab reloading" from "tab genuinely abandoned".
+  mut last_close_signal_ms : Double
 }
 
 ///|
@@ -692,6 +700,8 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     active_tab_instances: {},
     pending_close_timer: js_null(),
     finished: false,
+    last_index_get_ms: 0.0,
+    last_close_signal_ms: 0.0,
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -715,6 +725,8 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
     active_tab_instances: {},
     pending_close_timer: js_null(),
     finished: false,
+    last_index_get_ms: 0.0,
+    last_close_signal_ms: 0.0,
   }
   ctx.html_cache = load_and_build_html(ctx)
   active_servers.push(ctx)
@@ -896,6 +908,16 @@ fn try_listen(
 fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   let http_method = req_method(req)
   let url = req_url(req)
+  if
+    (http_method == "GET" || http_method == "HEAD") &&
+    (url == "/" || url == "/index.html") {
+    // The browser is fetching the page document itself — the very first
+    // thing a reload does, well before any client JS can run. Recording
+    // this lets the close-abandonment timer tell "tab is reloading" apart
+    // from "tab genuinely gone" even when the reload's own JS boot (and
+    // therefore its /session/open re-registration) is slow to follow.
+    ctx.last_index_get_ms = now_ms()
+  }
   if http_method == "GET" && (url == "/" || url == "/index.html") {
     res_write_head(res, 200, "text/html; charset=utf-8")
     res_end(res, ctx.html_cache)
@@ -939,8 +961,27 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "POST" && url == "/exit" {
     read_body(req, fn(body) {
-      handle_submit(ctx, body)
+      let should_exit = handle_submit(ctx, body)
       res_write_head(res, 200, "application/json")
+      // Wait for the response to actually finish sending before killing
+      // the process — process.exit() is synchronous/immediate, so calling
+      // it before this event would truncate the very response that tells
+      // the browser the submit succeeded, leaving its client-side
+      // success callback (which hides the Submit Review dialog and closes
+      // the tab) never invoked.
+      if should_exit {
+        // res "finish" fires once Node's http layer considers the response
+        // fully written, but that's the JS-visible signal only — the
+        // underlying OS socket write can still be in flight a moment
+        // longer. A short extra delay after "finish" (instead of exiting
+        // synchronously inside the handler) gives the loopback socket time
+        // to actually deliver the bytes before the process dies.
+        res_on_finish(res, fn() {
+          ignore(
+            set_timeout(fn() { exit_process("all reviews submitted", 0) }, 30),
+          )
+        })
+      }
       res_end(res, "{\"ok\":true}")
     })
   } else if http_method == "HEAD" {
@@ -1169,9 +1210,18 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   if ctx.finished {
     return
   }
+  let event_type = json_parse_string("type", body)
+  // The questions stepper posts here too (app.mbt's
+  // send_answer_event_to_server) instead of a dedicated endpoint — it's the
+  // same real-time IPC channel comments already use, just a different
+  // JSONL shape so an agent tailing the live log can tell "answer" events
+  // apart from "comment" events without guessing from field presence.
+  if event_type == "answer" {
+    handle_answer_event(ctx, body)
+    return
+  }
   // Build JSONL entry: {timestamp, file, type, ...comment_data}
   let timestamp = iso_now()
-  let event_type = json_parse_string("type", body)
   let buf = StringBuilder::new()
   buf.write_string("{\"timestamp\":\"")
   buf.write_string(@core.escape_js_string(timestamp))
@@ -1217,10 +1267,46 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
 }
 
 ///|
-fn handle_submit(ctx : ServerContext, body : String) -> Unit {
+/// Handle a single frontmatter-question answer, fired the instant the
+/// human clicks "Next"/"Complete" on the questions stepper — well before
+/// the eventual /exit submit. Appended to the same live log file as
+/// comments (see init_live_log) so an AI agent tailing that JSONL sees each
+/// answer in real time instead of only finding out at the very end of the
+/// review, which was the whole point of the redesign: "回答書いた後すぐに
+/// あなたに伝わってほしい".
+fn handle_answer_event(ctx : ServerContext, body : String) -> Unit {
+  let id = json_parse_string("id", body)
+  let question = json_parse_string("question", body)
+  let answer = json_parse_string("answer", body)
+  let buf = StringBuilder::new()
+  buf.write_string("{\"type\":\"answer\",\"id\":")
+  buf.write_string(json_encode_value(id))
+  buf.write_string(",\"question\":")
+  buf.write_string(json_encode_value(question))
+  buf.write_string(",\"answer\":")
+  buf.write_string(json_encode_value(answer))
+  buf.write_string(",\"file\":")
+  buf.write_string(json_encode_value(ctx.filename))
+  buf.write_string(",\"ts\":")
+  buf.write_string(json_encode_value(iso_now()))
+  buf.write_string("}")
+  append_live_log(buf.to_string())
+  for client in ctx.sse_clients {
+    sse_send(client, "answer", buf.to_string())
+  }
+}
+
+///|
+/// Returns true when this submission completed the review (all expected
+/// files reported in) and the process should exit — the caller decides
+/// WHEN to actually call exit_process(): the /exit HTTP route defers it
+/// until the response has finished sending (see handle_request), while the
+/// abandonment-timer path (arm_close_timer) has no response to wait for and
+/// exits immediately.
+fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   if ctx.finished {
     log_session_event("ignored submit for finished context file=\{ctx.filename}")
-    return
+    return false
   }
   ctx.finished = true
   cancel_pending_close(ctx)
@@ -1325,7 +1411,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Unit {
       }
       remove_lock(srv.port)
     }
-    exit_process("all reviews submitted", 0)
+    true
+  } else {
+    false
   }
 }
 
@@ -1350,6 +1438,112 @@ fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
 }
 
 ///|
+/// Base wait before an abandoned tab's draft is auto-submitted.
+let close_submit_delay_ms : Int = 5000
+
+///|
+/// If a close is closely correlated in time with a fresh index-page GET
+/// (see `looks_like_reload_in_flight`), the browser is almost certainly
+/// reloading rather than truly abandoning the review — but its JS may still
+/// be booting (WASM parse/exec, slow network, contention) and hasn't
+/// reached /session/open yet. Grant exactly one extension so the
+/// re-registration has real breathing room, instead of confirming a
+/// mid-typing snapshot just because a fixed timeout elapsed.
+///
+/// task #19 initially tried raising this to a bounded multi-extension
+/// budget, on the theory that a burst of legitimate reloads (a busy
+/// multi-agent session editing the same reviewed file twice in a row) would
+/// exhaust a single extension. That theory didn't survive contact with
+/// schedule_close_submit(): every NEW /close signal already cancels
+/// whatever close-timer was pending and re-arms a completely fresh one
+/// (see its call `arm_close_timer(ctx, draft_body, close_submit_delay_ms,
+/// false)` — extension state always starts over at each genuinely new
+/// close event), so back-to-back reload cycles were never actually
+/// bottlenecked by "one extension per timer". Worse, looks_like_reload_in_
+/// flight() compares two FIXED timestamps that don't change between
+/// retries of the SAME timer — once true, it stays true on every
+/// subsequent check regardless of whether any new reload activity
+/// happened, so a bounded-but-plural budget just always burned through
+/// every available extension whenever the first check happened to
+/// correlate (confirmed by smoke.ts's close-flush test going from a
+/// reliable ~5-10s to occasionally exceeding its 12s budget). One extension
+/// is the right number here; the actual fix for symptom #3 (mid-typing
+/// answer getting finalized) is the seamless-restore + auto-close-
+/// suppression pair in app.mbt (check_recovery()/update_questions_badge()).
+let close_submit_extension_ms : Int = 5000
+
+///|
+/// Window (ms) used to correlate a close signal with a nearby index-page
+/// GET, in EITHER order: the reload's GET / and the closing tab's /close
+/// beacon are two independent requests fired around the same navigation
+/// instant, so which one the network delivers first is not guaranteed.
+let reload_correlation_window_ms : Double = 3000.0
+
+///|
+/// True when the most recent index-page GET happened close enough to the
+/// most recent close signal that it's overwhelmingly likely to be the same
+/// reload event (as opposed to an old page load from a session that was
+/// simply open for a while before really being abandoned).
+fn looks_like_reload_in_flight(ctx : ServerContext) -> Bool {
+  is_within_correlation_window(
+    ctx.last_index_get_ms,
+    ctx.last_close_signal_ms,
+    reload_correlation_window_ms,
+  )
+}
+
+///|
+/// Pure symmetric-window comparison, extracted out of
+/// `looks_like_reload_in_flight` so it can be unit-tested without
+/// constructing a full `ServerContext`. True when `a` and `b` are within
+/// `window_ms` of each other in EITHER direction (the index-GET and the
+/// close-signal timestamps can arrive in any order — see the doc comment
+/// on `reload_correlation_window_ms`).
+pub fn is_within_correlation_window(
+  a : Double,
+  b : Double,
+  window_ms : Double,
+) -> Bool {
+  (a - b).abs() <= window_ms
+}
+
+///|
+fn arm_close_timer(
+  ctx : ServerContext,
+  draft_body : String,
+  delay_ms : Int,
+  already_extended : Bool,
+) -> Unit {
+  ctx.pending_close_timer = set_timeout(
+    fn() {
+      ctx.pending_close_timer = js_null()
+      if ctx.finished || !ctx.active_tabs.is_empty() {
+        log_session_event(
+          "cancel close submit file=\{ctx.filename} finished=\{ctx.finished} active=\{ctx.active_tabs.length()}",
+        )
+        return
+      }
+      if !already_extended && looks_like_reload_in_flight(ctx) {
+        log_session_event(
+          "deferring close submit (reload signal detected) file=\{ctx.filename}",
+        )
+        arm_close_timer(ctx, draft_body, close_submit_extension_ms, true)
+        return
+      }
+      log_session_event("auto submit after last tab close file=\{ctx.filename}")
+      // No HTTP response is in flight for this path (it's the
+      // abandonment-timer safety net, not a live /exit request), so exit
+      // immediately when the review is complete — no response-flush to
+      // wait for, unlike the /exit route in handle_request.
+      if handle_submit(ctx, draft_body) {
+        exit_process("all reviews submitted", 0)
+      }
+    },
+    delay_ms,
+  )
+}
+
+///|
 fn schedule_close_submit(ctx : ServerContext, draft : String) -> Unit {
   if ctx.finished {
     log_session_event("ignored close scheduling for finished context file=\{ctx.filename}")
@@ -1362,20 +1556,7 @@ fn schedule_close_submit(ctx : ServerContext, draft : String) -> Unit {
   } else {
     "{\"summary\":\"\",\"comments\":[]}"
   }
-  ctx.pending_close_timer = set_timeout(
-    fn() {
-      ctx.pending_close_timer = js_null()
-      if ctx.finished || !ctx.active_tabs.is_empty() {
-        log_session_event(
-          "cancel close submit file=\{ctx.filename} finished=\{ctx.finished} active=\{ctx.active_tabs.length()}",
-        )
-        return
-      }
-      log_session_event("auto submit after last tab close file=\{ctx.filename}")
-      handle_submit(ctx, draft_body)
-    },
-    5000,
-  )
+  arm_close_timer(ctx, draft_body, close_submit_delay_ms, false)
   log_session_event("scheduled close submit file=\{ctx.filename}")
 }
 
@@ -1413,6 +1594,7 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
   if ctx.active_tabs.is_empty() {
+    ctx.last_close_signal_ms = now_ms()
     schedule_close_submit(ctx, draft)
   }
 }

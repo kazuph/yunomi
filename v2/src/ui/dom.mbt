@@ -368,6 +368,43 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|}
 
 ///|
+/// Extract the saved global summary/decision comment from the same draft
+/// blob persisted by persist_draft() (comments + summary + answers share one
+/// localStorage entry so a single Restore/Discard flow covers all of them).
+extern "js" fn parse_stored_summary(json : String) -> String =
+  #|(json) => {
+  #|  try {
+  #|    const data = JSON.parse(json);
+  #|    return typeof data.summary === "string" ? data.summary : "";
+  #|  } catch (e) { return ""; }
+  #|}
+
+///|
+/// Extract the saved per-question draft answers (option + free text) as a
+/// JSON string ready for apply_yunomi_draft_answers().
+extern "js" fn parse_stored_answers(json : String) -> String =
+  #|(json) => {
+  #|  try {
+  #|    const data = JSON.parse(json);
+  #|    return JSON.stringify(data.answers && typeof data.answers === "object" ? data.answers : {});
+  #|  } catch (e) { return "{}"; }
+  #|}
+
+///|
+/// Extract the saved stepper position (frontmatter question stepper's
+/// current step index) from the same draft blob persist_draft() writes.
+/// Missing/invalid on older drafts (saved before the stepper existed) is
+/// treated as step 0 — fully backward compatible.
+extern "js" fn parse_stored_step(json : String) -> Int =
+  #|(json) => {
+  #|  try {
+  #|    const data = JSON.parse(json);
+  #|    const n = Number(data.step);
+  #|    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+  #|  } catch (e) { return 0; }
+  #|}
+
+///|
 /// Check if stored comments JSON has expired (TTL: 3 hours)
 extern "js" fn is_storage_expired(json : String) -> Bool =
   #|(json) => {
@@ -1103,18 +1140,114 @@ extern "js" fn install_preview_comment_buttons(handler : (Element) -> Unit) -> U
   #|}
 
 ///|
-/// Collect yunomi answers from question panel
+/// Collect yunomi answers from question panel.
+/// Combines a selected option button (if any) with free-text input (if any) —
+/// previously only the textarea was read, silently dropping option-only answers.
 extern "js" fn collect_yunomi_answers() -> String =
   #|() => {
   #|  var answers = {};
   #|  document.querySelectorAll('.question-card').forEach(function(item) {
   #|    var id = item.dataset.qid || '';
+  #|    if (!id) return;
   #|    var textarea = item.querySelector('.q-answer');
-  #|    if (id && textarea && textarea.value) {
-  #|      answers[id] = textarea.value;
+  #|    var text = (textarea && textarea.value) ? textarea.value : '';
+  #|    var selectedBtn = item.querySelector('.q-option-btn.selected');
+  #|    var option = selectedBtn ? (selectedBtn.dataset.val || selectedBtn.textContent || '') : '';
+  #|    var combined = (option && text) ? (option + '\n' + text) : (option || text);
+  #|    if (combined) {
+  #|      answers[id] = combined;
   #|    }
   #|  });
   #|  return JSON.stringify(answers);
+  #|}
+
+///|
+/// Populate #yunomi-questions-summary with a scannable recap of every
+/// question's current title + combined answer, one clickable item per
+/// question (data-step points back at that question's stepper index) — the
+/// confirmation screen shown before closing on "完了" (task #21). Built via
+/// createElement/textContent, not innerHTML string concatenation, so
+/// arbitrary reviewer-typed answer text can never be interpreted as markup.
+extern "js" fn render_answer_summary() -> Unit =
+  #|() => {
+  #|  const list = document.querySelector("#yunomi-questions-summary");
+  #|  if (!list) return;
+  #|  list.innerHTML = "";
+  #|  const cards = document.querySelectorAll("#yunomi-questions-stepper .question-card");
+  #|  cards.forEach((card, idx) => {
+  #|    const titleEl = card.querySelector(".q-title");
+  #|    const title = titleEl ? titleEl.textContent : "";
+  #|    const textarea = card.querySelector(".q-answer");
+  #|    const text = textarea && textarea.value ? textarea.value : "";
+  #|    const selectedBtn = card.querySelector(".q-option-btn.selected");
+  #|    const option = selectedBtn ? (selectedBtn.dataset.val || selectedBtn.textContent || "") : "";
+  #|    const combined = option && text ? option + "\n" + text : (option || text);
+  #|    const item = document.createElement("button");
+  #|    item.type = "button";
+  #|    item.className = "q-summary-item";
+  #|    item.dataset.step = String(idx);
+  #|    const titleDiv = document.createElement("div");
+  #|    titleDiv.className = "q-summary-title";
+  #|    titleDiv.textContent = title;
+  #|    const answerDiv = document.createElement("div");
+  #|    answerDiv.className = "q-summary-answer";
+  #|    answerDiv.textContent = combined;
+  #|    item.appendChild(titleDiv);
+  #|    item.appendChild(answerDiv);
+  #|    list.appendChild(item);
+  #|  });
+  #|}
+
+///|
+/// Collect the RAW per-question draft state (option + free text kept
+/// separate, unlike collect_yunomi_answers() which combines them for
+/// submission) so it can be persisted to localStorage and restored without
+/// re-combining an already-combined string on a later save.
+extern "js" fn collect_yunomi_draft_answers() -> String =
+  #|() => {
+  #|  var out = {};
+  #|  document.querySelectorAll('.question-card').forEach(function(item) {
+  #|    var id = item.dataset.qid || '';
+  #|    if (!id) return;
+  #|    var textarea = item.querySelector('.q-answer');
+  #|    var text = (textarea && textarea.value) ? textarea.value : '';
+  #|    var selectedBtn = item.querySelector('.q-option-btn.selected');
+  #|    var option = selectedBtn ? (selectedBtn.dataset.val || selectedBtn.textContent || '') : '';
+  #|    if (option || text) {
+  #|      out[id] = { option: option, text: text };
+  #|    }
+  #|  });
+  #|  return JSON.stringify(out);
+  #|}
+
+///|
+/// Restore per-question draft state (option selection + free text) saved by
+/// collect_yunomi_draft_answers() back into the live question-card DOM.
+extern "js" fn apply_yunomi_draft_answers(json : String) -> Unit =
+  #|(json) => {
+  #|  try {
+  #|    var data = JSON.parse(json);
+  #|    Object.keys(data).forEach(function(id) {
+  #|      var item = document.querySelector('.question-card[data-qid="' + CSS.escape(id) + '"]');
+  #|      if (!item) return;
+  #|      var entry = data[id] || {};
+  #|      if (entry.text) {
+  #|        var textarea = item.querySelector('.q-answer');
+  #|        if (textarea) textarea.value = entry.text;
+  #|      }
+  #|      if (entry.option) {
+  #|        var btns = item.querySelectorAll('.q-option-btn');
+  #|        btns.forEach(function(b) {
+  #|          var val = b.dataset.val || b.textContent || '';
+  #|          if (val === entry.option) {
+  #|            b.classList.add('selected');
+  #|          } else {
+  #|            b.classList.remove('selected');
+  #|          }
+  #|        });
+  #|      }
+  #|    });
+  #|  } catch (e) {}
   #|}
 
 ///|

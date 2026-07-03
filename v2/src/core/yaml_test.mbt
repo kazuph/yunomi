@@ -96,6 +96,103 @@ test "yaml escape empty value omitted" {
 }
 
 ///|
+/// Regression for the "answers gets truncated / corrupted" bug: the answers
+/// field carries a JSON string (as produced by json_parse_json_field on the
+/// client-submitted body) containing Japanese text, an emoji, and a
+/// JSON-escaped quote + newline. yaml_escape_string must pass every
+/// character through untouched (only doubling literal single quotes) so the
+/// full JSON text survives the trip into the verdict YAML byte-for-byte.
+test "review to yaml preserves unicode answers (japanese + emoji + escapes)" {
+  let answers = (
+    #|{"q1-help-overlay":"採用","q4-agent-comment":"エージェントへのコメント機能は非常に重要な体験改善だと思います。長文の日本語フィードバックが途中で切れずに反映されることを確認したいです。絵文字も安全か確認します🎉。\"引用\"や改行(\n)を含む文章でも壊れないこと。"}
+  )
+  let result : ReviewResult = {
+    file: "test.md",
+    mode: Markdown,
+    comments: [],
+    summary: "ok",
+    answers,
+    mermaid_errors: [],
+    decision: None,
+    action: None,
+  }
+  let yaml = review_to_yaml(result)
+  // The full JSON text (with its escaped quote and escaped newline intact)
+  // must appear verbatim inside the single-quoted YAML scalar — nothing
+  // truncated, nothing mangled.
+  debug_inspect(yaml.contains(answers), content="true")
+  debug_inspect(yaml.contains("エージェントへのコメント機能"), content="true")
+  debug_inspect(yaml.contains("🎉"), content="true")
+  // Answer text must not be cut short anywhere before its final character.
+  debug_inspect(yaml.contains("壊れないこと。\"}'"), content="true")
+}
+
+///|
+/// Same guarantee on the multi-file YAML path (reviews_to_yaml), which has
+/// its own independent answers-serialization branch.
+test "reviews to yaml preserves unicode answers across multiple files" {
+  let answers = (
+    #|{"q2-multifile":"これって何の意味ある？moonbitのモダン化ならやっていいよ。","q3-plan-hook":"これ体験してないので、わからない。"}
+  )
+  let results = [
+    ReviewResult::{
+      file: "a.md",
+      mode: Markdown,
+      comments: [],
+      summary: "ok",
+      answers,
+      mermaid_errors: [],
+      decision: None,
+      action: None,
+    },
+  ]
+  let yaml = reviews_to_yaml(results)
+  debug_inspect(yaml.contains(answers), content="true")
+  debug_inspect(yaml.contains("これって何の意味ある？"), content="true")
+}
+
+///|
+/// Undo the single-quote-doubling performed by yaml_escape_string, given the
+/// inner content of a single-quoted YAML scalar (outer quotes stripped).
+fn undouble_single_quotes(s : String) -> String {
+  let chars = s.to_array()
+  let len = chars.length()
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < len {
+    if chars[i] == '\'' && i + 1 < len && chars[i + 1] == '\'' {
+      buf.write_char('\'')
+      i = i + 2
+    } else {
+      buf.write_char(chars[i])
+      i = i + 1
+    }
+  }
+  buf.to_string()
+}
+
+///|
+/// Property check on the escaping primitive itself: for any string built
+/// from Japanese text, an emoji (surrogate pair in UTF-16, single code point
+/// in MoonBit's Char), embedded double quotes, a backslash, and an
+/// escaped-newline sequence, unescaping yaml_escape_string's output (strip
+/// outer quotes, undouble '') must reconstruct the exact original — no
+/// char is ever silently dropped or split.
+test "yaml_escape_string round-trips unicode without loss" {
+  let original = (
+    #|エージェント🎉テスト "quoted" back\slash and \n escaped-newline, comma, colon: value
+  )
+  let escaped = yaml_escape_string(original)
+  let chars = escaped.to_array()
+  // Must be wrapped in single quotes since it contains ':' etc.
+  debug_inspect(chars[0] == '\'', content="true")
+  debug_inspect(chars[chars.length() - 1] == '\'', content="true")
+  let inner = safe_slice_range(escaped, 1, chars.length() - 1)
+  let restored = undouble_single_quotes(inner)
+  debug_inspect(restored == original, content="true")
+}
+
+///|
 test "review to yaml with mermaid errors" {
   let result : ReviewResult = {
     file: "test.md",

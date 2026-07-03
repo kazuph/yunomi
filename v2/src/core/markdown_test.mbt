@@ -306,6 +306,118 @@ test "parse markdown no questions" {
 }
 
 ///|
+test "parse markdown questions with single-line context" {
+  let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      context: Fail-open was chosen over fail-closed for latency.\n---\n\nText"
+  let md = parse_markdown(input)
+  debug_inspect(md.questions.length(), content="1")
+  debug_inspect(md.questions[0].context, content=(
+    #|"Fail-open was chosen over fail-closed for latency."
+  ))
+}
+
+///|
+test "parse markdown questions with block-scalar context" {
+  let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      context: |\n        Line one of the judgment material.\n        Line two, still part of context.\n      options:\n        - Yes\n        - No\n---\n\nText"
+  let md = parse_markdown(input)
+  debug_inspect(md.questions.length(), content="1")
+  debug_inspect(md.questions[0].context, content=(
+    #|"Line one of the judgment material.\nLine two, still part of context."
+  ))
+  // The block scalar must not swallow the following `options:` key.
+  debug_inspect(md.questions[0].options.length(), content="2")
+  debug_inspect(md.questions[0].options[0], content=(
+    #|"Yes"
+  ))
+}
+
+///|
+test "parse markdown questions without context stay backward compatible" {
+  let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      resolved: false\n---\n\nText"
+  let md = parse_markdown(input)
+  debug_inspect(md.questions.length(), content="1")
+  debug_inspect(md.questions[0].context, content=(
+    #|""
+  ))
+  debug_inspect(md.questions[0].id, content=(
+    #|"q1"
+  ))
+}
+
+///|
+/// task #17: the Document Metadata table's generic frontmatter scanner has
+/// no YAML nesting/indentation awareness — it used to read "id:",
+/// "question:", "context:", "resolved:" etc. straight out of the nested
+/// `yunomi: questions:` block as if they were flat top-level keys, and
+/// since the SAME nested key repeats once per question, the LAST
+/// question's value silently overwrote every earlier one in the map. A
+/// real REPORT.md with 3 questions showed only the 3rd question's
+/// id/context in Document Metadata, duplicating (and mangling) content the
+/// questions modal already owns. Fix: skip every line inside the `yunomi:`
+/// block by indentation, while still parsing real sibling top-level keys
+/// normally.
+test "parse markdown frontmatter excludes nested yunomi keys" {
+  let input =
+    #|---
+    #|title: Wave 0 Report
+    #|author: Alice
+    #|yunomi:
+    #|  questions:
+    #|    - id: q-first
+    #|      question: First question?
+    #|      context: |
+    #|        Some judgment material.
+    #|      resolved: false
+    #|    - id: q-second
+    #|      question: Second question?
+    #|      resolved: true
+    #|      answer: Yes
+    #|---
+    #|
+    #|# Content
+  let md = parse_markdown(input)
+  // Real top-level sibling keys are unaffected.
+  debug_inspect(md.frontmatter.get("title"), content=(
+    #|Some("Wave 0 Report")
+  ))
+  debug_inspect(md.frontmatter.get("author"), content=(
+    #|Some("Alice")
+  ))
+  // The yunomi key itself, and every nested key under it, must not leak
+  // into the generic frontmatter map at all (not even the LAST question's
+  // value) — the questions modal is the sole owner of this data.
+  debug_inspect(md.frontmatter.get("yunomi"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("questions"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("id"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("question"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("context"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("resolved"), content=(
+    #|None
+  ))
+  debug_inspect(md.frontmatter.get("answer"), content=(
+    #|None
+  ))
+  // parse_yunomi_questions() (a separate, indentation-aware parser) still
+  // correctly sees both questions — only the generic flat scanner changed.
+  debug_inspect(md.questions.length(), content="2")
+  debug_inspect(md.questions[0].id, content=(
+    #|"q-first"
+  ))
+  debug_inspect(md.questions[1].id, content=(
+    #|"q-second"
+  ))
+}
+
+///|
 test "parse markdown link url escaped" {
   let md = parse_markdown("[click](http://example.com/a\"b)")
   debug_inspect(

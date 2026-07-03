@@ -165,6 +165,11 @@ pub(all) struct DiffData {
 pub(all) struct YunomiQuestion {
   id : String
   question : String
+  // Judgment material / premises shown under the question text (frontmatter
+  // `context:`, single-line or a `|` block scalar). Empty when the author
+  // didn't supply one — fully backward compatible with pre-context
+  // questions.
+  context : String
   resolved : Bool
   answer : String
   options : Array[String]

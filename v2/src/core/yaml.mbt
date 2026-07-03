@@ -132,7 +132,7 @@ pub fn reviews_to_yaml(results : Array[ReviewResult]) -> String {
 }
 
 ///|
-fn yaml_escape_string(s : String) -> String {
+pub fn yaml_escape_string(s : String) -> String {
   let needs_quote = s.contains(":") ||
     s.contains("#") ||
     s.contains("'") ||

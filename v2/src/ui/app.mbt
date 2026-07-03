@@ -108,6 +108,17 @@ let review_tab_id : Ref[String] = Ref("")
 let page_instance_id : Ref[String] = Ref("")
 
 ///|
+/// Set right before a reload we triggered ourselves (SSE "reload" event —
+/// the AI agent updated the file being reviewed while this tab was open).
+/// pagehide/beforeunload fire for this navigation exactly like a real tab
+/// close, but this reload is expected and imminent: the reloaded page will
+/// re-register via /session/open momentarily. Reporting it as a close would
+/// arm the server's abandonment timer for no reason and race that
+/// re-registration; skipping the /close beacon here removes the race
+/// entirely for this trigger instead of trying to out-run a timeout.
+let intentional_reload_in_progress : Ref[Bool] = Ref(false)
+
+///|
 /// Delegate to core's parse_int_safe
 fn str_to_int(s : String) -> Int {
   @core.parse_int_safe(s)
@@ -836,6 +847,10 @@ pub fn init_app() -> Unit {
         submit_review(port)
       }
     })
+    // Persist the summary/decision draft as the human types it, same as
+    // comments — a reload (or the close-abandonment safety net) must never
+    // be able to wipe it silently.
+    on(global_comment_input, "input", fn(_e) { persist_draft() })
   }
   // Setup view toggle (cli.cjs L7232-7270: preview-only panel state)
   init_view_toggle()
@@ -967,15 +982,48 @@ fn setup_text_clicks() -> Unit {
 }
 
 ///|
-/// Check for saved comments and show recovery modal (with TTL validation)
+/// localStorage key that flags "the reload about to happen (or that just
+/// happened) was triggered by this app's own SSE 'reload' handler, not a
+/// real F5 or a tab reopened after being closed for a while." Scoped per
+/// file, same as the draft itself. See setup_sse()'s "reload" handler for
+/// where it's set, and check_recovery() for where it's consumed.
+fn reload_inflight_key() -> String {
+  "yunomi:reload-inflight:\{get_yunomi_filename()}"
+}
+
+///|
+/// Check for a saved draft (comments, summary, and/or question answers) and
+/// either auto-restore it (if this load follows a reload this app
+/// triggered itself — see reload_inflight_key()) or show the recovery
+/// modal for the human to decide (with TTL validation).
+///
+/// Skipping the confirmation modal for self-triggered reloads matters in
+/// practice: a busy review session where the file under review keeps
+/// getting edited (e.g. multiple agents actively working on the same
+/// REPORT.md while a human is mid-review) can fire several of these
+/// reloads within seconds of each other. Requiring a fresh manual "Restore"
+/// click after EVERY one of them means the human can lose their in-progress
+/// answer to a NEXT reload before they even get a chance to click — from
+/// their side that reads as "the dialog flashes and vanishes" / "my answer
+/// just disappeared", even though the draft was never actually lost in
+/// localStorage the whole time.
 fn check_recovery() -> Unit {
   let key = get_storage_key()
   let stored = ls_get(key)
+  let reload_flag_key = reload_inflight_key()
+  let was_self_triggered_reload = ls_get(reload_flag_key).length() > 0
+  if was_self_triggered_reload {
+    ls_remove(reload_flag_key)
+  }
   if stored.length() == 0 {
     return
   }
   if is_storage_expired(stored) {
     ls_remove(key)
+    return
+  }
+  if was_self_triggered_reload {
+    restore_comments()
     return
   }
   let modal = query("#recovery-modal")
@@ -986,6 +1034,9 @@ fn check_recovery() -> Unit {
 }
 
 ///|
+/// Restore the full saved draft: comments, the global summary/decision
+/// textarea, and frontmatter question answers (option selection + free
+/// text) — everything persist_draft() saves under one key.
 fn restore_comments() -> Unit {
   let key = get_storage_key()
   let stored = ls_get(key)
@@ -1004,8 +1055,39 @@ fn restore_comments() -> Unit {
       }
     }
     update_comment_indicators()
+    let summary = parse_stored_summary(stored)
+    if summary.length() > 0 {
+      let summary_el = query("#global-comment")
+      if !is_null(summary_el) {
+        set_value(summary_el, summary)
+      }
+    }
+    let stored_answers = parse_stored_answers(stored)
+    apply_yunomi_draft_answers(stored_answers)
+    // Resume the stepper at whatever question the human was on when the
+    // draft was last saved — not step 0 — so a modal that vanished mid-Q2
+    // (reload, crash, accidental close) reopens on Q2, not back at Q1.
+    question_step_index.val = parse_stored_step(stored)
+    render_question_step()
+    // Badge only — closing is owned exclusively by the explicit
+    // Next/完了/確定して閉じる button flow (advance_question_step()) and
+    // the X/Later/backdrop/ESC escape hatches, never by a timer reacting
+    // to DOM state alone. This restore may be fully answered already (the
+    // human had finished typing the last question right before a reload
+    // interrupted them); an implicit auto-close here would undo the
+    // "always show on load" guarantee the very next tick after
+    // hide_recovery_modal() below opens it — the exact bug report task
+    // #19 exists to fix, and the same class of bug task #21's mandatory
+    // summary confirmation screen would otherwise reintroduce.
+    update_questions_badge()
+    // hide_recovery_modal() re-checks for unanswered questions once the
+    // recovery modal is gone (see its doc comment) — that single re-check
+    // point covers both this Restore path and the Discard path, so we don't
+    // duplicate the open-questions-modal decision here.
+    hide_recovery_modal()
+  } else {
+    hide_recovery_modal()
   }
-  hide_recovery_modal()
 }
 
 ///|
@@ -1015,11 +1097,45 @@ fn discard_comments() -> Unit {
 }
 
 ///|
+/// True when the page has at least one frontmatter question that is not
+/// marked `resolved: true` — i.e. there is a stepper card to show at all.
+/// Unlike count_unanswered_questions(), this is NOT affected by whether a
+/// restored draft (or the server-rendered `answer:`) already fills every
+/// field in: a question can be fully prefilled and still count here, which
+/// is exactly the point — "already answered" must not be confused with
+/// "nothing left for the human to see or confirm".
+fn has_unresolved_questions() -> Bool {
+  query_all("#yunomi-questions-stepper .question-card").length() > 0
+}
+
+///|
+/// Hide the recovery modal and give the deferred questions auto-popup a
+/// chance to run. setup_questions_ui()'s auto-popup skips opening the
+/// questions modal for as long as the recovery modal is visible (see its
+/// comment near the 500ms set_timeout), so once the human has resolved the
+/// recovery modal (Restore or Discard — both paths call this function) we
+/// re-check here: if any unresolved question exists, open the questions
+/// modal now. This is the single re-check point for both paths, so there
+/// is no risk of a double-open.
+///
+/// Deliberately uses has_unresolved_questions() (static: "does a question
+/// exist at all"), not count_unanswered_questions() (dynamic: "is anything
+/// still blank right now"). A real review session hit exactly this gap: a
+/// prior round's answers survived in the restored draft, every question
+/// counted as "answered" the instant Restore ran, and the stepper never
+/// got a chance to show them — the human never saw a dialog was involved
+/// at all. "気がついたら回答する" is explicitly not an acceptable fallback
+/// here: if a question exists, the human sees it on load, full stop —
+/// already-answered ones just arrive prefilled so confirming is a matter
+/// of stepping through, not re-typing.
 fn hide_recovery_modal() -> Unit {
   let modal = query("#recovery-modal")
   if !is_null(modal) {
     remove_class(modal, "visible")
     add_class(modal, "hidden")
+  }
+  if has_unresolved_questions() && !app_dialog_visible() {
+    open_questions_modal()
   }
 }
 
@@ -1217,7 +1333,7 @@ fn save_comment() -> Unit {
   current_comment_image.val = ""
   hide_comment_card()
   update_comment_indicators()
-  persist_comments()
+  persist_draft()
 }
 
 ///|
@@ -1399,7 +1515,7 @@ fn sync_active_comment_draft() -> Unit {
     None => ()
   }
   update_comment_indicators()
-  persist_comments()
+  persist_draft()
 }
 
 ///|
@@ -1484,6 +1600,15 @@ fn report_tab_closed(_port : Int) -> Unit {
   if submit_in_flight.val || close_report_sent.val {
     return
   }
+  if intentional_reload_in_progress.val {
+    // A self-triggered reload (file change -> SSE "reload") is not a real
+    // close: don't report it as one. The reloaded page re-registers via
+    // /session/open on its own; reporting a phantom close here would arm
+    // the server's abandonment timer against a re-registration that has no
+    // deadline pressure to race.
+    close_report_sent.val = true
+    return
+  }
   close_report_sent.val = true
   let url = location_origin() + "/close"
   let payload = "{\"tabId\":" +
@@ -1517,6 +1642,14 @@ fn submit_review(_port : Int) -> Unit {
   close_report_sent.val = true
   let url = location_origin() + "/exit"
   fetch_post(url, build_review_payload(), fn(_response) {
+    // Hide the Submit Review dialog explicitly instead of relying solely
+    // on the tab itself going away — window_close() is refused by real
+    // browsers for tabs they didn't script-open (which is how yunomi opens
+    // its review tab), and even the about:blank fallback below has a
+    // visible 400ms window before it fires. Without this, a human watching
+    // the actual tab sees the dialog just sit there and reads it as
+    // "Submit didn't work", even though the request succeeded server-side.
+    hide_submit_modal()
     ls_remove(get_storage_key())
     window_close()
     // Browsers refuse window.close() for tabs they consider
@@ -1654,7 +1787,22 @@ let sse_server_instance : Ref[String] = Ref("")
 fn setup_sse(_port : Int) -> Unit {
   let url = location_origin() + "/sse"
   let es = new_event_source(url)
-  sse_on(es, "reload", fn(_e) { location_reload() })
+  sse_on(es, "reload", fn(_e) {
+    intentional_reload_in_progress.val = true
+    // intentional_reload_in_progress is an in-memory flag — it dies with
+    // this page's JS realm the instant location_reload() actually
+    // navigates, so the FRESH page load that follows has no way to know
+    // "the recovery modal I'm about to show is for a reload I triggered
+    // myself 200ms ago", not a genuinely stale/ambiguous draft. Carry that
+    // fact across the reload via localStorage (survives navigation, unlike
+    // any in-memory Ref) so check_recovery() on the other side can skip
+    // straight to restoring instead of making the human click through a
+    // confirmation modal for every single file-change reload — see its
+    // comment for why that matters (a busy multi-agent session can trigger
+    // several of these reloads in quick succession).
+    ls_set(reload_inflight_key(), "1")
+    location_reload()
+  })
   sse_on(es, "hello", fn(e) {
     let id = sse_event_data(e)
     if sse_server_instance.val == "" {
@@ -1680,8 +1828,15 @@ fn setup_sse(_port : Int) -> Unit {
 }
 
 ///|
-/// Save comments to localStorage in cli.cjs-compatible { comments, timestamp } format
-fn persist_comments() -> Unit {
+/// Save the full in-progress draft (comments + global summary + frontmatter
+/// question answers + the questions stepper's current position) to
+/// localStorage under one key, in cli.cjs-compatible { comments, timestamp }
+/// shape extended with `summary`, `answers`, and `step`. Everything the user
+/// can type or navigate mid-review shares this single Restore/Discard flow —
+/// before this, only comments survived a reload; question answers, the
+/// stepper position, and the summary/decision textarea existed only in the
+/// live DOM and vanished on any interruption (reload, crash, tab close).
+fn persist_draft() -> Unit {
   let key = get_storage_key()
   let buf = StringBuilder::new()
   buf.write_string("{\"comments\":{")
@@ -1704,7 +1859,15 @@ fn persist_comments() -> Unit {
       buf.write_char('}')
     first.val = false
   })
-  buf.write_string("},\"timestamp\":")
+  buf.write_string("},\"summary\":")
+  let summary_el = query("#global-comment")
+  let summary = if is_null(summary_el) { "" } else { get_value(summary_el) }
+  buf.write_string(json_encode_string(summary))
+  buf.write_string(",\"answers\":")
+  buf.write_string(collect_yunomi_draft_answers())
+  buf.write_string(",\"step\":")
+  buf.write_string(question_step_index.val.to_string())
+  buf.write_string(",\"timestamp\":")
   buf.write_string(date_now_string())
   buf.write_char('}')
   ls_set(key, buf.to_string())
@@ -3497,24 +3660,66 @@ fn setup_preview_mouseup() -> Unit {
 }
 
 ///|
-/// Setup questions UI (overlay, bar, auto-popup, answer tracking)
+/// Current position in the one-question-per-screen stepper (0-based, over
+/// the unresolved question-cards only, in DOM order). Persisted alongside
+/// answers in persist_draft() so closing the modal for ANY reason (close X,
+/// Later, backdrop click, ESC, reload) and reopening it later lands back on
+/// the same question, not the first one.
+let question_step_index : Ref[Int] = Ref(0)
+
+///|
+/// Setup questions UI (overlay, bar, stepper navigation, auto-popup)
 fn setup_questions_ui() -> Unit {
   let overlay = query("#yunomi-questions-overlay")
-  let _bar = query("#yunomi-questions-bar")
   if is_null(overlay) {
     return
   }
   // Close button
   let close_btn = query("#yunomi-questions-close")
   if !is_null(close_btn) {
-    on(close_btn, "click", fn(_e) { close_questions_modal(false) })
+    on(close_btn, "click", fn(_e) { close_questions_modal() })
   }
-  // Later button
+  // Later button — secondary escape valve while answering (does not advance
+  // or send the current step's answer, it just closes on whatever is
+  // already typed). Once every question is answered and the summary
+  // confirmation screen (task #21) is showing, this same button relabels to
+  // "戻る" and instead returns to the last question for editing — "answer
+  // later" makes no sense once nothing is left unanswered.
   let later_btn = query("#yunomi-questions-later")
   if !is_null(later_btn) {
-    on(later_btn, "click", fn(_e) { close_questions_modal(false) })
+    on(later_btn, "click", fn(_e) {
+      let cards = query_all("#yunomi-questions-stepper .question-card")
+      let count = cards.length()
+      if count > 0 && question_step_index.val >= count {
+        question_step_index.val = count - 1
+        render_question_step()
+      } else {
+        close_questions_modal()
+      }
+    })
   }
-  // Bar open button
+  // Next / Complete button — the primary path. Sends the current step's
+  // answer live, then either advances, opens the summary confirmation
+  // screen (on the last question), or — if the summary screen is already
+  // showing — confirms and closes.
+  let next_btn = query("#yunomi-questions-next")
+  if !is_null(next_btn) {
+    on(next_btn, "click", fn(_e) { advance_question_step() })
+  }
+  // Summary item click — jump back to that question's step to edit it,
+  // without walking through every question one-by-one from the top.
+  let summary_list = query("#yunomi-questions-summary")
+  if !is_null(summary_list) {
+    on(summary_list, "click", fn(e) {
+      let item = closest(event_target(e), ".q-summary-item")
+      if !is_null(item) {
+        question_step_index.val = str_to_int(get_attr(item, "data-step"))
+        persist_draft()
+        render_question_step()
+      }
+    })
+  }
+  // Bar open button (the floating pill)
   let bar_open = query("#yunomi-questions-bar-open")
   if !is_null(bar_open) {
     on(bar_open, "click", fn(_e) { open_questions_modal() })
@@ -3522,7 +3727,7 @@ fn setup_questions_ui() -> Unit {
   // Click overlay background to close
   on(overlay, "click", fn(e) {
     if elem_eq(event_target(e), overlay) {
-      close_questions_modal(false)
+      close_questions_modal()
     }
   })
   // Escape to close
@@ -3530,7 +3735,7 @@ fn setup_questions_ui() -> Unit {
     if event_key(e) == "Escape" {
       let ov = query("#yunomi-questions-overlay")
       if !is_null(ov) && has_class(ov, "visible") {
-        close_questions_modal(false)
+        close_questions_modal()
       }
     }
   })
@@ -3549,13 +3754,28 @@ fn setup_questions_ui() -> Unit {
       if !was_selected {
         add_class(target, "selected")
       }
-      update_questions_count()
+      // Badge only — see update_questions_badge()'s doc comment for why
+      // this must never also schedule an auto-close: task #21 introduced
+      // a mandatory answer-summary confirmation screen between the last
+      // question and the modal actually closing, and an auto-close firing
+      // 500ms after mere DOM state (an option selected, a textarea filled)
+      // would silently close the dialog out from under that confirmation
+      // — or even before the human clicks 完了 at all — completely
+      // defeating the point of the confirmation step. Closing is now owned
+      // exclusively by the explicit Next/完了/確定して閉じる button flow
+      // (advance_question_step()) and the X/Later/backdrop/ESC escape
+      // hatches.
+      update_questions_badge()
+      persist_draft()
     })
   }
   // Setup answer textareas
   let answer_areas = query_all(".q-answer")
   for area in answer_areas {
-    on(area, "input", fn(_e) { update_questions_count() })
+    on(area, "input", fn(_e) {
+      update_questions_badge()
+      persist_draft()
+    })
   }
   // Resolved toggle
   let resolved_toggle = query(".yunomi-resolved-toggle")
@@ -3563,20 +3783,269 @@ fn setup_questions_ui() -> Unit {
     on(resolved_toggle, "click", fn(_e) {
       if has_class(resolved_toggle, "open") {
         remove_class(resolved_toggle, "open")
+        remove_class(query(".yunomi-resolved-list"), "visible")
       } else {
         add_class(resolved_toggle, "open")
+        add_class(query(".yunomi-resolved-list"), "visible")
       }
     })
   }
-  // Auto-popup if there are unresolved questions
-  let count_el = query("#yunomi-questions-bar-count")
-  if !is_null(count_el) {
-    let count_text = get_text_content(count_el)
-    if count_text != "0" {
-      // Auto-open after short delay
-      ignore(set_timeout(fn() { open_questions_modal() }, 500))
+  // Sync the header/footer chrome (progress text, Next-vs-Complete label) to
+  // whatever step is currently marked active in the server-rendered HTML.
+  render_question_step()
+  // Auto-popup if any unresolved question exists — but not on top of the
+  // recovery modal (check_recovery() runs synchronously right after this
+  // in init_app). The recovery modal is z-index 100 and the questions
+  // overlay is z-index 1100, so opening both leaves the questions overlay
+  // silently blocking clicks on the recovery modal's Restore/Discard
+  // buttons underneath. Defer to hide_recovery_modal(), which re-checks and
+  // opens the questions modal once the human has decided.
+  //
+  // has_unresolved_questions() is deliberately static (does a question
+  // exist at all), not "is anything still unanswered" — a question that
+  // exists must be shown on load even if a restored draft (or the
+  // frontmatter's own `answer:`) already fills it in. "気がついたら回答
+  // する" (stumbling on it later via the pill) is not an acceptable primary
+  // path; every unresolved question must be seen up front, prefilled or not.
+  if has_unresolved_questions() {
+    // Auto-open after short delay
+    ignore(
+      set_timeout(
+        fn() {
+          let recovery_modal = query("#recovery-modal")
+          if is_null(recovery_modal) || !has_class(recovery_modal, "visible") {
+            open_questions_modal()
+          }
+        },
+        500,
+      ),
+    )
+  }
+}
+
+///|
+/// Show the .question-card at question_step_index (clamped to the actual
+/// number of stepper cards, or to `count` for the answer-summary
+/// confirmation screen — see task #21) and hide every other one, syncing
+/// the header progress counter and the Next/Later footer labels to match.
+fn render_question_step() -> Unit {
+  let cards = query_all("#yunomi-questions-stepper .question-card")
+  let count = cards.length()
+  let progress_el = query("#yunomi-questions-progress")
+  let body = query("#yunomi-questions-body")
+  let next_btn = query("#yunomi-questions-next")
+  let later_btn = query("#yunomi-questions-later")
+  if count == 0 {
+    if !is_null(progress_el) {
+      set_inner_html(progress_el, "")
+    }
+    return
+  }
+  let mut idx = question_step_index.val
+  if idx < 0 {
+    idx = 0
+  }
+  // idx == count is the summary sentinel — one past the last real question.
+  if idx > count {
+    idx = count
+  }
+  question_step_index.val = idx
+  if idx == count {
+    // Answer-summary confirmation screen: hide every question-card (and
+    // the resolved section, via .summary-active on the body) and populate
+    // the recap instead.
+    for card in cards {
+      remove_class(card, "step-active")
+    }
+    if !is_null(body) {
+      add_class(body, "summary-active")
+    }
+    render_answer_summary()
+    if !is_null(progress_el) {
+      set_inner_html(progress_el, count.to_string() + "/" + count.to_string())
+    }
+    if !is_null(next_btn) {
+      set_inner_html(next_btn, "確定して閉じる")
+    }
+    if !is_null(later_btn) {
+      set_inner_html(later_btn, "戻る")
+    }
+    return
+  }
+  if !is_null(body) {
+    remove_class(body, "summary-active")
+  }
+  for p, card in cards {
+    if p == idx {
+      add_class(card, "step-active")
+    } else {
+      remove_class(card, "step-active")
     }
   }
+  if !is_null(progress_el) {
+    set_inner_html(progress_el, (idx + 1).to_string() + "/" + count.to_string())
+  }
+  if !is_null(next_btn) {
+    set_inner_html(next_btn, if idx == count - 1 { "完了" } else { "次へ" })
+  }
+  if !is_null(later_btn) {
+    set_inner_html(later_btn, "後で回答する")
+  }
+}
+
+///|
+/// Send the currently-visible step's answer (option + free text, combined
+/// the same way collect_yunomi_answers() combines them for final submit) to
+/// the server the instant Next/Complete is clicked — not at final Submit —
+/// so an agent tailing the live log sees each answer immediately instead of
+/// waiting for the whole review to finish.
+fn send_current_step_answer_live(card : Element) -> Unit {
+  if get_yunomi_port() <= 0 {
+    return
+  }
+  let id = get_attr(card, "data-qid")
+  if id.length() == 0 {
+    return
+  }
+  let title_el = query_in(card, ".q-title")
+  let question_text = if is_null(title_el) {
+    ""
+  } else {
+    get_text_content(title_el)
+  }
+  let textarea = query_in(card, ".q-answer")
+  let text = if is_null(textarea) { "" } else { get_value(textarea) }
+  let selected_btn = query_in(card, ".q-option-btn.selected")
+  let option = if is_null(selected_btn) {
+    ""
+  } else {
+    let v = get_attr(selected_btn, "data-val")
+    if v.length() > 0 {
+      v
+    } else {
+      get_text_content(selected_btn)
+    }
+  }
+  let combined = if option.length() > 0 && text.length() > 0 {
+    option + "\n" + text
+  } else if option.length() > 0 {
+    option
+  } else {
+    text
+  }
+  send_answer_event_to_server(id, question_text, combined)
+}
+
+///|
+/// POST a single answer event to the server over the same /comment
+/// real-time IPC channel send_comment_to_server() already uses — type:
+/// "answer" (handled by handle_answer_event in main.mbt) so it lands in the
+/// live JSONL log immediately, independent of the eventual /exit submit.
+fn send_answer_event_to_server(
+  id : String,
+  question : String,
+  answer : String,
+) -> Unit {
+  let url = location_origin() + "/comment"
+  let buf = StringBuilder::new()
+  buf.write_string("{\"type\":\"answer\",\"id\":")
+  buf.write_string(json_encode_string(id))
+  buf.write_string(",\"question\":")
+  buf.write_string(json_encode_string(question))
+  buf.write_string(",\"answer\":")
+  buf.write_string(json_encode_string(answer))
+  buf.write_string("}")
+  fetch_post(url, buf.to_string(), fn(_response) { ignore(_response) })
+}
+
+///|
+/// Handle the primary "Next" / "Complete" / "確定して閉じる" action: flush
+/// the current step's answer live, persist the draft (including the new
+/// step position), then either move to the next question, open the
+/// answer-summary confirmation screen (reaching the end of the stepper —
+/// task #21: closing straight from the last question's "完了" click with
+/// zero feedback read as "did that just do nothing?"), or — if the summary
+/// screen is already showing — confirm and actually close.
+fn advance_question_step() -> Unit {
+  let cards = query_all("#yunomi-questions-stepper .question-card")
+  let count = cards.length()
+  if count == 0 {
+    close_questions_modal()
+    return
+  }
+  let idx = question_step_index.val
+  if idx >= count {
+    // Already on the summary screen — this click is "確定して閉じる".
+    confirm_summary_and_close(count)
+    return
+  }
+  let mut clamped = idx
+  if clamped < 0 {
+    clamped = 0
+  }
+  if clamped > count - 1 {
+    clamped = count - 1
+  }
+  send_current_step_answer_live(cards[clamped])
+  if clamped >= count - 1 {
+    // Last question just answered — open the summary confirmation screen
+    // instead of closing outright.
+    question_step_index.val = count
+    persist_draft()
+    render_question_step()
+  } else {
+    question_step_index.val = clamped + 1
+    persist_draft()
+    render_question_step()
+  }
+}
+
+///|
+/// Confirm the answer-summary screen: persist (so a reload lands back on
+/// the summary, not question 1), close the modal, and flash the pill as a
+/// brief "all answered" acknowledgement — the concrete, minimal feedback
+/// that the review actually recorded something, replacing "the dialog
+/// just vanished, did anything even happen?".
+fn confirm_summary_and_close(total : Int) -> Unit {
+  persist_draft()
+  close_questions_modal()
+  flash_answered_pill(total)
+}
+
+///|
+/// Briefly show the floating pill in a "done" state (check icon,
+/// --success tint, "N/N" badge) for a couple of seconds, then revert it to
+/// its normal unanswered-count display. Safe to call even if the pill is
+/// hidden — it un-hides itself, flashes, and re-hides via the same
+/// unanswered-count logic close_questions_modal() already uses.
+fn flash_answered_pill(total : Int) -> Unit {
+  let bar = query("#yunomi-questions-bar-open")
+  if is_null(bar) {
+    return
+  }
+  let count_el = query("#yunomi-questions-bar-count")
+  if !is_null(count_el) {
+    set_inner_html(count_el, total.to_string() + "/" + total.to_string())
+  }
+  add_class(bar, "visible")
+  add_class(bar, "done")
+  add_class_body("has-questions-bar")
+  ignore(
+    set_timeout(
+      fn() {
+        remove_class(bar, "done")
+        update_questions_badge()
+        // Only re-hide the pill if there's genuinely nothing left
+        // unanswered to show it for — a fresh unresolved question could
+        // in principle have appeared in the meantime via a reload.
+        if count_unanswered_questions() == 0 {
+          remove_class(bar, "visible")
+          remove_class_body("has-questions-bar")
+        }
+      },
+      2500,
+    ),
+  )
 }
 
 ///|
@@ -3586,7 +4055,8 @@ fn open_questions_modal() -> Unit {
   if !is_null(overlay) {
     add_class(overlay, "visible")
   }
-  let bar = query("#yunomi-questions-bar")
+  render_question_step()
+  let bar = query("#yunomi-questions-bar-open")
   if !is_null(bar) {
     remove_class(bar, "visible")
     remove_class_body("has-questions-bar")
@@ -3594,15 +4064,19 @@ fn open_questions_modal() -> Unit {
 }
 
 ///|
-/// Close questions modal
-fn close_questions_modal(_all_answered : Bool) -> Unit {
+/// Close questions modal (X, Later/戻る-while-mid-stepper, backdrop click,
+/// ESC, or confirm_summary_and_close() after the answer-summary screen all
+/// route here) — the step position is left untouched so reopening resumes
+/// where the human left off (including the summary screen itself, if that
+/// was where they were).
+fn close_questions_modal() -> Unit {
   let overlay = query("#yunomi-questions-overlay")
   if !is_null(overlay) {
     remove_class(overlay, "visible")
   }
-  // Show bar if there are unanswered questions
+  // Show the floating pill if there are still unanswered questions
   let unanswered = count_unanswered_questions()
-  let bar = query("#yunomi-questions-bar")
+  let bar = query("#yunomi-questions-bar-open")
   if unanswered > 0 && !is_null(bar) {
     add_class(bar, "visible")
     add_class_body("has-questions-bar")
@@ -3634,24 +4108,15 @@ fn count_unanswered_questions() -> Int {
 }
 
 ///|
-/// Update questions count display
-fn update_questions_count() -> Unit {
+/// Update the unanswered-count badge on the floating pill (bar badge only —
+/// the modal header shows step position "n/total" via render_question_step(),
+/// not a raw count). Safe to call from anywhere, including programmatic
+/// restores, since it has no side effect beyond the badge text.
+fn update_questions_badge() -> Unit {
   let unanswered = count_unanswered_questions()
-  let count_el = query("#yunomi-questions-count")
-  if !is_null(count_el) {
-    if unanswered > 0 {
-      set_inner_html(count_el, "(" + unanswered.to_string() + ")")
-    } else {
-      set_inner_html(count_el, "")
-    }
-  }
   let bar_count = query("#yunomi-questions-bar-count")
   if !is_null(bar_count) {
     set_inner_html(bar_count, unanswered.to_string())
-  }
-  // Auto-close if all answered
-  if unanswered == 0 {
-    ignore(set_timeout(fn() { close_questions_modal(true) }, 500))
   }
 }
 

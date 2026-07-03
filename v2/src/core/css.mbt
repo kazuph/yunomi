@@ -1424,15 +1424,19 @@ fn build_css() -> String {
     #|  text-align: center;
     #|  margin-right: 2px;
     #|}
-    #|/* Yunomi Questions Modal */
+    #|/* Yunomi Questions Modal — one-question-per-screen stepper (mirrors
+    #| * Claude Code's AskUserQuestion: answer, advance, never a tall
+    #| * scrolling stack of every question at once). No emoji, no internal
+    #| * question ID ever rendered as text. */
     #|.yunomi-questions-overlay {
     #|  display: none;
     #|  position: fixed;
     #|  inset: 0;
-    #|  background: rgba(0, 0, 0, 0.8);
+    #|  background: rgba(0, 0, 0, 0.55);
     #|  z-index: 1100;
     #|  justify-content: center;
     #|  align-items: center;
+    #|  padding: 16px;
     #|}
     #|.yunomi-questions-overlay.visible {
     #|  display: flex;
@@ -1441,38 +1445,43 @@ fn build_css() -> String {
     #|  background: var(--card-bg);
     #|  border: 1px solid var(--border);
     #|  border-radius: 16px;
-    #|  width: 90%;
-    #|  max-width: 600px;
-    #|  max-height: 80vh;
+    #|  width: 100%;
+    #|  max-width: 560px;
+    #|  /* Long context text (fail-open/design-rationale explanations etc.)
+    #|   * must fit without an internal scrollbar blocking Next/Complete —
+    #|   * a fixed small cap here ("no way to proceed without scrolling
+    #|   * first") is exactly what the human called out twice. Give the
+    #|   * modal nearly the full viewport height; .yunomi-questions-body's
+    #|   * own overflow-y: auto stays only as a last-resort safety net for
+    #|   * pathological cases (tiny viewport + extremely long context). */
+    #|  max-height: 90vh;
     #|  display: flex;
     #|  flex-direction: column;
     #|  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
+    #|  overflow: hidden;
     #|}
     #|.yunomi-questions-header {
     #|  display: flex;
     #|  justify-content: space-between;
     #|  align-items: center;
-    #|  padding: 16px 20px;
+    #|  padding: 12px 16px;
     #|  border-bottom: 1px solid var(--border);
+    #|  flex-shrink: 0;
     #|}
-    #|.yunomi-questions-header h2 {
-    #|  margin: 0;
-    #|  font-size: 16px;
+    #|.yunomi-questions-progress {
+    #|  font-size: 12px;
     #|  font-weight: 600;
-    #|  color: var(--text);
-    #|}
-    #|.yunomi-questions-header h2 span {
-    #|  font-size: 14px;
     #|  color: var(--text-dim);
-    #|  font-weight: 400;
+    #|  font-variant-numeric: tabular-nums;
     #|}
     #|.yunomi-questions-close {
-    #|  width: 32px;
-    #|  height: 32px;
+    #|  width: 28px;
+    #|  height: 28px;
     #|  border: none;
     #|  background: transparent;
     #|  color: var(--text-dim);
     #|  font-size: 18px;
+    #|  line-height: 1;
     #|  cursor: pointer;
     #|  border-radius: 8px;
     #|  transition: all 150ms ease;
@@ -1484,129 +1493,149 @@ fn build_css() -> String {
     #|.yunomi-questions-body {
     #|  flex: 1;
     #|  overflow-y: auto;
-    #|  padding: 16px 20px;
+    #|  padding: 16px;
+    #|  min-height: 0;
     #|}
-    #|.yunomi-questions-footer {
-    #|  padding: 12px 20px;
-    #|  border-top: 1px solid var(--border);
-    #|  display: flex;
-    #|  justify-content: flex-end;
+    #|/* Only the active step's card is shown — the rest stay in the DOM
+    #| * (unchanged) so collect_yunomi_answers()/persist_draft() keep working
+    #| * across every question, not just the visible one. */
+    #|.yunomi-questions-stepper .question-card {
+    #|  display: none;
     #|}
-    #|.yunomi-questions-later {
-    #|  padding: 8px 16px;
+    #|.yunomi-questions-stepper .question-card.step-active {
+    #|  display: block;
+    #|}
+    #|/* Answer-summary confirmation screen (task #21) — the stepper's
+    #| * virtual "last step + 1", shown instead of closing outright when
+    #| * "完了" is clicked on the final question. app.mbt toggles
+    #| * .summary-active on the body to swap the stepper/resolved-section for
+    #| * this recap, so the human sees every answer before committing instead
+    #| * of the dialog just vanishing with no feedback. */
+    #|.yunomi-questions-summary {
+    #|  display: none;
+    #|}
+    #|.yunomi-questions-body.summary-active .yunomi-questions-stepper,
+    #|.yunomi-questions-body.summary-active .yunomi-resolved-section {
+    #|  display: none;
+    #|}
+    #|.yunomi-questions-body.summary-active .yunomi-questions-summary {
+    #|  display: block;
+    #|}
+    #|.q-summary-item {
+    #|  display: block;
+    #|  width: 100%;
+    #|  text-align: left;
+    #|  background: var(--input-bg);
     #|  border: 1px solid var(--border);
-    #|  background: transparent;
-    #|  color: var(--text-dim);
     #|  border-radius: 8px;
+    #|  padding: 10px 12px;
+    #|  margin-bottom: 8px;
     #|  cursor: pointer;
-    #|  font-size: 13px;
-    #|  transition: all 150ms ease;
+    #|  font-family: inherit;
+    #|  transition: border-color 150ms ease, background 150ms ease;
     #|}
-    #|.yunomi-questions-later:hover {
-    #|  background: var(--border);
-    #|  color: var(--text);
-    #|}
-    #|/* Question Item */
-    #|.yunomi-question-item {
-    #|  margin-bottom: 20px;
-    #|  padding-bottom: 20px;
-    #|  border-bottom: 1px solid var(--border);
-    #|}
-    #|.yunomi-question-item:last-child {
+    #|.q-summary-item:last-child {
     #|  margin-bottom: 0;
-    #|  padding-bottom: 0;
-    #|  border-bottom: none;
     #|}
-    #|.yunomi-question-text {
-    #|  font-size: 14px;
+    #|.q-summary-item:hover {
+    #|  border-color: var(--accent);
+    #|  background: var(--accent-soft);
+    #|}
+    #|.q-summary-title {
+    #|  font-size: 13px;
+    #|  font-weight: 600;
     #|  color: var(--text);
-    #|  margin-bottom: 12px;
-    #|  line-height: 1.5;
+    #|  margin-bottom: 4px;
     #|}
-    #|.yunomi-question-options {
+    #|.q-summary-answer {
+    #|  font-size: 12px;
+    #|  color: var(--text-dim);
+    #|  white-space: pre-wrap;
+    #|  overflow-wrap: anywhere;
+    #|}
+    #|.question-card .q-title {
+    #|  font-size: 15px;
+    #|  font-weight: 600;
+    #|  color: var(--text);
+    #|  line-height: 1.5;
+    #|  margin-bottom: 10px;
+    #|}
+    #|.question-card .q-context {
+    #|  font-size: 12px;
+    #|  color: var(--text-dim);
+    #|  line-height: 1.6;
+    #|  background: var(--code-bg);
+    #|  border: 1px solid var(--border);
+    #|  border-radius: 8px;
+    #|  padding: 8px 10px;
+    #|  margin-bottom: 12px;
+    #|  white-space: pre-wrap;
+    #|}
+    #|.question-card .q-options {
     #|  display: flex;
     #|  flex-wrap: wrap;
     #|  gap: 8px;
-    #|  margin-bottom: 12px;
+    #|  margin-bottom: 10px;
     #|}
-    #|.yunomi-question-option {
-    #|  padding: 8px 14px;
+    #|/* q-option-btn: frontmatter question choice buttons (question-card UI) */
+    #|.q-option-btn {
+    #|  margin: 0 6px 6px 0;
+    #|  padding: 6px 12px;
     #|  border: 1px solid var(--border);
+    #|  border-radius: 6px;
     #|  background: transparent;
     #|  color: var(--text);
-    #|  border-radius: 8px;
-    #|  cursor: pointer;
+    #|  font-family: inherit;
     #|  font-size: 13px;
-    #|  transition: all 150ms ease;
+    #|  cursor: pointer;
+    #|  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
     #|}
-    #|.yunomi-question-option:hover {
+    #|.q-option-btn:hover {
     #|  border-color: var(--accent);
-    #|  background: rgba(96, 165, 250, 0.1);
+    #|  background: var(--accent-soft);
     #|}
-    #|.yunomi-question-option.selected {
+    #|.q-option-btn.selected {
     #|  border-color: var(--accent);
-    #|  background: var(--accent);
-    #|  color: var(--text-inverse);
+    #|  background: var(--selected-bg);
+    #|  box-shadow: inset 0 0 0 1px var(--accent);
+    #|  color: var(--text);
+    #|  font-weight: 600;
     #|}
-    #|.yunomi-question-input {
+    #|.question-card .q-answer {
     #|  width: 100%;
-    #|  padding: 10px 12px;
-    #|  border: 1px solid var(--border);
+    #|  min-height: 72px;
+    #|  max-height: 160px;
     #|  background: var(--input-bg);
     #|  color: var(--text);
+    #|  border: 1px solid var(--border);
     #|  border-radius: 8px;
+    #|  padding: 10px 12px;
     #|  font-size: 13px;
+    #|  font-family: inherit;
     #|  resize: vertical;
-    #|  min-height: 60px;
     #|}
-    #|.yunomi-question-input:focus {
+    #|.question-card .q-answer:focus {
     #|  outline: none;
     #|  border-color: var(--accent);
     #|}
-    #|.yunomi-question-input::placeholder {
+    #|.question-card .q-answer::placeholder {
     #|  color: var(--text-dim);
     #|}
-    #|.yunomi-check-mark {
-    #|  color: #22c55e;
-    #|  font-weight: bold;
-    #|}
-    #|.yunomi-question-item.answered {
-    #|  border-color: #22c55e;
-    #|  background: rgba(34, 197, 94, 0.05);
-    #|}
-    #|.yunomi-question-submit {
-    #|  margin-top: 10px;
-    #|  padding: 8px 16px;
-    #|  border: none;
-    #|  background: var(--accent);
-    #|  color: var(--text-inverse);
-    #|  border-radius: 8px;
-    #|  cursor: pointer;
-    #|  font-size: 13px;
-    #|  font-weight: 500;
-    #|  transition: all 150ms ease;
-    #|}
-    #|.yunomi-question-submit:hover {
-    #|  filter: brightness(1.1);
-    #|}
-    #|.yunomi-question-submit:disabled {
-    #|  opacity: 0.5;
-    #|  cursor: not-allowed;
-    #|}
-    #|/* Resolved Section */
+    #|/* Resolved Section — collapsed by default, outside the step flow (no
+    #| * action needed on an already-resolved question) */
     #|.yunomi-resolved-section {
     #|  margin-top: 16px;
     #|  border-top: 1px solid var(--border);
-    #|  padding-top: 12px;
+    #|  padding-top: 10px;
     #|}
     #|.yunomi-resolved-toggle {
     #|  display: flex;
     #|  align-items: center;
-    #|  gap: 8px;
+    #|  gap: 6px;
     #|  background: none;
     #|  border: none;
     #|  color: var(--text-dim);
-    #|  font-size: 13px;
+    #|  font-size: 12px;
     #|  cursor: pointer;
     #|  padding: 4px 0;
     #|}
@@ -1614,6 +1643,8 @@ fn build_css() -> String {
     #|  color: var(--text);
     #|}
     #|.yunomi-resolved-toggle .arrow {
+    #|  display: inline-block;
+    #|  font-size: 10px;
     #|  transition: transform 150ms ease;
     #|}
     #|.yunomi-resolved-toggle.open .arrow {
@@ -1621,69 +1652,124 @@ fn build_css() -> String {
     #|}
     #|.yunomi-resolved-list {
     #|  display: none;
-    #|  margin-top: 12px;
+    #|  margin-top: 10px;
     #|}
     #|.yunomi-resolved-list.visible {
     #|  display: block;
     #|}
-    #|.yunomi-resolved-item {
+    #|.yunomi-resolved-list .question-card {
     #|  padding: 10px 12px;
     #|  background: var(--input-bg);
     #|  border-radius: 8px;
     #|  margin-bottom: 8px;
-    #|  opacity: 0.7;
+    #|  opacity: 0.75;
     #|}
-    #|.yunomi-resolved-item:last-child {
+    #|.yunomi-resolved-list .question-card:last-child {
     #|  margin-bottom: 0;
     #|}
-    #|.yunomi-resolved-q {
+    #|.yunomi-resolved-list .q-title {
     #|  font-size: 12px;
-    #|  color: var(--text-dim);
+    #|  font-weight: 500;
     #|  margin-bottom: 4px;
     #|}
-    #|.yunomi-resolved-a {
-    #|  font-size: 13px;
+    #|.yunomi-resolved-list .q-answer-display {
+    #|  font-size: 12px;
     #|  color: var(--text);
     #|}
-    #|/* Notice Bar */
-    #|.yunomi-questions-bar {
-    #|  display: none;
-    #|  position: fixed;
-    #|  top: 0;
-    #|  left: 0;
-    #|  right: 0;
-    #|  background: var(--accent);
-    #|  color: var(--text-inverse);
-    #|  padding: 8px 16px;
-    #|  font-size: 13px;
-    #|  z-index: 1050;
-    #|  justify-content: center;
+    #|.yunomi-questions-footer {
+    #|  display: flex;
+    #|  justify-content: space-between;
     #|  align-items: center;
     #|  gap: 12px;
+    #|  padding: 12px 16px;
+    #|  border-top: 1px solid var(--border);
+    #|  flex-shrink: 0;
     #|}
-    #|.yunomi-questions-bar.visible {
-    #|  display: flex;
-    #|}
-    #|.yunomi-questions-bar button {
-    #|  padding: 4px 12px;
-    #|  border: 1px solid rgba(255, 255, 255, 0.3);
-    #|  background: rgba(255, 255, 255, 0.1);
-    #|  color: var(--text-inverse);
-    #|  border-radius: 6px;
+    #|.yunomi-questions-later {
+    #|  padding: 8px 14px;
+    #|  border: 1px solid var(--border);
+    #|  background: transparent;
+    #|  color: var(--text-dim);
+    #|  border-radius: 8px;
     #|  cursor: pointer;
     #|  font-size: 12px;
     #|  transition: all 150ms ease;
     #|}
-    #|.yunomi-questions-bar button:hover {
-    #|  background: rgba(255, 255, 255, 0.2);
+    #|.yunomi-questions-later:hover {
+    #|  background: var(--border);
+    #|  color: var(--text);
     #|}
-    #|/* Adjust layout when bar is visible */
-    #|body.has-questions-bar header {
-    #|  top: 36px;
+    #|.yunomi-questions-next {
+    #|  margin-left: auto;
+    #|  padding: 8px 20px;
+    #|  border: none;
+    #|  background: var(--accent);
+    #|  color: var(--text-inverse);
+    #|  border-radius: 8px;
+    #|  cursor: pointer;
+    #|  font-size: 13px;
+    #|  font-weight: 600;
+    #|  transition: filter 150ms ease;
     #|}
-    #|body.has-questions-bar .toolbar,
-    #|body.has-questions-bar .table-wrap {
-    #|  margin-top: 36px;
+    #|.yunomi-questions-next:hover {
+    #|  filter: brightness(1.1);
+    #|}
+    #|/* Unanswered-questions pill — a small floating badge, not a full-width
+    #| * banner, so it never pushes the header/layout down. Bottom-LEFT,
+    #| * deliberately: the header's action buttons (incl. Submit & Exit) and
+    #| * #submit-modal's dialog (see "top-right position" above) both live in
+    #| * the top-right corner, and this pill's z-index (1050) sits above both
+    #| * — a top-right pill silently swallowed clicks meant for Submit & Exit
+    #| * and made the Submit Review dialog appear to "not close" when the
+    #| * click actually landed on the pill instead. Bottom-left has no other
+    #| * fixed-position UI (comment list / mermaid error toast / history
+    #| * panel all live elsewhere). */
+    #|.yunomi-questions-bar {
+    #|  display: none;
+    #|  position: fixed;
+    #|  bottom: 16px;
+    #|  left: 16px;
+    #|  align-items: center;
+    #|  gap: 6px;
+    #|  border: none;
+    #|  background: var(--accent);
+    #|  color: var(--text-inverse);
+    #|  padding: 8px 12px;
+    #|  border-radius: 999px;
+    #|  cursor: pointer;
+    #|  z-index: 1050;
+    #|  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    #|  transition: filter 150ms ease;
+    #|}
+    #|.yunomi-questions-bar:hover {
+    #|  filter: brightness(1.1);
+    #|}
+    #|.yunomi-questions-bar.visible {
+    #|  display: inline-flex;
+    #|}
+    #|.yunomi-questions-bar-count {
+    #|  font-size: 11px;
+    #|  font-weight: 700;
+    #|  min-width: 14px;
+    #|  text-align: center;
+    #|}
+    #|/* Task #21: a brief "all answered" acknowledgement flashed by
+    #| * flash_answered_pill() right after confirming the summary screen —
+    #| * closing straight from the last question's "完了" click with zero
+    #| * feedback read as "did that just do nothing?" to a real reviewer.
+    #| * Swaps the help icon for a check icon and tints the pill with
+    #| * --success for a couple of seconds, then app.mbt reverts both. */
+    #|.yunomi-questions-bar-icon-done {
+    #|  display: none;
+    #|}
+    #|.yunomi-questions-bar.done {
+    #|  background: var(--success);
+    #|}
+    #|.yunomi-questions-bar.done .yunomi-questions-bar-icon-pending {
+    #|  display: none;
+    #|}
+    #|.yunomi-questions-bar.done .yunomi-questions-bar-icon-done {
+    #|  display: inline-flex;
     #|}
     #|/* Copy notification toast */
     #|.copy-toast {

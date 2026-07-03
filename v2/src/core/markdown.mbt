@@ -17,16 +17,62 @@ pub fn parse_markdown(input : String) -> MarkdownData {
       }
     }
     if end_idx > 0 {
+      // The `yunomi:` top-level key introduces a nested YAML block
+      // (questions: - id/question/context/options...) that
+      // parse_yunomi_questions() below already parses properly, structure
+      // and all. This generic key:val scanner has no indentation/nesting
+      // awareness at all — it happily reads "id:", "question:", "context:",
+      // "- id:" etc. out of that nested block as if they were flat
+      // top-level frontmatter keys, and since the SAME nested key repeats
+      // once per question, each question's value silently overwrote the
+      // previous one in the map. The net effect: the Document Metadata
+      // table showed only the LAST question's id/context/etc, duplicating
+      // (and mangling) content the questions modal already owns and
+      // displays correctly. Fix: track whether we're inside the `yunomi:`
+      // block by indentation (a line with zero leading spaces is a new
+      // top-level key, ending the block) and skip every line inside it —
+      // both the `yunomi:` key itself (its value is a block mapping, not
+      // meaningful text) and everything nested under it.
+      let mut in_yunomi_section = false
       for i in 1..<end_idx {
         let line = lines[i]
-        let colon = index_of_char(line, ':')
-        if colon >= 0 {
-          let key = trim(safe_slice_range(line, 0, colon))
-          let val = trim(safe_slice(line, colon + 1))
-          if key.length() > 0 {
-            frontmatter[key] = val
+        if line.length() > 0 && leading_spaces(line) == 0 {
+          // Top-level (unindented) line: (re)evaluate whether this starts
+          // the yunomi block.
+          let colon = index_of_char(line, ':')
+          if colon >= 0 {
+            let key = trim(safe_slice_range(line, 0, colon))
+            if key == "yunomi" {
+              in_yunomi_section = true
+            } else {
+              in_yunomi_section = false
+              let val = trim(safe_slice(line, colon + 1))
+              if key.length() > 0 {
+                frontmatter[key] = val
+              }
+            }
+          } else {
+            in_yunomi_section = false
+          }
+        } else if leading_spaces(line) > 0 {
+          // Indented line: part of whatever top-level block we're
+          // currently in. Only skip it if that block is `yunomi:` —
+          // preserve prior (naive but unrelated) behavior for any other
+          // indented/nested frontmatter key, since only the yunomi section
+          // was reported as duplicated/mangled.
+          if !in_yunomi_section {
+            let colon = index_of_char(line, ':')
+            if colon >= 0 {
+              let key = trim(safe_slice_range(line, 0, colon))
+              let val = trim(safe_slice(line, colon + 1))
+              if key.length() > 0 {
+                frontmatter[key] = val
+              }
+            }
           }
         }
+        // Blank line: leave in_yunomi_section untouched (may be inside a
+        // `context: |` block scalar's own content).
       }
       content_start = end_idx + 1
     }
@@ -1214,6 +1260,19 @@ fn parse_yunomi_questions(
 }
 
 ///|
+/// Count leading space characters (used to find a YAML block scalar's own
+/// indentation, which is not fixed — it's whatever the first content line
+/// under `context: |` happens to use)
+fn leading_spaces(s : String) -> Int {
+  let chars = s.to_array()
+  let mut n = 0
+  while n < chars.length() && chars[n] == ' ' {
+    n = n + 1
+  }
+  n
+}
+
+///|
 /// Parse a single question item starting at line i, returns (question, next_line_idx)
 fn parse_single_question(
   lines : Array[String],
@@ -1222,6 +1281,7 @@ fn parse_single_question(
 ) -> (YunomiQuestion, Int) {
   let mut id = ""
   let mut question = ""
+  let mut context = ""
   let mut resolved = false
   let mut answer = ""
   let options : Array[String] = []
@@ -1274,6 +1334,47 @@ fn parse_single_question(
       if key == "answer" {
         answer = val
       }
+      if key == "context" {
+        let is_block_scalar = val == "|" ||
+          val == ">" ||
+          val == "|-" ||
+          val == ">-" ||
+          val == "|+" ||
+          val == ">+"
+        if is_block_scalar {
+          i = i + 1
+          let block_lines : Array[String] = []
+          let mut block_indent = -1
+          while i < end {
+            let bline = lines[i]
+            if trim(bline).length() == 0 {
+              block_lines.push("")
+              i = i + 1
+              continue
+            }
+            let indent = leading_spaces(bline)
+            if block_indent < 0 {
+              block_indent = indent
+            }
+            if indent < block_indent {
+              break
+            }
+            block_lines.push(safe_slice(bline, block_indent))
+            i = i + 1
+          }
+          let block_buf = StringBuilder::new()
+          for bi, bl in block_lines {
+            if bi > 0 {
+              block_buf.write_char('\n')
+            }
+            block_buf.write_string(bl)
+          }
+          context = trim(block_buf.to_string())
+          continue
+        } else {
+          context = val
+        }
+      }
       if key == "options" {
         i = i + 1
         while i < end {
@@ -1291,7 +1392,7 @@ fn parse_single_question(
     }
     i = i + 1
   }
-  ({ id, question, resolved, answer, options }, i)
+  ({ id, question, context, resolved, answer, options }, i)
 }
 
 ///|

@@ -102,6 +102,17 @@ pub let icon_svg_moon : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 
 pub let icon_svg_sun : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"4\"/><path d=\"M12 2v2\"/><path d=\"M12 20v2\"/><path d=\"m4.93 4.93 1.41 1.41\"/><path d=\"m17.66 17.66 1.41 1.41\"/><path d=\"M2 12h2\"/><path d=\"M20 12h2\"/><path d=\"m6.34 17.66-1.41 1.41\"/><path d=\"m19.07 4.93-1.41 1.41\"/></svg>"
 
 ///|
+/// Unresolved-questions pill icon (lucide "circle-help" outline, no emoji)
+pub let icon_svg_help : String = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3\"/><path d=\"M12 17h.01\"/></svg>"
+
+///|
+/// All-answered pill icon (lucide "check" outline, no emoji) — swapped in by
+/// app.mbt's flash_answered_pill() as a brief post-confirm acknowledgement
+/// (see task #21: closing straight from the last question's "完了" click
+/// with zero visual feedback read as "did that just do nothing?").
+pub let icon_svg_check : String = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>"
+
+///|
 fn build_page_start(
   buf : StringBuilder,
   filename : String,
@@ -305,10 +316,10 @@ fn build_history_panel(buf : StringBuilder) -> Unit {
 fn build_recovery_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"recovery-modal\">")
   buf.write_string(
-    "<div class=\"modal-dialog\"><h3>Restore Previous Comments?</h3>",
+    "<div class=\"modal-dialog\"><h3>Restore Previous Draft?</h3>",
   )
   buf.write_string(
-    "<p class=\"modal-summary\" id=\"recovery-summary\">Found saved comments from a previous session.</p>",
+    "<p class=\"modal-summary\" id=\"recovery-summary\">Found an unsaved draft from a previous session.</p>",
   )
   buf.write_string("<div class=\"modal-actions\">")
   buf.write_string("<button id=\"recovery-discard\">Discard</button>")
@@ -319,7 +330,14 @@ fn build_recovery_modal(buf : StringBuilder) -> Unit {
 }
 
 ///|
-/// Build questions modal HTML (cli.cjs compatible overlay structure)
+/// Build questions modal HTML: a one-question-per-screen stepper (mirrors
+/// Claude Code's AskUserQuestion — answer one, advance to the next, never a
+/// tall scrolling stack of every question at once). The internal frontmatter
+/// `id` never renders as visible text anywhere in this markup — it only
+/// survives as a `data-qid` attribute so collect_yunomi_answers() (dom.mbt)
+/// can key the submitted YAML `answers:` map the same way it always has.
+/// The card heading IS the question text itself; a `context:` block (if the
+/// author supplied one) renders directly under it as the judgment material.
 fn build_questions_modal(
   buf : StringBuilder,
   questions : Array[YunomiQuestion],
@@ -327,6 +345,13 @@ fn build_questions_modal(
   if questions.length() == 0 {
     return
   }
+  let mut unresolved_count = 0
+  for q in questions {
+    if !q.resolved {
+      unresolved_count = unresolved_count + 1
+    }
+  }
+  let resolved_count = questions.length() - unresolved_count
   // Overlay
   buf.write_string(
     "<div class=\"yunomi-questions-overlay\" id=\"yunomi-questions-overlay\">",
@@ -334,49 +359,55 @@ fn build_questions_modal(
   buf.write_string(
     "<div class=\"yunomi-questions-modal\" id=\"yunomi-questions-modal\">",
   )
+  buf.write_string("<div class=\"yunomi-questions-header\">")
   buf.write_string(
-    "<div class=\"yunomi-questions-header\"><h2>\u{1F4CB} AI\u{304B}\u{3089}\u{306E}\u{8CEA}\u{554F} <span id=\"yunomi-questions-count\"></span></h2>",
+    "<span class=\"yunomi-questions-progress\" id=\"yunomi-questions-progress\">",
   )
+  if unresolved_count > 0 {
+    buf.write_string("1/")
+    buf.write_string(unresolved_count.to_string())
+  }
+  buf.write_string("</span>")
   buf.write_string(
-    "<button class=\"btn\" id=\"yunomi-questions-close\">\u{2715}</button></div>",
+    "<button class=\"yunomi-questions-close\" id=\"yunomi-questions-close\" title=\"閉じる\" aria-label=\"閉じる\">&times;</button>",
   )
+  buf.write_string("</div>")
   buf.write_string(
     "<div class=\"yunomi-questions-body\" id=\"yunomi-questions-body\">",
   )
-  // Unresolved questions
-  let mut unresolved_count = 0
-  for q in questions {
-    if !q.resolved {
-      unresolved_count = unresolved_count + 1
-    }
-  }
+  // Stepper: every unresolved question-card is present in the DOM (so
+  // existing collect/persist helpers that query `.question-card` keep
+  // working unchanged) but only the one at the current step carries
+  // `.step-active` — app.mbt's render_question_step() toggles that class.
+  buf.write_string(
+    "<div class=\"yunomi-questions-stepper\" id=\"yunomi-questions-stepper\">",
+  )
+  let mut step_idx = 0
   for i, q in questions {
     if q.resolved {
       continue
     }
-    buf.write_string("<div class=\"question-card\" data-qid=\"")
+    buf.write_string("<div class=\"question-card")
+    if step_idx == 0 {
+      buf.write_string(" step-active")
+    }
+    buf.write_string("\" data-qid=\"")
     buf.write_string(escape_html(q.id))
+    buf.write_string("\" data-step=\"")
+    buf.write_string(step_idx.to_string())
     buf.write_string("\">")
-    buf.write_string("<div class=\"q-header\">\u{23F3} <strong>")
-    buf.write_string(
-      escape_html(
-        if q.id.length() > 0 {
-          q.id
-        } else {
-          "Q" + (i + 1).to_string()
-        },
-      ),
-    )
-    buf.write_string("</strong> <span class=\"q-check\" id=\"q-check-")
-    buf.write_string(i.to_string())
-    buf.write_string("\"></span></div>")
-    buf.write_string("<div class=\"q-body\">")
+    buf.write_string("<div class=\"q-title\">")
     buf.write_string(escape_html(q.question))
     buf.write_string("</div>")
+    if q.context.length() > 0 {
+      buf.write_string("<div class=\"q-context\">")
+      buf.write_string(escape_html(q.context))
+      buf.write_string("</div>")
+    }
     if q.options.length() > 0 {
       buf.write_string("<div class=\"q-options\">")
       for j, opt in q.options {
-        buf.write_string("<button class=\"q-option-btn\" data-qi=\"")
+        buf.write_string("<button type=\"button\" class=\"q-option-btn\" data-qi=\"")
         buf.write_string(i.to_string())
         buf.write_string("\" data-oi=\"")
         buf.write_string(j.to_string())
@@ -390,39 +421,39 @@ fn build_questions_modal(
     }
     buf.write_string("<textarea class=\"q-answer\" data-qi=\"")
     buf.write_string(i.to_string())
-    buf.write_string(
-      "\" placeholder=\"\u{56DE}\u{7B54}\u{3092}\u{5165}\u{529B}...\" style=\"width:100%;min-height:60px;margin-top:8px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:8px\">",
-    )
+    buf.write_string("\" placeholder=\"回答を入力\">")
     buf.write_string(escape_html(q.answer))
     buf.write_string("</textarea>")
     buf.write_string("</div>")
+    step_idx = step_idx + 1
   }
-  // Resolved questions (collapsible)
-  let resolved_count = questions.length() - unresolved_count
+  buf.write_string("</div>")
+  // Answer-summary confirmation screen — the stepper's virtual "last step +
+  // 1". Reached by clicking "完了" on the final question instead of closing
+  // the modal outright: a real reviewer answered a 3rd question, clicked
+  // "完了", and the dialog just vanished with no indication anything had
+  // been recorded ("最悪のUX" — task #21). app.mbt's render_question_step()
+  // populates this via render_answer_summary() and toggles it visible by
+  // adding .summary-active to #yunomi-questions-body; left empty here since
+  // its content depends on live DOM state (edits made after page load),
+  // not the server-rendered snapshot.
+  buf.write_string(
+    "<div class=\"yunomi-questions-summary\" id=\"yunomi-questions-summary\"></div>",
+  )
+  // Resolved questions (collapsible, outside the step flow — no action
+  // needed on them, so they never occupy a step)
   if resolved_count > 0 {
     buf.write_string("<div class=\"yunomi-resolved-section\">")
     buf.write_string(
-      "<button class=\"yunomi-resolved-toggle\">\u{2705} \u{89E3}\u{6C7A}\u{6E08}\u{307F} (",
+      "<button type=\"button\" class=\"yunomi-resolved-toggle\"><span class=\"arrow\">\u{25B8}</span>解決済み (",
     )
     buf.write_string(resolved_count.to_string())
     buf.write_string(")</button><div class=\"yunomi-resolved-list\">")
-    for i, q in questions {
+    for q in questions {
       if !q.resolved {
         continue
       }
-      buf.write_string(
-        "<div class=\"question-card resolved\"><div class=\"q-header\">\u{2705} <strong>",
-      )
-      buf.write_string(
-        escape_html(
-          if q.id.length() > 0 {
-            q.id
-          } else {
-            "Q" + (i + 1).to_string()
-          },
-        ),
-      )
-      buf.write_string("</strong></div><div class=\"q-body\">")
+      buf.write_string("<div class=\"question-card resolved\"><div class=\"q-title\">")
       buf.write_string(escape_html(q.question))
       buf.write_string("</div>")
       if q.answer.length() > 0 {
@@ -437,22 +468,33 @@ fn build_questions_modal(
   buf.write_string("</div>")
   buf.write_string("<div class=\"yunomi-questions-footer\">")
   buf.write_string(
-    "<button class=\"btn\" id=\"yunomi-questions-later\">\u{5F8C}\u{3067}\u{56DE}\u{7B54}\u{3059}\u{308B}</button>",
+    "<button type=\"button\" class=\"yunomi-questions-later\" id=\"yunomi-questions-later\" title=\"後で回答する\">後で回答する</button>",
   )
+  buf.write_string(
+    "<button type=\"button\" class=\"yunomi-questions-next\" id=\"yunomi-questions-next\">",
+  )
+  buf.write_string(if unresolved_count <= 1 { "完了" } else { "次へ" })
+  buf.write_string("</button>")
   buf.write_string("</div></div></div>")
-  // Questions bar (shown after closing modal with unanswered questions)
+  // Minimal floating pill (replaces the old full-width sentence banner):
+  // just an icon + numeric badge, no explanatory copy, no emoji.
   buf.write_string(
-    "<div class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar\">",
+    "<button type=\"button\" class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar-open\" title=\"未回答の質問を開く\" aria-label=\"未回答の質問を開く\">",
   )
+  // Two icons, pre-rendered and toggled via the `.done` class (see
+  // app.mbt's flash_answered_pill()) — swapping which one is visible is a
+  // pure CSS class flip, no innerHTML surgery needed on this button after
+  // the badge span (which update_questions_badge() also targets) is added.
+  buf.write_string("<span class=\"yunomi-questions-bar-icon-pending\">")
+  buf.write_string(icon_svg_help)
+  buf.write_string("</span><span class=\"yunomi-questions-bar-icon-done\">")
+  buf.write_string(icon_svg_check)
+  buf.write_string("</span>")
   buf.write_string(
-    "<span id=\"yunomi-questions-bar-message\">\u{1F5C2}\u{FE0F} \u{672A}\u{56DE}\u{7B54}\u{306E}\u{8CEA}\u{554F}\u{304C}<span id=\"yunomi-questions-bar-count\">",
+    "<span class=\"yunomi-questions-bar-count\" id=\"yunomi-questions-bar-count\">",
   )
   buf.write_string(unresolved_count.to_string())
-  buf.write_string("</span>\u{4EF6}\u{3042}\u{308A}\u{307E}\u{3059}</span>")
-  buf.write_string(
-    "<button class=\"btn\" id=\"yunomi-questions-bar-open\">\u{8CEA}\u{554F}\u{3092}\u{898B}\u{308B}</button>",
-  )
-  buf.write_string("</div>")
+  buf.write_string("</span></button>")
 }
 
 ///|
@@ -491,6 +533,8 @@ fn serialize_questions_json(questions : Array[YunomiQuestion]) -> String {
     buf.write_string(json_quote(q.id))
     buf.write_string(",\"question\":")
     buf.write_string(json_quote(q.question))
+    buf.write_string(",\"context\":")
+    buf.write_string(json_quote(q.context))
     buf.write_string(",\"resolved\":")
     buf.write_string(if q.resolved { "true" } else { "false" })
     buf.write_string(",\"answer\":")
