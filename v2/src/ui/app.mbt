@@ -1436,6 +1436,10 @@ fn show_submit_modal() -> Unit {
   if is_null(modal) || is_null(list) {
     return
   }
+  let questions = query("#yunomi-questions-overlay")
+  if !is_null(questions) && has_class(questions, "visible") {
+    close_questions_modal()
+  }
   let buf = StringBuilder::new()
   comments.each(fn(key, comment) {
     if comment.text.length() > 0 {
