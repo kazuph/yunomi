@@ -12,6 +12,7 @@ struct ServerContext {
   active_tab_instances : Map[String, String]
   mut pending_close_timer : JsValue
   mut finished : Bool
+  is_loop : Bool
   // Epoch-ms timestamp of the most recent GET / (or /index.html) request —
   // i.e. the browser fetching the page document itself. Updated on every
   // such request, including reloads.
@@ -49,6 +50,11 @@ let server_instance_id : Ref[String] = Ref("")
 ///|
 /// Live log file path for real-time comment IPC
 let live_log_path : Ref[String] = Ref("")
+
+// ===== Review Loop State =====
+
+///|
+let loop_mode : Ref[Bool] = Ref(false)
 
 ///|
 /// Initialize live log file
@@ -208,6 +214,7 @@ fn main {
   }
   let mut port = 4989
   let mut no_open = false
+  let mut go_mode = false
   let files : Array[String] = []
   let mut i = 0
   while i < args.length() {
@@ -222,6 +229,10 @@ fn main {
       let ver = get_package_version()
       console_log("yunomi " + ver + " (moonbit)")
       exit_process("version requested", 0)
+    } else if arg == "go" && files.is_empty() {
+      go_mode = true
+    } else if arg == "--loop" {
+      loop_mode.val = true
     } else if arg == "--port" {
       i = i + 1
       if i < args.length() {
@@ -243,6 +254,10 @@ fn main {
       files.push(arg)
     }
     i = i + 1
+  }
+  if go_mode {
+    handle_go_command(port, no_open)
+    return
   }
   // Interactive terminal with no files: the reader is almost always an
   // AI agent told "run npx yunomi". Serve the skill document before any
@@ -338,6 +353,7 @@ fn print_usage() -> Unit {
     #|  --port <n>        Base port (default: 4989)
     #|  --host <addr>     Bind address (default: 127.0.0.1, use 0.0.0.0 for remote)
     #|  --no-open         Don't open browser
+    #|  --loop            Keep serving after request_changes; exit only on approve
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -345,6 +361,7 @@ fn print_usage() -> Unit {
     #|
     #|Supported formats: CSV, TSV, Markdown, Diff, Plain text
     #|Pipe stdin for diff: git diff | yunomi
+    #|Continue a loop: yunomi go
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
 }
@@ -370,8 +387,9 @@ fn print_skill_doc() -> Unit {
     #|
     #|Humans do not review diffs line by line anymore. They review the work:
     #|intent, changes, and proof. You write a report; yunomi opens it in the
-    #|human's browser; the human reads, comments, and decides; yunomi prints
-    #|the verdict to stdout as YAML and exits. You read the verdict and act.
+    #|human's browser; the human reads, comments, and decides; yunomi writes
+    #|`.yunomi/reviews/<branch>/review.json` and still prints the compatible
+    #|stdout YAML verdict. You read the review file and act.
     #|Never show raw code diffs when a report would do.
     #|
     #|## The approval loop (follow exactly)
@@ -379,18 +397,28 @@ fn print_skill_doc() -> Unit {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Serve it in the FOREGROUND and wait — this command blocks until
-    #|   the human submits their review, then exits:
+    #|3. Serve it in the FOREGROUND with loop mode and wait:
     #|
     #|   ```bash
-    #|   npx yunomi REPORT.md
+    #|   npx yunomi REPORT.md --loop
     #|   ```
     #|
-    #|4. Parse the YAML printed to stdout on exit (schema below).
-    #|5. If `decision: request_changes` — fix every point raised in
-    #|   `summary` and `comments`, update REPORT.md, and serve it again.
-    #|   Repeat until `decision: approve`.
-    #|6. Only after approve: commit, push, publish, or report completion.
+    #|4. If the human submits `request_changes`, the server stays alive.
+    #|   Read `.yunomi/reviews/<branch>/review.json`, fix every unresolved
+    #|   thread, update REPORT.md, then run:
+    #|
+    #|   ```bash
+    #|   npx yunomi go
+    #|   ```
+    #|
+    #|5. The browser updates to the next round at the same URL, showing the
+    #|   previous submitted REPORT.md versus the current REPORT.md diff.
+    #|   Comments remain unresolved until the human clicks Resolve.
+    #|6. Do not ask for or claim approval while unresolved comments remain:
+    #|   yunomi blocks `approve` until every thread is resolved. Repeat
+    #|   fix -> `yunomi go` until the human approves.
+    #|7. Only after `decision: approve`: commit, push, publish, or report
+    #|   completion.
     #|
     #|## REPORT.md rules
     #|
@@ -422,14 +450,45 @@ fn print_skill_doc() -> Unit {
     #|decision: approve | request_changes
     #|```
     #|
-    #|Treat `decision` as the single source of truth. The process exits 0
-    #|after submission; an early nonzero exit means yunomi refused to start
-    #|(read stderr, fix, retry).
+    #|Treat `review.json` as the durable source of truth and stdout YAML as
+    #|the compatibility channel. In `--loop`, `request_changes` does not end
+    #|the process; `approve` exits 0. An early nonzero exit means yunomi
+    #|refused to start or `yunomi go` could not find the active review.
+    #|
+    #|## review.json v1
+    #|
+    #|The durable review file lives at:
+    #|
+    #|```text
+    #|.yunomi/reviews/<branch-sanitized>/review.json
+    #|```
+    #|
+    #|It contains:
+    #|
+    #|```json
+    #|{
+    #|  "version": 1,
+    #|  "branch": "feature/x",
+    #|  "files": ["REPORT.md"],
+    #|  "rounds": [
+    #|    { "round": 1, "started_at": "ISO8601", "submitted_at": "ISO8601|null",
+    #|      "decision": "approve|request_changes|null", "summary": "string" }
+    #|  ],
+    #|  "comments": [
+    #|    { "id": "c-<round>-<seq>", "file": "REPORT.md", "line": 42, "round": 1,
+    #|      "text": "string", "author": "human|agent|cli",
+    #|      "status": "unresolved|resolved",
+    #|      "replies": [ { "author": "agent", "round": 2, "text": "string" } ],
+    #|      "anchor": { "snippet": "string", "context_before": "string", "context_after": "string" } }
+    #|  ]
+    #|}
+    #|```
     #|
     #|## CLI reference
     #|
     #|```bash
-    #|yunomi <file...> [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> [--loop] [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi go              # start the next round for this branch
     #|git diff | yunomi      # review a diff from stdin
     #|yunomi --skill         # print this document again
     #|```
@@ -459,8 +518,8 @@ fn print_skill_doc() -> Unit {
     #|- Codex/agents: ~/.agents/skills/yunomi/SKILL.md
     #|- Project-local alternative: .claude/skills/yunomi/SKILL.md
     #|
-    #|From then on, serve every finished task with `npx yunomi REPORT.md`
-    #|without being asked. The tea serves itself. 🍵
+    #|From then on, serve every finished task with `npx yunomi REPORT.md --loop`
+    #|without being asked, and use `npx yunomi go` after each fix round.
   console_log(doc)
 }
 
@@ -700,6 +759,7 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     active_tab_instances: {},
     pending_close_timer: js_null(),
     finished: false,
+    is_loop: loop_mode.val,
     last_index_get_ms: 0.0,
     last_close_signal_ms: 0.0,
   }
@@ -725,10 +785,12 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
     active_tab_instances: {},
     pending_close_timer: js_null(),
     finished: false,
+    is_loop: loop_mode.val,
     last_index_get_ms: 0.0,
     last_close_signal_ms: 0.0,
   }
   ctx.html_cache = load_and_build_html(ctx)
+  ensure_review_state(resolved)
   active_servers.push(ctx)
   // Watch for file changes
   if ctx.file_path != "<stdin>" {
@@ -741,8 +803,58 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
         }
       }),
     )
+    let signal_path = review_signal_path_for_file(resolved)
+    write_file_secure(signal_path, "")
+    ignore(
+      watch_file(signal_path, fn(_curr, _prev) {
+        handle_go_signal(ctx)
+      }),
+    )
   }
   start_http_server(ctx, no_open)
+}
+
+///|
+fn handle_go_command(port : Int, no_open : Bool) -> Unit {
+  let review_path = review_json_path_for_cwd()
+  if !exists_sync(review_path) {
+    console_error("yunomi go: no review.json found for this repository branch")
+    exit_process("go missing review", 1)
+  }
+  let server_path = review_server_path_for_cwd()
+  if exists_sync(server_path) {
+    let server_json = read_file_safe(server_path)
+    let pid = json_parse_int_field("pid", server_json)
+    if pid > 0 && process_exists(pid) {
+      write_file_secure(review_signal_path_for_cwd(), iso_now())
+      console_log("yunomi go: notified running review server")
+      exit_process("go notified", 0)
+    }
+  }
+  let review_json = read_file_safe(review_path)
+  let first_file = json_parse_first_file(review_json)
+  if first_file.length() == 0 {
+    console_error("yunomi go: review.json has no files")
+    exit_process("go missing file", 1)
+  }
+  let file_path = path_resolve(first_file)
+  loop_mode.val = true
+  start_next_review_round(file_path)
+  expected_count.val = 1
+  start_file_server(file_path, port, no_open)
+}
+
+///|
+fn handle_go_signal(ctx : ServerContext) -> Unit {
+  if ctx.file_path == "<stdin>" {
+    return
+  }
+  start_next_review_round(ctx.file_path)
+  ctx.finished = false
+  ctx.html_cache = load_and_build_html(ctx)
+  for client in ctx.sse_clients {
+    sse_send(client, "round", review_state_response(ctx.file_path))
+  }
 }
 
 ///|
@@ -800,7 +912,9 @@ fn save_history(file_path : String, entry_json : String) -> Unit {
   }
   let trimmed = trim_json_array(new_data, history_max)
   write_file_secure(hp, trimmed)
-  chmod_sync(hp, 384) // 0o600
+  if exists_sync(hp) {
+    chmod_sync(hp, 384) // 0o600
+  }
 }
 
 ///|
@@ -884,6 +998,9 @@ fn try_listen(
   server_listen(server, port, host, fn() {
     ctx.port = port
     write_lock(port)
+    if ctx.file_path != "<stdin>" {
+      write_review_server(ctx.file_path, port)
+    }
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
     let url = "http://\{display_host}:\{port}"
     console_log("yunomi serving \{ctx.filename} at \{url}")
@@ -939,6 +1056,14 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     let history_json = load_history(ctx.file_path)
     res_write_head(res, 200, "application/json")
     res_end(res, history_json)
+  } else if http_method == "GET" && url == "/review-state" {
+    let state_json = if ctx.file_path == "<stdin>" {
+      "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0}"
+    } else {
+      review_state_response(ctx.file_path)
+    }
+    res_write_head(res, 200, "application/json")
+    res_end(res, state_json)
   } else if http_method == "GET" && url.has_prefix("/video-timeline?") {
     handle_video_timeline(ctx, url, res)
   } else if http_method == "POST" && url == "/session/open" {
@@ -959,8 +1084,35 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
     })
+  } else if http_method == "POST" && url == "/go" {
+    if ctx.file_path != "<stdin>" {
+      handle_go_signal(ctx)
+    }
+    res_write_head(res, 200, "application/json")
+    res_end(res, "{\"ok\":true}")
+  } else if http_method == "POST" && url == "/resolve-comment" {
+    read_body(req, fn(body) {
+      if ctx.file_path != "<stdin>" {
+        resolve_review_comment(ctx.file_path, json_parse_string("id", body))
+      }
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+      if ctx.file_path != "<stdin>" {
+        for client in ctx.sse_clients {
+          sse_send(client, "round", review_state_response(ctx.file_path))
+        }
+      }
+    })
   } else if http_method == "POST" && url == "/exit" {
     read_body(req, fn(body) {
+      if
+        ctx.file_path != "<stdin>" &&
+        json_parse_string("decision", body) == "approve" &&
+        review_unresolved_count(ctx.file_path) > 0 {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"unresolved_comments\"}")
+        return
+      }
       let should_exit = handle_submit(ctx, body)
       res_write_head(res, 200, "application/json")
       // Wait for the response to actually finish sending before killing
@@ -1308,7 +1460,6 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     log_session_event("ignored submit for finished context file=\{ctx.filename}")
     return false
   }
-  ctx.finished = true
   cancel_pending_close(ctx)
   let summary = json_parse_string("summary", body)
   // Parse comments from JSON body
@@ -1342,6 +1493,11 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       })
     }
   }
+  let current_round = if ctx.file_path != "<stdin>" {
+    current_review_round(ctx.file_path)
+  } else {
+    1
+  }
   let answers = json_parse_json_field("yunomiAnswers", body)
   let raw_merr = json_parse_mermaid_errors(body)
   let mermaid_errors : Array[@core.MermaidError] = []
@@ -1368,6 +1524,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     action,
   }
   all_results.push(result)
+  if ctx.file_path != "<stdin>" {
+    update_review_on_submit(ctx.file_path, body, source_lines, current_round)
+  }
   // Save to history (including decision-only submits)
   if comments.length() > 0 || summary.length() > 0 || decision is Some(_) {
     let entry_buf = StringBuilder::new()
@@ -1401,7 +1560,15 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   console_log(
     "Received review for \{ctx.filename} (\{comments.length()} comments)",
   )
-  if all_results.length() >= expected_count.val {
+  let loop_waiting = ctx.is_loop && decision_str == "request_changes"
+  if loop_waiting {
+    let yaml = @core.reviews_to_yaml(all_results)
+    process_stdout_write(yaml)
+    all_results.clear()
+    console_log("yunomi loop waiting for next round; run `yunomi go` after fixes")
+    false
+  } else if all_results.length() >= expected_count.val {
+    ctx.finished = true
     let yaml = @core.reviews_to_yaml(all_results)
     process_stdout_write(yaml)
     cleanup_live_log()

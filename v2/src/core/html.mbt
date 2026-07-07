@@ -202,6 +202,9 @@ fn build_page_start(
     "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>",
   )
   buf.write_string("</div></header>")
+  buf.write_string(
+    "<section class=\"review-loop-panel\" id=\"review-loop-panel\" aria-live=\"polite\"></section>",
+  )
 }
 
 ///|

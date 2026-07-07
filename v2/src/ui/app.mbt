@@ -102,6 +102,9 @@ let action_final_request_changes : String = "final_request_changes"
 let pending_action : Ref[String] = Ref("")
 
 ///|
+let review_loop_unresolved_count : Ref[Int] = Ref(0)
+
+///|
 let review_tab_id : Ref[String] = Ref("")
 
 ///|
@@ -705,6 +708,7 @@ fn get_storage_key() -> String {
 pub fn init_app() -> Unit {
   let mode = get_yunomi_mode()
   let port = get_yunomi_port()
+  load_review_loop_state()
   // Restore theme from localStorage
   let saved_theme = local_storage_get("yunomi:theme")
   if saved_theme.length() > 0 {
@@ -911,6 +915,25 @@ pub fn init_app() -> Unit {
   setup_close_detection(port)
   // Setup SSE for live reload
   setup_sse(port)
+}
+
+///|
+fn load_review_loop_state() -> Unit {
+  let url = location_origin() + "/review-state"
+  fetch_get(url, fn(data) {
+    review_loop_unresolved_count.val = render_review_loop_panel_json(data)
+  })
+}
+
+///|
+fn draft_comment_count() -> Int {
+  let count = Ref(0)
+  comments.each(fn(_key, comment) {
+    if comment_has_content(comment) {
+      count.val = count.val + 1
+    }
+  })
+  count.val
 }
 
 ///|
@@ -1460,6 +1483,20 @@ fn show_submit_modal() -> Unit {
   } else {
     set_inner_html(list, html)
   }
+  let approve = query("#modal-approve")
+  if !is_null(approve) {
+    let has_unresolved_threads = review_loop_unresolved_count.val > 0
+    set_disabled(approve, has_unresolved_threads)
+    if has_unresolved_threads {
+      set_attribute(
+        approve,
+        "title",
+        "Resolve all open review threads before approving",
+      )
+    } else {
+      set_attribute(approve, "title", "Approve")
+    }
+  }
   // Show mermaid errors if any
   // Show mermaid errors if any
   let mermaid_error_area = query("#mermaid-error-area")
@@ -1647,7 +1684,14 @@ fn submit_review(_port : Int) -> Unit {
   submit_in_flight.val = true
   close_report_sent.val = true
   let url = location_origin() + "/exit"
-  fetch_post(url, build_review_payload(), fn(_response) {
+  let submitted_decision = pending_decision.val
+  fetch_post(url, build_review_payload(), fn(response) {
+    if response.contains("unresolved_comments") {
+      submit_in_flight.val = false
+      close_report_sent.val = false
+      show_toast("Resolve all open threads before approving")
+      return
+    }
     // Hide the Submit Review dialog explicitly instead of relying solely
     // on the tab itself going away — window_close() is refused by real
     // browsers for tabs they didn't script-open (which is how yunomi opens
@@ -1656,6 +1700,16 @@ fn submit_review(_port : Int) -> Unit {
     // the actual tab sees the dialog just sit there and reads it as
     // "Submit didn't work", even though the request succeeded server-side.
     hide_submit_modal()
+    if submitted_decision == decision_request_changes {
+      ls_remove(get_storage_key())
+      comments.clear()
+      update_comment_indicators()
+      load_review_loop_state()
+      submit_in_flight.val = false
+      close_report_sent.val = false
+      show_toast("Review submitted. Waiting for yunomi go.")
+      return
+    }
     ls_remove(get_storage_key())
     window_close()
     // Browsers refuse window.close() for tabs they consider
@@ -1806,6 +1860,13 @@ fn setup_sse(_port : Int) -> Unit {
     // confirmation modal for every single file-change reload — see its
     // comment for why that matters (a busy multi-agent session can trigger
     // several of these reloads in quick succession).
+    ls_set(reload_inflight_key(), "1")
+    location_reload()
+  })
+  sse_on(es, "round", fn(e) {
+    let data = sse_event_data(e)
+    review_loop_unresolved_count.val = render_review_loop_panel_json(data)
+    intentional_reload_in_progress.val = true
     ls_set(reload_inflight_key(), "1")
     location_reload()
   })

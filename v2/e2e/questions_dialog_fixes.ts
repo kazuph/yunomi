@@ -67,7 +67,7 @@ function startServer(port: number): Promise<ServerHandle> {
       [SERVER_JS, FIXTURE_MD, "--no-open", "--port", String(port)],
       {
         cwd: new URL("..", import.meta.url).pathname,
-        env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+        env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

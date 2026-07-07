@@ -42,7 +42,7 @@ function runYunomi(file: string, port: number, killAfterMs: number): Promise<Run
   return new Promise((resolve) => {
     const proc = spawn("node", [SERVER_JS, file, "--no-open", "--port", String(port)], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
     });
     let stdout = "";
     let stderr = "";

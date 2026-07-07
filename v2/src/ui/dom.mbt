@@ -569,6 +569,51 @@ extern "js" fn fetch_get(url : String, callback : (String) -> Unit) -> Unit =
   #|(url, cb) => fetch(url).then(r => r.text()).then(cb).catch(() => cb("[]"))
 
 ///|
+extern "js" fn render_review_loop_panel_json(json : String) -> Int =
+  #|(json) => {
+  #|  const panel = document.querySelector("#review-loop-panel");
+  #|  if (!panel) return 0;
+  #|  let state;
+  #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; return 0; }
+  #|  const review = state.review || {};
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const round = rounds[rounds.length - 1] || {};
+  #|  const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  if (comments.length === 0 && rounds.length <= 1) { panel.innerHTML = ""; return 0; }
+  #|  const unresolved = comments.filter(c => c.status !== "resolved");
+  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const commentHtml = comments.length
+  #|    ? comments.map(c => {
+  #|        const replies = Array.isArray(c.replies) && c.replies.length
+  #|          ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
+  #|          : "";
+  #|        const resolve = c.status === "resolved" ? "resolved" : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}">Resolve</button>`;
+  #|        return `<li class="review-loop-comment"><strong>${esc(c.id)}</strong> ${esc(c.file)}:${esc(c.line)} [${esc(c.status)}] ${resolve}<div>${esc(c.text)}</div>${replies}</li>`;
+  #|      }).join("")
+  #|    : `<li class="review-loop-comment">No review threads yet</li>`;
+  #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
+  #|  const diffHtml = diffLines.length
+  #|    ? diffLines.slice(0, 120).map(l => {
+  #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
+  #|        const oldNo = l.kind === "deletion" ? esc(l.line) : "";
+  #|        const newNo = l.kind === "addition" ? esc(l.line) : "";
+  #|        return `<div class="${klass}"><span class="line-num">${oldNo}</span><span class="line-num">${newNo}</span><span class="line-content">${esc(l.text)}</span></div>`;
+  #|      }).join("")
+  #|    : `<div class="history-empty">No changes since previous submitted round</div>`;
+  #|  panel.innerHTML = `<div class="review-loop-header"><span>Round ${esc(round.round || 1)} review loop</span><span class="review-loop-meta">${unresolved.length} unresolved</span></div><div class="review-loop-body"><ol class="review-loop-list">${commentHtml}</ol><pre class="review-loop-diff">${diffHtml}</pre></div>`;
+  #|  panel.querySelectorAll(".review-loop-resolve").forEach(btn => {
+  #|    btn.addEventListener("click", () => {
+  #|      fetch("/resolve-comment", {
+  #|        method: "POST",
+  #|        headers: { "Content-Type": "application/json" },
+  #|        body: JSON.stringify({ id: btn.getAttribute("data-review-comment-id") || "" })
+  #|      }).catch(() => {});
+  #|    });
+  #|  });
+  #|  return unresolved.length;
+  #|}
+
+///|
 /// Paste event handler for images
 extern "js" fn on_paste_image(handler : (String) -> Unit) -> Unit =
   #|(handler) => {

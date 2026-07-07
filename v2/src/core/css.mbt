@@ -551,6 +551,19 @@ fn build_css() -> String {
     #|.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--radius-pill); background: var(--accent-soft); border: 1px solid transparent; font-size: 12px; font-weight: 500; color: var(--accent-strong); cursor: pointer; transition: background 160ms ease, border-color 160ms ease, transform 120ms ease; }
     #|.pill:hover { background: var(--hover-bg); border-color: var(--border-strong); transform: translateY(-1px); }
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
+    #|.review-loop-panel:empty { display: none; }
+    #|.review-loop-panel { margin: 10px 16px 0; padding: 12px; border: 1px solid var(--border); background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); color: var(--text); display: grid; gap: 8px; transition: background 240ms ease, border-color 240ms ease; }
+    #|.review-loop-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
+    #|.review-loop-meta { color: var(--muted); font-weight: 500; }
+    #|.review-loop-body { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr); gap: 12px; }
+    #|.review-loop-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--text); font-size: 13px; line-height: 1.45; }
+    #|.review-loop-comment { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+    #|.review-loop-comment:last-child { border-bottom: 0; padding-bottom: 0; }
+    #|.review-loop-resolve { margin-left: 8px; padding: 4px 8px; font-size: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
+    #|.review-loop-resolve:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+    #|.review-loop-replies { margin: 5px 0 0; padding-left: 14px; color: var(--muted); }
+    #|.review-loop-diff { margin: 0; max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
+    #|@media (max-width: 860px) { .review-loop-body { grid-template-columns: 1fr; } }
     #|.comment-list.collapsed {
     #|  opacity: 0;
     #|  pointer-events: none;
