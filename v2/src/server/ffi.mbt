@@ -254,6 +254,238 @@ fn open_browser(url : String) -> Unit {
 }
 
 ///|
+/// Start a localhost-only live review reverse proxy. The implementation stays
+/// in JS because Node's HTTP upgrade and proxy streaming APIs are much simpler
+/// to use directly than through many tiny FFI calls.
+extern "js" fn start_live_proxy(
+  target_url : String,
+  port : Int,
+  host : String,
+  no_open : Bool,
+  instance_id : String,
+) -> Unit =
+  #|(targetUrl, port, host, noOpen, instanceId) => {
+  #|  const yamlEscape = (value) => {
+  #|    const s = String(value ?? "");
+  #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
+  #|    return "'" + s.replace(/'/g, "''") + "'";
+  #|  };
+  #|  const toYaml = (payload) => {
+  #|    const comments = Array.isArray(payload.comments) ? payload.comments : [];
+  #|    const lines = [];
+  #|    lines.push(`action: ${payload.action || "final_request_changes"}`);
+  #|    lines.push(`file: ${yamlEscape(targetUrl)}`);
+  #|    lines.push("mode: live");
+  #|    lines.push("comments:");
+  #|    for (const comment of comments) {
+  #|      lines.push(`  - row: ${Number(comment.row || 0)}`);
+  #|      lines.push(`    col: ${Number(comment.col || 0)}`);
+  #|      lines.push(`    text: ${yamlEscape(comment.text || "")}`);
+  #|      lines.push(`    selector: ${yamlEscape(comment.selector || "")}`);
+  #|      if (comment.value) lines.push(`    value: ${yamlEscape(comment.value)}`);
+  #|      if (comment.screenshot) lines.push(`    screenshot: ${yamlEscape(comment.screenshot)}`);
+  #|      if (comment.bounds) lines.push(`    bounds: ${yamlEscape(JSON.stringify(comment.bounds))}`);
+  #|    }
+  #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
+  #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
+  #|    return lines.join("\n") + "\n";
+  #|  };
+  #|  let target;
+  #|  try { target = new URL(targetUrl); } catch (e) {
+  #|    console.error("yunomi live: invalid URL");
+  #|    process.exit(1);
+  #|    return;
+  #|  }
+  #|  const allowedHost = target.hostname === "localhost" || target.hostname === "127.0.0.1";
+  #|  if (target.protocol !== "http:" || !allowedHost) {
+  #|    console.error("yunomi live: only http://localhost and http://127.0.0.1 targets are allowed");
+  #|    process.exit(1);
+  #|    return;
+  #|  }
+  #|  Promise.all([import("node:http"), import("node:net"), import("node:child_process")]).then(([http, net, childProcess]) => {
+  #|    const overlayScript = `(() => {
+  #|      if (window.__yunomiLiveInstalled) return;
+  #|      window.__yunomiLiveInstalled = true;
+  #|      const comments = [];
+  #|      let enabled = true;
+  #|      let active = null;
+  #|      const style = document.createElement("style");
+  #|      style.textContent = [
+  #|        ".yunomi-live-hover{outline:2px solid #2dd4bf!important;outline-offset:2px!important}",
+  #|        "#yunomi-live-bar{position:fixed;z-index:2147483647;right:16px;top:16px;display:flex;gap:8px;align-items:center;background:#111827;color:#f9fafb;border:1px solid #374151;border-radius:8px;padding:8px 10px;font:13px system-ui,sans-serif;box-shadow:0 10px 30px rgba(0,0,0,.28)}",
+  #|        "#yunomi-live-bar button,#yunomi-live-card button{font:inherit;border:1px solid #4b5563;background:#1f2937;color:#f9fafb;border-radius:6px;padding:6px 9px;cursor:pointer}",
+  #|        "#yunomi-live-card{position:fixed;z-index:2147483647;min-width:280px;max-width:360px;background:#111827;color:#f9fafb;border:1px solid #374151;border-radius:8px;padding:10px;box-shadow:0 14px 40px rgba(0,0,0,.35);font:13px system-ui,sans-serif}",
+  #|        "#yunomi-live-card textarea{width:100%;height:88px;box-sizing:border-box;border-radius:6px;border:1px solid #4b5563;background:#030712;color:#f9fafb;padding:8px;font:13px system-ui,sans-serif}",
+  #|        "#yunomi-live-card .meta{font-size:11px;color:#9ca3af;margin:0 0 8px 0;word-break:break-all}",
+  #|        ".yunomi-live-pin{outline:2px solid #f59e0b!important;outline-offset:2px!important}"
+  #|      ].join("\\n");
+  #|      document.documentElement.appendChild(style);
+  #|      const bar = document.createElement("div");
+  #|      bar.id = "yunomi-live-bar";
+  #|      bar.innerHTML = '<strong>yunomi live</strong><span id="yunomi-live-count">0</span><button id="yunomi-live-toggle">Comment mode</button><button id="yunomi-live-submit">Submit & Exit</button>';
+  #|      document.documentElement.appendChild(bar);
+  #|      const isUi = (el) => !!el.closest?.("#yunomi-live-bar,#yunomi-live-card");
+  #|      const cssEscape = (value) => (window.CSS && CSS.escape) ? CSS.escape(value) : String(value).replace(/[^a-zA-Z0-9_-]/g, "\\\\$&");
+  #|      const selectorFor = (el) => {
+  #|        if (el.id && document.querySelectorAll("#" + cssEscape(el.id)).length === 1) return "#" + cssEscape(el.id);
+  #|        const parts = [];
+  #|        let node = el;
+  #|        while (node && node.nodeType === 1 && node !== document.documentElement) {
+  #|          let part = node.localName.toLowerCase();
+  #|          const classes = [...node.classList].filter(c => !c.startsWith("yunomi-live-")).slice(0, 2);
+  #|          if (classes.length) part += "." + classes.map(cssEscape).join(".");
+  #|          const parent = node.parentElement;
+  #|          if (parent) {
+  #|            const same = [...parent.children].filter(c => c.localName === node.localName);
+  #|            if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")";
+  #|          }
+  #|          parts.unshift(part);
+  #|          const candidate = parts.join(" > ");
+  #|          if (document.querySelectorAll(candidate).length === 1) return candidate;
+  #|          node = parent;
+  #|        }
+  #|        return parts.join(" > ");
+  #|      };
+  #|      const elementText = (el) => (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 500);
+  #|      const boundsFor = (el) => {
+  #|        const r = el.getBoundingClientRect();
+  #|        return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), viewportWidth: innerWidth, viewportHeight: innerHeight };
+  #|      };
+  #|      const updateCount = () => { document.getElementById("yunomi-live-count").textContent = String(comments.length); };
+  #|      const closeCard = () => document.getElementById("yunomi-live-card")?.remove();
+  #|      document.addEventListener("mouseover", (event) => {
+  #|        if (!enabled || isUi(event.target)) return;
+  #|        active?.classList.remove("yunomi-live-hover");
+  #|        active = event.target;
+  #|        active.classList.add("yunomi-live-hover");
+  #|      }, true);
+  #|      document.addEventListener("mouseout", (event) => {
+  #|        if (event.target === active) active.classList.remove("yunomi-live-hover");
+  #|      }, true);
+  #|      document.addEventListener("click", (event) => {
+  #|        if (!enabled || isUi(event.target)) return;
+  #|        event.preventDefault();
+  #|        event.stopPropagation();
+  #|        const el = event.target;
+  #|        const selector = selectorFor(el);
+  #|        const rect = el.getBoundingClientRect();
+  #|        closeCard();
+  #|        const card = document.createElement("div");
+  #|        card.id = "yunomi-live-card";
+  #|        card.style.left = Math.min(Math.max(12, rect.left), innerWidth - 380) + "px";
+  #|        card.style.top = Math.min(Math.max(12, rect.bottom + 8), innerHeight - 190) + "px";
+  #|        card.innerHTML = '<p class="meta"></p><textarea placeholder="Comment for this element"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-save>Save</button></div>';
+  #|        card.querySelector(".meta").textContent = selector;
+  #|        document.documentElement.appendChild(card);
+  #|        card.querySelector("textarea").focus();
+  #|        card.querySelector("[data-yunomi-cancel]").onclick = closeCard;
+  #|        card.querySelector("[data-yunomi-save]").onclick = () => {
+  #|          const text = card.querySelector("textarea").value.trim();
+  #|          if (!text) return;
+  #|          comments.push({ row: 0, col: 0, text, selector, value: elementText(el), screenshot: "", bounds: boundsFor(el) });
+  #|          el.classList.add("yunomi-live-pin");
+  #|          updateCount();
+  #|          closeCard();
+  #|        };
+  #|      }, true);
+  #|      document.getElementById("yunomi-live-toggle").onclick = () => {
+  #|        enabled = !enabled;
+  #|        document.getElementById("yunomi-live-toggle").textContent = enabled ? "Comment mode" : "Browsing mode";
+  #|        active?.classList.remove("yunomi-live-hover");
+  #|      };
+  #|      document.getElementById("yunomi-live-submit").onclick = async () => {
+  #|        const summary = window.prompt("Overall comment", "") || "";
+  #|        await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "final_request_changes", decision: "request_changes", summary, comments }) });
+  #|        document.body.innerHTML = "<main style=\\"font:16px system-ui,sans-serif;padding:40px\\"><h1>Review submitted</h1><p>yunomi live can be closed.</p></main>";
+  #|      };
+  #|    })();`;
+  #|    const inject = (html) => {
+  #|      const tag = `<script data-yunomi-live="${instanceId}">${overlayScript.replaceAll("</script", "<\\\\/script")}</script>`;
+  #|      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, tag + "</body>") : html + tag;
+  #|    };
+  #|    const server = http.createServer((req, res) => {
+  #|      if (req.method === "GET" && req.url === "/healthz") {
+  #|        res.writeHead(200, { "Content-Type": "application/json" });
+  #|        res.end('{"ok":true,"mode":"live"}');
+  #|        return;
+  #|      }
+  #|      if (req.method === "POST" && req.url === "/exit") {
+  #|        const chunks = [];
+  #|        req.on("data", chunk => chunks.push(chunk));
+  #|        req.on("end", () => {
+  #|          let payload = {};
+  #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
+  #|          process.stdout.write(toYaml(payload));
+  #|          res.writeHead(200, { "Content-Type": "application/json" });
+  #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
+  #|        });
+  #|        return;
+  #|      }
+  #|      const headers = { ...req.headers, host: target.host };
+  #|      delete headers["accept-encoding"];
+  #|      const upstream = http.request({
+  #|        protocol: target.protocol,
+  #|        hostname: target.hostname,
+  #|        port: target.port || 80,
+  #|        method: req.method,
+  #|        path: req.url,
+  #|        headers
+  #|      }, upstreamRes => {
+  #|        const type = String(upstreamRes.headers["content-type"] || "");
+  #|        if (req.method === "GET" && type.includes("text/html")) {
+  #|          const chunks = [];
+  #|          upstreamRes.on("data", chunk => chunks.push(chunk));
+  #|          upstreamRes.on("end", () => {
+  #|            const body = inject(Buffer.concat(chunks).toString("utf8"));
+  #|            const outHeaders = { ...upstreamRes.headers, "content-length": Buffer.byteLength(body), "cache-control": "no-store" };
+  #|            delete outHeaders["content-encoding"];
+  #|            delete outHeaders["transfer-encoding"];
+  #|            res.writeHead(upstreamRes.statusCode || 200, outHeaders);
+  #|            res.end(body);
+  #|          });
+  #|        } else {
+  #|          res.writeHead(upstreamRes.statusCode || 200, upstreamRes.headers);
+  #|          upstreamRes.pipe(res);
+  #|        }
+  #|      });
+  #|      upstream.on("error", err => {
+  #|        res.writeHead(502, { "Content-Type": "text/plain" });
+  #|        res.end("yunomi live proxy error: " + err.message);
+  #|      });
+  #|      req.pipe(upstream);
+  #|    });
+  #|    server.on("upgrade", (req, socket, head) => {
+  #|      const upstream = net.connect(Number(target.port || 80), target.hostname, () => {
+  #|        upstream.write(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`);
+  #|        const headers = { ...req.headers, host: target.host };
+  #|        for (const [key, value] of Object.entries(headers)) upstream.write(`${key}: ${value}\r\n`);
+  #|        upstream.write("\r\n");
+  #|        if (head && head.length) upstream.write(head);
+  #|        socket.pipe(upstream).pipe(socket);
+  #|      });
+  #|      upstream.on("error", () => socket.destroy());
+  #|    });
+  #|    server.listen(port, host, () => {
+  #|      const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  #|      const url = `http://${displayHost}:${port}`;
+  #|      console.log(`yunomi live proxying ${targetUrl} at ${url}`);
+  #|      if (!noOpen) {
+  #|        if (process.platform === "darwin") childProcess.spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+  #|        else if (process.platform === "win32") childProcess.spawn("cmd", ["/c", "start", url], { detached: true, stdio: "ignore" }).unref();
+  #|        else childProcess.spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+  #|      }
+  #|    });
+  #|    server.on("error", err => {
+  #|      console.error("yunomi live: " + err.message);
+  #|      process.exit(1);
+  #|    });
+  #|  }).catch(err => {
+  #|    console.error("yunomi live: " + err.message);
+  #|    process.exit(1);
+  #|  });
+  #|}
+
+///|
 /// JSON string encoding helper
 fn json_encode_value(s : String) -> String {
   let buf = StringBuilder::new()
