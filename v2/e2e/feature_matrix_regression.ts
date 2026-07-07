@@ -303,42 +303,72 @@ try {
   const pluginRoot = join(ROOT, "plugin");
   const pluginSkills = join(pluginRoot, "skills");
   const pluginAgents = join(pluginRoot, "agents");
+  const pluginHookHandlers = join(pluginRoot, "hooks-handlers");
   const requiredPluginFiles = [
     ".claude-plugin/plugin.json",
     "README.md",
-    "skills/do/SKILL.md",
-    "skills/done/SKILL.md",
-    "skills/tiny-do/SKILL.md",
-    "skills/tiny-done/SKILL.md",
-    "skills/webapp-testing/SKILL.md",
-    "skills/exit-notifier/scripts/watch-exit-notify.sh",
     "hooks/hooks.json",
+    "hooks-handlers/completion-checklist.sh",
+    "hooks-handlers/git-wt-guard.sh",
+    "hooks-handlers/test-mock-guard.sh",
+    "hooks-handlers/test-mock-postcheck.sh",
+    "agents/backend-impl.md",
+    "agents/mobile-impl.md",
+    "agents/webapp-impl.md",
+    "agents/report-builder.md",
+    "agents/report-validator.md",
+    "agents/review-e2e.md",
   ];
   const missingPluginFiles = requiredPluginFiles.filter((file) => !existsSync(join(pluginRoot, file)));
-  const skillNames = new Set(readdirSync(pluginSkills));
+  const pluginManifest = JSON.parse(readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
+  const hooksConfig = JSON.parse(readFileSync(join(pluginRoot, "hooks", "hooks.json"), "utf8"));
+  const skillFiles = existsSync(pluginSkills)
+    ? readdirSync(pluginSkills, { recursive: true }).filter((name) => String(name).endsWith("SKILL.md"))
+    : [];
   const agentNames = readdirSync(pluginAgents).filter((name) => name.endsWith(".md"));
-  const doSkill = readFileSync(join(pluginSkills, "do", "SKILL.md"), "utf8");
-  const doneSkill = readFileSync(join(pluginSkills, "done", "SKILL.md"), "utf8");
-  const tinyDoSkill = readFileSync(join(pluginSkills, "tiny-do", "SKILL.md"), "utf8");
-  const tinyDoneSkill = readFileSync(join(pluginSkills, "tiny-done", "SKILL.md"), "utf8");
-  const webappSkill = readFileSync(join(pluginSkills, "webapp-testing", "SKILL.md"), "utf8");
-  assert(missingPluginFiles.length === 0 && skillNames.size >= 20 && agentNames.length >= 8, "Claude Code plugin assets一式が存在する", {
-    missingPluginFiles,
-    skillCount: skillNames.size,
-    agentCount: agentNames.length,
+  const hookHandlerNames = readdirSync(pluginHookHandlers).filter((name) => name.endsWith(".sh"));
+  const webappAgent = readFileSync(join(pluginAgents, "webapp-impl.md"), "utf8");
+  const backendAgent = readFileSync(join(pluginAgents, "backend-impl.md"), "utf8");
+  const mobileAgent = readFileSync(join(pluginAgents, "mobile-impl.md"), "utf8");
+  const completionChecklist = readFileSync(join(pluginHookHandlers, "completion-checklist.sh"), "utf8");
+  assert(
+    missingPluginFiles.length === 0 && agentNames.length >= 9 && hookHandlerNames.length >= 6,
+    "Claude Code plugin assets一式がhooks/agents中心の2.1.0構造で存在する",
+    {
+      missingPluginFiles,
+      agentCount: agentNames.length,
+      hookHandlerCount: hookHandlerNames.length,
+    },
+  );
+  assert(pluginManifest.version === "2.1.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが2.1.0のskill非同梱方針を明記している", {
+    version: pluginManifest.version,
+    description: pluginManifest.description,
+  });
+  assert(skillFiles.length === 0, "pluginはskills/SKILL.mdを同梱しない", {
+    skillFiles,
   });
   assert(
-    doSkill.includes("Task Start") &&
-      doneSkill.includes("Task Completion") &&
-      tinyDoSkill.includes("tiny-do") &&
-      tinyDoneSkill.includes("tiny-done"),
-    "do/done/tiny-do/tiny-done skillがタスク開始・完了フローを記述している",
+    Array.isArray(hooksConfig.hooks?.PreToolUse) &&
+      Array.isArray(hooksConfig.hooks?.PostToolUse) &&
+      Array.isArray(hooksConfig.hooks?.UserPromptSubmit),
+    "hooks.jsonがPreToolUse/PostToolUse/UserPromptSubmit hooksを定義している",
+    {
+      hookEvents: Object.keys(hooksConfig.hooks ?? {}),
+    },
   );
   assert(
-    webappSkill.includes("Playwright") &&
-      webappSkill.includes("NEVER") &&
-      webappSkill.includes("E2E tests should be permanent project assets"),
-    "webapp-testing skillが恒久E2EとPlaywright検証を要求している",
+    webappAgent.includes("skills: frontend-design, webapp-testing, artifact-proof") &&
+      backendAgent.includes("skills: backend-testing, artifact-proof") &&
+      mobileAgent.includes("skills: mobile-testing, artifact-proof"),
+    "実装agentはplugin内skill名ではなくグローバルskill名を参照している",
+  );
+  assert(
+    completionChecklist.includes("Execute /done") && !completionChecklist.includes("/yunomi-plugin:done"),
+    "completion checklistはplugin namespace付きskill実行を要求しない",
+    {
+      hasGlobalDone: completionChecklist.includes("Execute /done"),
+      hasPluginDone: completionChecklist.includes("/yunomi-plugin:done"),
+    },
   );
 } finally {
   rmSync(WORK_DIR, { recursive: true, force: true });
