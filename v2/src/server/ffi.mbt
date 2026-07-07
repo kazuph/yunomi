@@ -905,7 +905,8 @@ extern "js" fn js_review_response_json(
   #|      if (curr[i] != null && curr[i] !== "") lines.push({ kind: "addition", line: i + 1, text: curr[i] });
   #|    }
   #|  }
-  #|  const unresolved = (review.comments || []).filter(c => c.status !== "resolved").length;
+  #|  const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
+  #|  const unresolved = (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
   #|  return JSON.stringify({ review, diff: { lines }, unresolved_count: unresolved });
   #|}
 
@@ -935,13 +936,21 @@ fn resolve_review_comment(file_path : String, id : String) -> Unit {
 }
 
 ///|
-extern "js" fn js_review_unresolved_count(json : String) -> Int =
-  #|(json) => { try { return (JSON.parse(json).comments || []).filter(c => c.status !== "resolved").length; } catch(e) { return 0; } }
+extern "js" fn js_review_prior_unresolved_count(json : String) -> Int =
+  #|(json) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
+  #|    return (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
+  #|  } catch(e) {
+  #|    return 0;
+  #|  }
+  #|}
 
 ///|
-fn review_unresolved_count(file_path : String) -> Int {
+fn review_prior_unresolved_count(file_path : String) -> Int {
   ensure_review_state(file_path)
-  js_review_unresolved_count(read_file_safe(review_json_path_for_file(file_path)))
+  js_review_prior_unresolved_count(read_file_safe(review_json_path_for_file(file_path)))
 }
 
 ///|

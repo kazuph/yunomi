@@ -551,19 +551,39 @@ fn build_css() -> String {
     #|.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--radius-pill); background: var(--accent-soft); border: 1px solid transparent; font-size: 12px; font-weight: 500; color: var(--accent-strong); cursor: pointer; transition: background 160ms ease, border-color 160ms ease, transform 120ms ease; }
     #|.pill:hover { background: var(--hover-bg); border-color: var(--border-strong); transform: translateY(-1px); }
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
+    #|.review-loop-sidebar {
+    #|  display: flex;
+    #|  flex-shrink: 0;
+    #|  width: 280px;
+    #|  max-width: 34%;
+    #|  order: 1;
+    #|  min-height: 0;
+    #|}
     #|.review-loop-panel:empty { display: none; }
-    #|.review-loop-panel { margin: 10px 16px 0; padding: 12px; border: 1px solid var(--border); background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-soft); color: var(--text); display: grid; gap: 8px; transition: background 240ms ease, border-color 240ms ease; }
-    #|.review-loop-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; font-weight: 600; }
-    #|.review-loop-meta { color: var(--muted); font-weight: 500; }
-    #|.review-loop-body { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr); gap: 12px; }
-    #|.review-loop-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; color: var(--text); font-size: 13px; line-height: 1.45; }
-    #|.review-loop-comment { border-bottom: 1px solid var(--border); padding-bottom: 6px; }
-    #|.review-loop-comment:last-child { border-bottom: 0; padding-bottom: 0; }
-    #|.review-loop-resolve { margin-left: 8px; padding: 4px 8px; font-size: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
+    #|.review-loop-panel { width: 100%; padding: 8px; border-right: 1px solid var(--border); background: var(--panel); color: var(--text); display: grid; gap: 8px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; scrollbar-color: var(--border) transparent; transition: background 240ms ease, border-color 240ms ease; }
+    #|.review-loop-details { display: grid; gap: 8px; }
+    #|.review-loop-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; }
+    #|.review-loop-header::-webkit-details-marker { display: none; }
+    #|.review-loop-badge { min-width: 24px; height: 22px; padding: 0 7px; border: 1px solid var(--border); border-radius: var(--radius-pill); display: inline-flex; align-items: center; justify-content: center; color: var(--accent-strong); background: var(--accent-soft); font-size: 12px; font-weight: 700; }
+    #|.review-loop-meta { color: var(--muted); font-weight: 500; font-size: 12px; }
+    #|.review-loop-ready { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-strong); padding: 6px 8px; font-size: 12px; font-weight: 600; }
+    #|.review-loop-body { display: grid; gap: 10px; }
+    #|.review-loop-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 8px; color: var(--text); font-size: 13px; line-height: 1.45; }
+    #|.review-loop-comment { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; display: grid; gap: 7px; background: var(--bg); }
+    #|.review-loop-comment-head { display: flex; flex-wrap: wrap; gap: 5px; color: var(--muted); font-size: 12px; }
+    #|.review-loop-comment-text { font-weight: 600; }
+    #|.review-loop-actions { display: flex; justify-content: flex-end; }
+    #|.review-loop-resolved { color: var(--muted); font-size: 12px; }
+    #|.review-loop-resolve { padding: 4px 8px; font-size: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
     #|.review-loop-resolve:hover { background: var(--hover-bg); border-color: var(--border-strong); }
     #|.review-loop-replies { margin: 5px 0 0; padding-left: 14px; color: var(--muted); }
-    #|.review-loop-diff { margin: 0; max-height: 180px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
-    #|@media (max-width: 860px) { .review-loop-body { grid-template-columns: 1fr; } }
+    #|.review-loop-snippet { border: 1px solid var(--border); border-radius: var(--radius-sm); display: grid; gap: 4px; padding: 6px; background: var(--panel); }
+    #|.review-loop-snippet-label, .review-loop-diff-label { color: var(--muted); font-size: 12px; font-weight: 600; }
+    #|.review-loop-snip-row { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 6px; align-items: start; font-size: 12px; }
+    #|.review-loop-snip-row span { color: var(--muted); }
+    #|.review-loop-snip-row code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+    #|.review-loop-diff-block { display: grid; gap: 5px; }
+    #|.review-loop-diff { margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
     #|.comment-list.collapsed {
     #|  opacity: 0;
     #|  pointer-events: none;
@@ -587,10 +607,10 @@ fn build_css() -> String {
     #|  flex: 1;
     #|  min-height: 0;
     #|}
-    #|/* Panel order: source (left) | preview (center) | media thumbs (right) */
-    #|.md-layout > .md-right { order: 1; }
+    #|/* Panel order: review loop (left) | preview | source | media thumbs (right) */
     #|.md-layout > .md-left { order: 2; }
-    #|.md-layout > .media-sidebar { order: 3; }
+    #|.md-layout > .md-right { order: 3; }
+    #|.md-layout > .media-sidebar { order: 4; }
     #|.md-left {
     #|  flex: 1;
     #|  min-width: 200px;

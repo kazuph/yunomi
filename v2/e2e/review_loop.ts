@@ -10,9 +10,14 @@ const TMP_DIR = join(tmpdir(), `yunomi-review-loop-${Date.now()}`);
 const LOCK_DIR = join(TMP_DIR, "locks");
 const REPORT = join(TMP_DIR, "REPORT.md");
 const PORT = 5167;
+const NON_LOOP_REPORT = join(TMP_DIR, "NON_LOOP.md");
+const NON_LOOP_REVIEW_DIR = join(TMP_DIR, ".yunomi", "reviews", "non-loop");
+const NON_LOOP_PORT = PORT + 1;
 
 mkdirSync(LOCK_DIR, { recursive: true });
 writeFileSync(REPORT, "# Review Loop\n\nBefore line\n");
+mkdirSync(NON_LOOP_REVIEW_DIR, { recursive: true });
+writeFileSync(NON_LOOP_REPORT, "# Non Loop Review\n\nA normal review can approve with comments.\n");
 
 function waitForServerOutput(proc: ChildProcess): Promise<number> {
   let output = "";
@@ -121,6 +126,14 @@ async function main(): Promise<void> {
 
   const port = await waitForServerOutput(server);
   await waitForHealth(port);
+  const initialHtml = await request(port, "GET", "/");
+  assert.equal(initialHtml.status, 200);
+  assert.match(initialHtml.body, /review-loop-sidebar/, "markdown page must reserve a left review loop sidebar");
+  const uiJs = await request(port, "GET", "/ui.js");
+  assert.equal(uiJs.status, 200);
+  assert.match(uiJs.body, /この課題の該当箇所/, "review loop UI must render per-comment before/after snippets");
+  assert.match(uiJs.body, /提出時.*現在.*差分/, "review loop UI must label what the round diff compares");
+  assert.match(uiJs.body, /All resolved.*Approve/, "review loop UI must show approve-ready state when all threads resolve");
 
   const firstSubmit = await request(
     port,
@@ -181,6 +194,60 @@ async function main(): Promise<void> {
 
   const exitCode = await waitForExit(server, 10000);
   assert.equal(exitCode, 0, "approve should exit the loop server");
+
+  writeFileSync(
+    join(NON_LOOP_REVIEW_DIR, "review.json"),
+    JSON.stringify(
+      {
+        version: 1,
+        branch: "non-loop",
+        files: [NON_LOOP_REPORT],
+        rounds: [
+          { round: 1, started_at: "2026-07-07T00:00:00.000Z", submitted_at: "2026-07-07T00:01:00.000Z", decision: "request_changes", summary: "old" },
+          { round: 2, started_at: "2026-07-07T00:02:00.000Z", submitted_at: null, decision: null, summary: "" },
+        ],
+        comments: [
+          {
+            id: "c-1-1",
+            file: "NON_LOOP.md",
+            line: 3,
+            round: 1,
+            text: "stale non-loop thread must not block approve",
+            author: "human",
+            status: "unresolved",
+            replies: [],
+            anchor: { snippet: "A normal review can approve with comments.", context_before: "", context_after: "" },
+          },
+        ],
+      },
+      null,
+      2,
+    ),
+  );
+  const nonLoopEnv = { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: NON_LOOP_REVIEW_DIR };
+  const nonLoop = spawn(process.execPath, [SERVER_JS, "--no-open", "--port", String(NON_LOOP_PORT), NON_LOOP_REPORT], {
+    cwd: TMP_DIR,
+    env: nonLoopEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const nonLoopPort = await waitForServerOutput(nonLoop);
+  await waitForHealth(nonLoopPort);
+  const nonLoopState = await request(nonLoopPort, "GET", "/review-state");
+  assert.equal(nonLoopState.status, 200);
+  assert.equal(JSON.parse(nonLoopState.body).unresolved_count, 0, "non-loop review-state must not expose loop unresolved gate");
+  const nonLoopApprove = await request(
+    nonLoopPort,
+    "POST",
+    "/exit",
+    JSON.stringify({
+      summary: "normal approve",
+      decision: "approve",
+      action: "final_approve",
+      comments: [{ row: 3, col: 1, text: "normal review comment", value: "A normal review can approve with comments." }],
+    }),
+  );
+  assert.equal(nonLoopApprove.status, 200, "non-loop approve must accept freshly written comments");
+  assert.equal(await waitForExit(nonLoop, 10000), 0, "non-loop approve with comments should exit normally");
   console.log("PASS: review loop e2e");
 }
 

@@ -1057,7 +1057,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     res_write_head(res, 200, "application/json")
     res_end(res, history_json)
   } else if http_method == "GET" && url == "/review-state" {
-    let state_json = if ctx.file_path == "<stdin>" {
+    let state_json = if ctx.file_path == "<stdin>" || !ctx.is_loop {
       "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0}"
     } else {
       review_state_response(ctx.file_path)
@@ -1107,8 +1107,9 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     read_body(req, fn(body) {
       if
         ctx.file_path != "<stdin>" &&
+        ctx.is_loop &&
         json_parse_string("decision", body) == "approve" &&
-        review_unresolved_count(ctx.file_path) > 0 {
+        review_prior_unresolved_count(ctx.file_path) > 0 {
         res_write_head(res, 409, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"unresolved_comments\"}")
         return
