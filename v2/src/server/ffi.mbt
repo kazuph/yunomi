@@ -71,6 +71,10 @@ extern "js" fn process_pid() -> Int =
   #|() => process.pid
 
 ///|
+extern "js" fn process_cwd() -> String =
+  #|() => process.cwd()
+
+///|
 /// Check if a process with given PID exists
 extern "js" fn process_exists(pid : Int) -> Bool =
   #|(pid) => { try { process.kill(pid, 0); return true; } catch(e) { return false; } }
@@ -476,6 +480,10 @@ extern "js" fn js_spawn_opts_utf8_pipe() -> JsValue =
   #|() => ({ encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
 
 ///|
+extern "js" fn js_array_from_strings(args : Array[String]) -> JsValue =
+  #|(args) => Array.from(args)
+
+///|
 extern "js" fn js_rm_opts() -> JsValue =
   #|() => ({ recursive: true, force: true })
 
@@ -684,6 +692,10 @@ extern "js" fn split_path_list(path : String) -> Array[String] =
   #|(path) => path.split(":").filter(Boolean)
 
 ///|
+extern "js" fn js_trim_string(s : String) -> String =
+  #|(s) => String(s).trim()
+
+///|
 fn resolve_command(cmd : String) -> String {
   if cmd.contains("/") && exists_sync(cmd) {
     return cmd
@@ -713,6 +725,18 @@ fn spawn_sync_stdout(cmd : String, args_json : String) -> String {
           js_parse_json(args_json),
           js_spawn_opts_utf8_pipe(),
         ),
+      )
+    },
+    "",
+  )
+}
+
+///|
+fn spawn_sync_stdout_args(cmd : String, args : Array[String]) -> String {
+  try_call_string(
+    fn() {
+      js_obj_stdout(
+        child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe()),
       )
     },
     "",
@@ -874,3 +898,52 @@ extern "js" fn res_set_header(
 /// chmod file (best-effort, uses dynamic import)
 extern "js" fn chmod_sync(path : String, mode : Int) -> Unit =
   #|(path, mode) => { try { import("node:fs").then(fs => fs.chmodSync(path, mode)); } catch(e) {} }
+
+///|
+extern "js" fn js_update_review_json(
+  existing : String,
+  branch : String,
+  file : String,
+  line : Int,
+  text : String,
+  author : String,
+  snippet : String,
+  context_before : String,
+  context_after : String,
+  now : String,
+) -> String =
+  #|(existing, branch, file, line, text, author, snippet, before, after, now) => {
+  #|  let review;
+  #|  try { review = existing ? JSON.parse(existing) : null; } catch { review = null; }
+  #|  if (!review || typeof review !== "object" || review.version !== 1) {
+  #|    review = { version: 1, branch, files: [], rounds: [], comments: [] };
+  #|  }
+  #|  review.version = 1;
+  #|  review.branch = review.branch || branch;
+  #|  review.files = Array.isArray(review.files) ? review.files : [];
+  #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  if (!review.files.includes(file)) review.files.push(file);
+  #|  let round = 1;
+  #|  if (review.rounds.length === 0) {
+  #|    review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
+  #|  } else {
+  #|    round = Number(review.rounds[review.rounds.length - 1]?.round || 1) || 1;
+  #|  }
+  #|  let seq = 1;
+  #|  for (const c of review.comments) {
+  #|    if (Number(c?.round || 0) === round) seq += 1;
+  #|  }
+  #|  review.comments.push({
+  #|    id: `c-${round}-${seq}`,
+  #|    file,
+  #|    line,
+  #|    round,
+  #|    text,
+  #|    author,
+  #|    status: "unresolved",
+  #|    replies: [],
+  #|    anchor: { snippet, context_before: before, context_after: after }
+  #|  });
+  #|  return JSON.stringify(review, null, 2) + "\n";
+  #|}

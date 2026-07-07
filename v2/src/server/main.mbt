@@ -148,19 +148,19 @@ fn is_port_locked(port : Int) -> Bool {
   // Read PID from lock file and check if process is alive
   let content = read_file_safe(lp)
   if content.length() == 0 {
-    unlink_sync(lp)
+    try_call_void(fn() { unlink_sync(lp) })
     return false
   }
   let pid = @core.parse_int_safe(content)
   if pid <= 0 {
-    unlink_sync(lp)
+    try_call_void(fn() { unlink_sync(lp) })
     return false
   }
   if process_exists(pid) {
     true
   } else {
     // Stale lock: process no longer exists
-    unlink_sync(lp)
+    try_call_void(fn() { unlink_sync(lp) })
     false
   }
 }
@@ -178,7 +178,7 @@ fn write_lock(port : Int) -> Unit {
 fn remove_lock(port : Int) -> Unit {
   let lp = lock_path(port)
   if exists_sync(lp) {
-    unlink_sync(lp)
+    try_call_void(fn() { unlink_sync(lp) })
   }
 }
 
@@ -205,6 +205,15 @@ fn main {
   let args : Array[String] = []
   for i in 2..<argv.length() {
     args.push(argv[i])
+  }
+  if args.length() > 0 {
+    if args[0] == "comment" {
+      handle_comment_command(args)
+      exit_process("comment command", 0)
+    } else if args[0] == "install" {
+      handle_install_command(args)
+      exit_process("install command", 0)
+    }
   }
   let mut port = 4989
   let mut no_open = false
@@ -333,6 +342,8 @@ fn enforce_media_discipline(files : Array[String]) -> Unit {
 fn print_usage() -> Unit {
   let usage =
     #|Usage: yunomi <file...> [options]
+    #|       yunomi comment <file:line> <text> [--author <name>]
+    #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:
     #|  --port <n>        Base port (default: 4989)
@@ -344,9 +355,301 @@ fn print_usage() -> Unit {
     #|  -v, --version     Show version
     #|
     #|Supported formats: CSV, TSV, Markdown, Diff, Plain text
+    #|Agents: claude, codex, cursor, opencode, cline, gemini
     #|Pipe stdin for diff: git diff | yunomi
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
+}
+
+///|
+struct CommentTarget {
+  file : String
+  line : Int
+}
+
+///|
+fn last_index_of(s : String, target : Char) -> Int {
+  let chars = s.to_array()
+  let mut found = -1
+  for i, ch in chars {
+    if ch == target {
+      found = i
+    }
+  }
+  found
+}
+
+///|
+pub fn parse_comment_target(raw : String) -> CommentTarget {
+  let sep = last_index_of(raw, ':')
+  if sep <= 0 || sep >= raw.length() - 1 {
+    console_error("yunomi comment: target must be <file>:<line>")
+    exit_process("invalid comment target", 1)
+  }
+  let file = @core.safe_slice_range(raw, 0, sep)
+  let line = @core.parse_int_safe(@core.safe_slice(raw, sep + 1))
+  if line <= 0 {
+    console_error("yunomi comment: line must be a positive integer")
+    exit_process("invalid comment line", 1)
+  }
+  { file, line }
+}
+
+///|
+pub fn comment_target_file(raw : String) -> String {
+  parse_comment_target(raw).file
+}
+
+///|
+pub fn comment_target_line(raw : String) -> Int {
+  parse_comment_target(raw).line
+}
+
+///|
+pub fn sanitize_branch_name(branch : String) -> String {
+  let buf = StringBuilder::new()
+  let chars = branch.to_array()
+  for ch in chars {
+    match ch {
+      '/' | '\\' | ':' | ' ' | '\t' | '\n' => buf.write_char('-')
+      _ => buf.write_char(ch)
+    }
+  }
+  let out = buf.to_string()
+  if out.length() > 0 { out } else { "detached" }
+}
+
+///|
+fn git_stdout(args_json : String) -> String {
+  let git = resolve_command("git")
+  if git.length() == 0 {
+    return ""
+  }
+  js_trim_string(spawn_sync_stdout(git, args_json))
+}
+
+///|
+fn repo_root() -> String {
+  let root = git_stdout("[\"rev-parse\",\"--show-toplevel\"]")
+  if root.length() > 0 { root } else { process_cwd() }
+}
+
+///|
+fn current_branch() -> String {
+  let branch = git_stdout("[\"branch\",\"--show-current\"]")
+  if branch.length() > 0 { branch } else { "detached" }
+}
+
+///|
+fn ensure_parent_dir(file_path : String) -> Unit {
+  let dir = path_dirname(file_path)
+  if dir.length() > 0 && !exists_sync(dir) {
+    mkdir_sync(dir, mkdir_recursive_opts())
+  }
+}
+
+///|
+fn review_file_path() -> String {
+  let root = repo_root()
+  path_join(
+    path_join(
+      path_join(root, ".yunomi"),
+      "reviews",
+    ),
+    path_join(sanitize_branch_name(current_branch()), "review.json"),
+  )
+}
+
+///|
+fn source_context(file_path : String, line : Int) -> (String, String, String) {
+  let abs = path_resolve(file_path)
+  let content = read_file_safe(abs)
+  if content.length() == 0 {
+    return ("", "", "")
+  }
+  let lines = @core.split_to_lines(content)
+  let idx = line - 1
+  let snippet = if idx >= 0 && idx < lines.length() { lines[idx] } else { "" }
+  let before = if idx > 0 && idx - 1 < lines.length() { lines[idx - 1] } else { "" }
+  let after = if idx + 1 < lines.length() { lines[idx + 1] } else { "" }
+  (snippet, before, after)
+}
+
+///|
+fn write_review_comment(target : CommentTarget, text : String, author : String) -> String {
+  let path = review_file_path()
+  ensure_parent_dir(path)
+  let existing = read_file_safe(path)
+  let ctx = source_context(target.file, target.line)
+  let updated = js_update_review_json(
+    existing,
+    current_branch(),
+    target.file,
+    target.line,
+    text,
+    author,
+    ctx.0,
+    ctx.1,
+    ctx.2,
+    iso_now(),
+  )
+  write_file_sync(path, updated)
+  path
+}
+
+///|
+fn post_comment_to_running_servers(target : CommentTarget, text : String) -> Unit {
+  let curl = resolve_command("curl")
+  if curl.length() == 0 || !exists_sync(lock_dir()) {
+    return
+  }
+  let entries = readdir_sync(lock_dir())
+  let body = "{\"type\":\"comment\",\"key\":\"cli-\{target.line}\",\"row\":\{target.line},\"col\":0,\"text\":\{json_encode_value(text)}}"
+  for entry in entries {
+    if !entry.contains(".lock") {
+      continue
+    }
+    let port_s = @core.safe_slice_range(entry, 0, entry.length() - 5)
+    let port = @core.parse_int_safe(port_s)
+    if port <= 0 {
+      continue
+    }
+    ignore(
+      spawn_sync_stdout_args(
+        curl,
+        [
+          "-sS",
+          "-X",
+          "POST",
+          "-H",
+          "Content-Type: application/json",
+          "--data-binary",
+          body,
+          "http://127.0.0.1:\{port}/comment",
+        ],
+      ),
+    )
+  }
+}
+
+///|
+fn handle_comment_command(args : Array[String]) -> Unit {
+  if args.length() < 3 {
+    console_error("Usage: yunomi comment <file:line> <text> [--author <name>]")
+    exit_process("comment usage", 1)
+  }
+  let target = parse_comment_target(args[1])
+  let mut text = args[2]
+  let mut author = "cli"
+  let mut i = 3
+  while i < args.length() {
+    if args[i] == "--author" {
+      i = i + 1
+      if i < args.length() {
+        author = args[i]
+      }
+    } else if text.length() == 0 {
+      text = args[i]
+    }
+    i = i + 1
+  }
+  let path = write_review_comment(target, text, author)
+  post_comment_to_running_servers(target, text)
+  console_log("Added comment to " + path)
+}
+
+///|
+fn skill_file_body() -> String {
+  let frontmatter =
+    #|---
+    #|name: yunomi
+    #|description: Serve finished work to the human as a browsable report for review and approval.
+    #|---
+    #|
+  frontmatter + print_skill_doc_text()
+}
+
+///|
+fn install_base_path(agent : String, global : Bool) -> String {
+  let home = os_homedir()
+  let cwd = process_cwd()
+  match agent {
+    "claude" => if global { path_join(path_join(home, ".claude"), "skills") } else { path_join(path_join(cwd, ".claude"), "skills") }
+    "codex" => if global { path_join(path_join(home, ".agents"), "skills") } else { path_join(path_join(cwd, ".agents"), "skills") }
+    "cursor" => if global { path_join(path_join(home, ".cursor"), "skills") } else { path_join(path_join(cwd, ".cursor"), "skills") }
+    "opencode" => if global { path_join(path_join(home, ".config"), path_join("opencode", "skills")) } else { path_join(path_join(cwd, ".opencode"), "skills") }
+    "cline" => if global { path_join(path_join(home, ".cline"), "rules") } else { path_join(path_join(cwd, ".cline"), "rules") }
+    "gemini" => if global { path_join(path_join(home, ".gemini"), "skills") } else { path_join(path_join(cwd, ".gemini"), "skills") }
+    _ => ""
+  }
+}
+
+///|
+pub fn install_target_path(agent : String, global : Bool) -> String {
+  let base = install_base_path(agent, global)
+  if base.length() == 0 {
+    return ""
+  }
+  match agent {
+    "claude" | "codex" | "cursor" | "gemini" => path_join(path_join(base, "yunomi"), "SKILL.md")
+    "opencode" | "cline" => path_join(base, "yunomi.md")
+    _ => ""
+  }
+}
+
+///|
+fn is_supported_agent(agent : String) -> Bool {
+  agent == "claude" || agent == "codex" || agent == "cursor" ||
+  agent == "opencode" || agent == "cline" || agent == "gemini"
+}
+
+///|
+fn print_install_list(global : Bool) -> Unit {
+  let agents = ["claude", "codex", "cursor", "opencode", "cline", "gemini"]
+  for agent in agents {
+    console_log(agent + " -> " + install_target_path(agent, global))
+  }
+}
+
+///|
+fn backup_existing(path : String) -> Unit {
+  if exists_sync(path) {
+    write_file_sync(path + ".bak", read_file_safe(path))
+  }
+}
+
+///|
+fn handle_install_command(args : Array[String]) -> Unit {
+  let mut global = true
+  let mut list = false
+  let mut agent = ""
+  let mut i = 1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--global" {
+      global = true
+    } else if arg == "--project" {
+      global = false
+    } else if arg == "--list" {
+      list = true
+    } else if !arg.has_prefix("-") {
+      agent = arg
+    }
+    i = i + 1
+  }
+  if list {
+    print_install_list(global)
+    return
+  }
+  if !is_supported_agent(agent) {
+    console_error("Usage: yunomi install <claude|codex|cursor|opencode|cline|gemini> [--global|--project] [--list]")
+    exit_process("install usage", 1)
+  }
+  let target = install_target_path(agent, global)
+  ensure_parent_dir(target)
+  backup_existing(target)
+  write_file_sync(target, skill_file_body())
+  console_log("Installed yunomi skill for " + agent + " at " + target)
 }
 
 ///| The instant skill: everything an AI agent needs to serve work for
@@ -355,7 +658,7 @@ fn print_usage() -> Unit {
 
 ///|
 /// so "just tell your AI to run npx yunomi" is the entire onboarding.
-fn print_skill_doc() -> Unit {
+fn print_skill_doc_text() -> String {
   let doc =
     #|# yunomi 🍵 — skill document for AI agents
     #|
@@ -461,7 +764,12 @@ fn print_skill_doc() -> Unit {
     #|
     #|From then on, serve every finished task with `npx yunomi REPORT.md`
     #|without being asked. The tea serves itself. 🍵
-  console_log(doc)
+  doc
+}
+
+///|
+fn print_skill_doc() -> Unit {
+  console_log(print_skill_doc_text())
 }
 
 ///|
