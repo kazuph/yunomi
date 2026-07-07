@@ -149,6 +149,14 @@ try {
   assert(html.body.includes("yunomi-live-bar"), "live proxy injects comment overlay");
   assert(html.body.includes("Save now"), "live proxy preserves target content");
   assert(String(html.headers["content-length"] || "").length > 0, "live proxy recalculates Content-Length");
+  const injectedScript = html.body.match(/<script data-yunomi-live="[^"]*">([\s\S]*?)<\/script>/)?.[1] ?? "";
+  assert(injectedScript.length > 0, "live proxy injects a script body");
+  try {
+    new Function(injectedScript);
+    assert(true, "live injected script is valid JavaScript");
+  } catch (err: unknown) {
+    assert(false, `live injected script syntax is valid: ${(err as Error).message}`);
+  }
 
   const plain = await httpGet(PROXY_PORT, "/plain");
   assert(plain.status === 200, "live proxy passes through non-HTML");
