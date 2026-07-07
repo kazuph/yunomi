@@ -97,6 +97,34 @@ sequenceDiagram
     Y->>A: approve確定 → コミットへ
 ```
 
+## 3.5 理想の体験（North Star・2026-07-08 ユーザー確定）
+
+> yunomiでユーザーがコメント → **即時**にtmux/herdr sendでyunomi実行元のAIに通知 → AIが該当箇所を修正 → yunomiがホットリロード → またユーザーがコメント …… → どこかで承認 or 完全REJECT（最終判断は現行Submit UI）
+
+**大前提: yunomiは要件が決着（approve/reject）するまで起動したまま**。1回のSubmitで終わる使い捨てビューアではなく、要件が済むまで生き続けるレビューセッション。
+
+```mermaid
+sequenceDiagram
+    participant H as 人間（ブラウザ）
+    participant Y as yunomi（要件決着まで常駐）
+    participant A as AI（起動元pane）
+    loop コメント単位の高速ループ
+        H->>Y: 行コメント保存
+        Y-->>A: 即時通知（herdr agent send: file:line/本文/課題id）
+        A->>A: 該当箇所を修正
+        A-->>Y: ファイル保存（SSEホットリロード）
+        Y-->>H: 画面が自動更新・課題スレッドに対応報告
+    end
+    H->>Y: 承認 or 完全REJECT（Submit UI）
+    Y->>A: 最終verdict＋exit
+```
+
+これを支える3つの新要素（Wave 2の最優先に昇格）:
+
+1. **コメント即時通知リレー**: yunomiは起動時に起動元paneを記憶（`HERDR_PANE_ID`継承 or `--notify-pane`）し、コメント保存の瞬間に `herdr agent send`（tmuxフォールバック）で構造化通知。Submitを待たない
+2. **課題管理**: コメントスレッド＝課題。UIで状態（未解決/対応報告あり/解決）が見え、AIはCLI/HTTPで対応報告(reply)を書ける。resolveは人間のみ
+3. **チェックボックス式AskUserQ**: AIがヒアリング項目を `- [ ]` で書く → プレビューで実チェックボックスとして操作可能 → 選択が即時通知でAIへ → AIは受領後に `- ✅️ <決定内容>` の決定状態へ書き換え（ホットリロードで反映）。ヒアリング中と決定済みが記法レベルで区別される運用
+
 ## 4. ロードマップ（フェーズ別・全機能）
 
 ```mermaid
