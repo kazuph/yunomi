@@ -43,6 +43,19 @@ Your browser opens. You read at your own pace. You leave comments; you approve �
 
 In the vibe coding era, humans no longer read every diff. We review the work itself: **intent, changes, and proof**. yunomi is the moment of handoff between AI work and human judgment — served politely, every single time.
 
+## Roadmap: The Review Loop 🔁
+
+One cup is never the whole conversation. The next major evolution of yunomi turns a single review into a **multi-round loop** — the defining workflow of AI-native review tools:
+
+- **Rounds** — after you request changes, the agent fixes and runs `yunomi go`; your browser shows a fresh round with a **diff of what actually changed** since your comments
+- **Threads that never get lost** — comments stay pinned to their lines across rounds, **unresolved until *you* resolve them**; "I think I fixed it" can no longer make feedback silently disappear
+- **Review files** — verdicts persist to `.yunomi/reviews/` per branch, so any agent (Claude Code, Codex, Cursor, OpenCode, …) can pick the loop back up tomorrow, even after the terminal is gone
+- **Live app review** — `yunomi live http://localhost:3000` proxies your dev server so you can pin comments **directly on DOM elements** of the running app
+- **Talk back mid-review** — send a single comment to the agent *while you keep reading*, and watch the reply land in the thread
+- **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and an MCP server mode for every agent runtime
+
+The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi will keep reviewing **the work, not just the diff**.
+
 ## Getting started (the only step)
 
 Tell your AI agent:
