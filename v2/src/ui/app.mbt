@@ -915,7 +915,7 @@ pub fn init_app() -> Unit {
 
 ///|
 fn setup_csv_clicks() -> Unit {
-  let cells = query_all("td[data-row]")
+  let cells = query_all("td[data-row]:not(#md-preview *)")
   for cell in cells {
     on(cell, "click", fn(e) {
       if is_dragging.val {
@@ -1204,7 +1204,9 @@ fn resolve_comment_indicator_target(comment : AppComment) -> Element {
       return exact
     }
   }
-  let line_cell = query("td[data-row=\"\{comment.row}\"][data-col=\"1\"]")
+  let line_cell = query(
+    "td[data-row=\"\{comment.row}\"][data-col=\"1\"]:not(#md-preview *)",
+  )
   if !is_null(line_cell) {
     return line_cell
   }
@@ -2328,7 +2330,9 @@ fn sync_scroll(
           get_offset_top(anchor.preview_el)
         } else {
           // Source is source table (md-right), find source row position
-          let cell = query("td[data-row=\"\{anchor.line}\"][data-col=\"1\"]")
+          let cell = query(
+            "td[data-row=\"\{anchor.line}\"][data-col=\"1\"]:not(#md-preview *)",
+          )
           if !is_null(cell) {
             get_offset_top(cell)
           } else {
@@ -2346,7 +2350,9 @@ fn sync_scroll(
       let src_anchor_pos = if source_name == "left" {
         get_offset_top(anchor.preview_el)
       } else {
-        let cell = query("td[data-row=\"\{anchor.line}\"][data-col=\"1\"]")
+        let cell = query(
+          "td[data-row=\"\{anchor.line}\"][data-col=\"1\"]:not(#md-preview *)",
+        )
         if !is_null(cell) {
           get_offset_top(cell)
         } else {
@@ -2354,7 +2360,9 @@ fn sync_scroll(
         }
       }
       let tgt_anchor_pos = if source_name == "left" {
-        let cell = query("td[data-row=\"\{anchor.line}\"][data-col=\"1\"]")
+        let cell = query(
+          "td[data-row=\"\{anchor.line}\"][data-col=\"1\"]:not(#md-preview *)",
+        )
         if !is_null(cell) {
           get_offset_top(cell)
         } else {
@@ -2428,7 +2436,9 @@ fn finish_drag() -> Unit {
   } else {
     start.to_string() + "-" + end.to_string()
   }
-  let target_el = query("[data-row=\"" + start.to_string() + "\"]")
+  let target_el = query(
+    "[data-row=\"" + start.to_string() + "\"]:not(#md-preview *)",
+  )
   if !is_null(target_el) {
     show_comment_card(target_el, key, start, 0)
   }
@@ -2455,7 +2465,7 @@ fn update_selection_highlight() -> Unit {
     drag_end_row.val
   }
   for r = start; r <= end; r = r + 1 {
-    let el = query("[data-row=\"" + r.to_string() + "\"]")
+    let el = query("[data-row=\"" + r.to_string() + "\"]:not(#md-preview *)")
     if !is_null(el) {
       add_class(el, "selected")
     }
@@ -2473,7 +2483,7 @@ fn setup_drag_handlers() -> Unit {
     let y = get_event_client_y(e)
     let el = element_from_point(x, y)
     if !is_null(el) {
-      let row_el = closest(el, "[data-row]")
+      let row_el = closest(el, "[data-row]:not(#md-preview *)")
       if !is_null(row_el) {
         let row_str = get_attr(row_el, "data-row")
         update_drag(str_to_int(row_str))
@@ -3149,7 +3159,9 @@ fn select_source_range(
   // Highlight source rows
   for r = start_row; r <= actual_end; r = r + 1 {
     let row_idx = r - 1 // Convert 1-indexed to 0-indexed data-row
-    let cell = query("td[data-row=\"\{row_idx}\"][data-col=\"1\"]")
+    let cell = query(
+      "td[data-row=\"\{row_idx}\"][data-col=\"1\"]:not(#md-preview *)",
+    )
     if !is_null(cell) {
       add_class(cell, "selected")
     }
@@ -3158,7 +3170,9 @@ fn select_source_range(
   let md_right = query(".md-right")
   if !is_null(md_right) {
     let target_row = start_row - 1
-    let target_cell = query("td[data-row=\"\{target_row}\"][data-col=\"1\"]")
+    let target_cell = query(
+      "td[data-row=\"\{target_row}\"][data-col=\"1\"]:not(#md-preview *)",
+    )
     if !is_null(target_cell) {
       let cell_top = get_offset_top(target_cell)
       let container_height = get_client_height(md_right)
@@ -3182,7 +3196,9 @@ fn select_source_range(
   selected_comment_row.val = start_row - 1
   selected_comment_col.val = col
   selected_comment_el.val = preview_el
-  let source_target = query("td[data-row=\"\{start_row - 1}\"][data-col=\"1\"]")
+  let source_target = query(
+    "td[data-row=\"\{start_row - 1}\"][data-col=\"1\"]:not(#md-preview *)",
+  )
   // Position card: check if source is hidden (preview-only mode)
   let is_source_hidden = !is_null(md_right) && is_element_hidden(md_right)
   if is_source_hidden && !is_null(preview_el) {
@@ -3284,7 +3300,9 @@ fn select_comment_target_only(
   }
   for r = start_row; r <= actual_end; r = r + 1 {
     let row_idx = r - 1
-    let cell = query("td[data-row=\"\{row_idx}\"][data-col=\"1\"]")
+    let cell = query(
+      "td[data-row=\"\{row_idx}\"][data-col=\"1\"]:not(#md-preview *)",
+    )
     if !is_null(cell) {
       add_class(cell, "selected")
     }
@@ -3317,7 +3335,7 @@ fn open_selected_comment_target() -> Bool {
   let target = if !is_null(selected_comment_el.val) {
     selected_comment_el.val
   } else {
-    query("td[data-row=\"\{row}\"][data-col=\"1\"]")
+    query("td[data-row=\"\{row}\"][data-col=\"1\"]:not(#md-preview *)")
   }
   if is_null(target) {
     return false
@@ -4055,6 +4073,10 @@ fn flash_answered_pill(total : Int) -> Unit {
 ///|
 /// Open questions modal
 fn open_questions_modal() -> Unit {
+  let submit = query("#submit-modal")
+  if !is_null(submit) && has_class(submit, "visible") {
+    return
+  }
   let overlay = query("#yunomi-questions-overlay")
   if !is_null(overlay) {
     add_class(overlay, "visible")

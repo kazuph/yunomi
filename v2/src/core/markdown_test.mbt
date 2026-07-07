@@ -25,13 +25,17 @@ test "parse markdown headings" {
 test "parse markdown paragraphs" {
   let md = parse_markdown("Hello world\n\nSecond paragraph")
   debug_inspect(
-    md.html.contains("<p data-source-start-line=\"1\" data-source-end-line=\"1\">Hello world</p>"),
+    md.html.contains(
+      "<p data-source-start-line=\"1\" data-source-end-line=\"1\">Hello world</p>",
+    ),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("<p data-source-start-line=\"3\" data-source-end-line=\"3\">Second paragraph</p>"),
+    md.html.contains(
+      "<p data-source-start-line=\"3\" data-source-end-line=\"3\">Second paragraph</p>",
+    ),
     content=(
       #|true
     ),
@@ -59,7 +63,9 @@ test "parse markdown bold and italic" {
 test "parse markdown code block" {
   let md = parse_markdown("```js\nconst x = 1;\n```")
   debug_inspect(
-    md.html.contains("<pre data-source-start-line=\"1\" data-source-end-line=\"3\"><code class=\"language-js\">"),
+    md.html.contains(
+      "<pre data-source-start-line=\"1\" data-source-end-line=\"3\"><code class=\"language-js\">",
+    ),
     content=(
       #|true
     ),
@@ -178,7 +184,9 @@ test "whitespace-only image target stays literal text" {
 test "parse markdown blockquote" {
   let md = parse_markdown("> quoted text")
   debug_inspect(
-    md.html.contains("<blockquote data-source-start-line=\"1\" data-source-end-line=\"1\">"),
+    md.html.contains(
+      "<blockquote data-source-start-line=\"1\" data-source-end-line=\"1\">",
+    ),
     content=(
       #|true
     ),
@@ -206,13 +214,33 @@ test "parse markdown table" {
     ),
   )
   debug_inspect(
-    md.html.contains("<th data-source-line=\"1\">"),
+    md.html.contains(
+      "<th data-source-line=\"1\" data-row=\"0\" data-col=\"1\">",
+    ),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("<td data-source-line=\"3\">"),
+    md.html.contains(
+      "<th data-source-line=\"1\" data-row=\"0\" data-col=\"2\">",
+    ),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains(
+      "<td data-source-line=\"3\" data-row=\"2\" data-col=\"1\">",
+    ),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains(
+      "<td data-source-line=\"3\" data-row=\"2\" data-col=\"2\">",
+    ),
     content=(
       #|true
     ),
@@ -252,12 +280,18 @@ test "parse markdown frontmatter" {
 ///|
 test "parse markdown empty" {
   let md = parse_markdown("")
-  debug_inspect(md.html, content=(
-    #|""
-  ))
-  debug_inspect(md.source, content=(
-    #|""
-  ))
+  debug_inspect(
+    md.html,
+    content=(
+      #|""
+    ),
+  )
+  debug_inspect(
+    md.source,
+    content=(
+      #|""
+    ),
+  )
   debug_inspect(md.questions.length(), content="0")
 }
 
@@ -266,20 +300,32 @@ test "parse markdown with yunomi questions" {
   let input = "---\ntitle: Test\nyunomi:\n  questions:\n    - id: q1\n      question: What do you think?\n      resolved: false\n    - id: q2\n      question: Is this OK?\n      resolved: true\n      answer: Yes\n---\n\n# Content"
   let md = parse_markdown(input)
   debug_inspect(md.questions.length(), content="2")
-  debug_inspect(md.questions[0].id, content=(
-    #|"q1"
-  ))
-  debug_inspect(md.questions[0].question, content=(
-    #|"What do you think?"
-  ))
+  debug_inspect(
+    md.questions[0].id,
+    content=(
+      #|"q1"
+    ),
+  )
+  debug_inspect(
+    md.questions[0].question,
+    content=(
+      #|"What do you think?"
+    ),
+  )
   debug_inspect(md.questions[0].resolved, content="false")
-  debug_inspect(md.questions[1].id, content=(
-    #|"q2"
-  ))
+  debug_inspect(
+    md.questions[1].id,
+    content=(
+      #|"q2"
+    ),
+  )
   debug_inspect(md.questions[1].resolved, content="true")
-  debug_inspect(md.questions[1].answer, content=(
-    #|"Yes"
-  ))
+  debug_inspect(
+    md.questions[1].answer,
+    content=(
+      #|"Yes"
+    ),
+  )
 }
 
 ///|
@@ -288,15 +334,24 @@ test "parse markdown questions with options" {
   let md = parse_markdown(input)
   debug_inspect(md.questions.length(), content="1")
   debug_inspect(md.questions[0].options.length(), content="3")
-  debug_inspect(md.questions[0].options[0], content=(
-    #|"Good"
-  ))
-  debug_inspect(md.questions[0].options[1], content=(
-    #|"Bad"
-  ))
-  debug_inspect(md.questions[0].options[2], content=(
-    #|"Neutral"
-  ))
+  debug_inspect(
+    md.questions[0].options[0],
+    content=(
+      #|"Good"
+    ),
+  )
+  debug_inspect(
+    md.questions[0].options[1],
+    content=(
+      #|"Bad"
+    ),
+  )
+  debug_inspect(
+    md.questions[0].options[2],
+    content=(
+      #|"Neutral"
+    ),
+  )
 }
 
 ///|
@@ -310,9 +365,12 @@ test "parse markdown questions with single-line context" {
   let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      context: Fail-open was chosen over fail-closed for latency.\n---\n\nText"
   let md = parse_markdown(input)
   debug_inspect(md.questions.length(), content="1")
-  debug_inspect(md.questions[0].context, content=(
-    #|"Fail-open was chosen over fail-closed for latency."
-  ))
+  debug_inspect(
+    md.questions[0].context,
+    content=(
+      #|"Fail-open was chosen over fail-closed for latency."
+    ),
+  )
 }
 
 ///|
@@ -320,14 +378,20 @@ test "parse markdown questions with block-scalar context" {
   let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      context: |\n        Line one of the judgment material.\n        Line two, still part of context.\n      options:\n        - Yes\n        - No\n---\n\nText"
   let md = parse_markdown(input)
   debug_inspect(md.questions.length(), content="1")
-  debug_inspect(md.questions[0].context, content=(
-    #|"Line one of the judgment material.\nLine two, still part of context."
-  ))
+  debug_inspect(
+    md.questions[0].context,
+    content=(
+      #|"Line one of the judgment material.\nLine two, still part of context."
+    ),
+  )
   // The block scalar must not swallow the following `options:` key.
   debug_inspect(md.questions[0].options.length(), content="2")
-  debug_inspect(md.questions[0].options[0], content=(
-    #|"Yes"
-  ))
+  debug_inspect(
+    md.questions[0].options[0],
+    content=(
+      #|"Yes"
+    ),
+  )
 }
 
 ///|
@@ -335,12 +399,18 @@ test "parse markdown questions without context stay backward compatible" {
   let input = "---\nyunomi:\n  questions:\n    - id: q1\n      question: Ship it?\n      resolved: false\n---\n\nText"
   let md = parse_markdown(input)
   debug_inspect(md.questions.length(), content="1")
-  debug_inspect(md.questions[0].context, content=(
-    #|""
-  ))
-  debug_inspect(md.questions[0].id, content=(
-    #|"q1"
-  ))
+  debug_inspect(
+    md.questions[0].context,
+    content=(
+      #|""
+    ),
+  )
+  debug_inspect(
+    md.questions[0].id,
+    content=(
+      #|"q1"
+    ),
+  )
 }
 
 ///|
@@ -376,45 +446,78 @@ test "parse markdown frontmatter excludes nested yunomi keys" {
     #|# Content
   let md = parse_markdown(input)
   // Real top-level sibling keys are unaffected.
-  debug_inspect(md.frontmatter.get("title"), content=(
-    #|Some("Wave 0 Report")
-  ))
-  debug_inspect(md.frontmatter.get("author"), content=(
-    #|Some("Alice")
-  ))
+  debug_inspect(
+    md.frontmatter.get("title"),
+    content=(
+      #|Some("Wave 0 Report")
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("author"),
+    content=(
+      #|Some("Alice")
+    ),
+  )
   // The yunomi key itself, and every nested key under it, must not leak
   // into the generic frontmatter map at all (not even the LAST question's
   // value) — the questions modal is the sole owner of this data.
-  debug_inspect(md.frontmatter.get("yunomi"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("questions"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("id"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("question"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("context"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("resolved"), content=(
-    #|None
-  ))
-  debug_inspect(md.frontmatter.get("answer"), content=(
-    #|None
-  ))
+  debug_inspect(
+    md.frontmatter.get("yunomi"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("questions"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("id"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("question"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("context"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("resolved"),
+    content=(
+      #|None
+    ),
+  )
+  debug_inspect(
+    md.frontmatter.get("answer"),
+    content=(
+      #|None
+    ),
+  )
   // parse_yunomi_questions() (a separate, indentation-aware parser) still
   // correctly sees both questions — only the generic flat scanner changed.
   debug_inspect(md.questions.length(), content="2")
-  debug_inspect(md.questions[0].id, content=(
-    #|"q-first"
-  ))
-  debug_inspect(md.questions[1].id, content=(
-    #|"q-second"
-  ))
+  debug_inspect(
+    md.questions[0].id,
+    content=(
+      #|"q-first"
+    ),
+  )
+  debug_inspect(
+    md.questions[1].id,
+    content=(
+      #|"q-second"
+    ),
+  )
 }
 
 ///|
