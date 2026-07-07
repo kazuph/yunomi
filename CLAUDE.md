@@ -76,8 +76,8 @@ claude plugin update yunomi-plugin@yunomi-plugins
 
 | 変更規模 | 使うskill | 説明 |
 |---|---|---|
-| 小さな修正・バグ修正 | `/yunomi-plugin:tiny-done` | ビルド → スクショ/テスト結果 → openで開く → ユーザー承認 |
-| 大きな機能・複数ファイル変更 | `/yunomi-plugin:done` | ビルド → 検証 → REPORT.md作成 → yunomiで開く → ユーザー承認 |
+| 小さな修正・バグ修正 | `/tiny-done` | ビルド → スクショ/テスト結果 → openで開く → ユーザー承認 |
+| 大きな機能・複数ファイル変更 | `/done` | ビルド → 検証 → REPORT.md作成 → yunomiで開く → ユーザー承認 |
 
 - **skillを実行せずに「完了しました」と言うのは禁止**
 - 判断に迷ったら `/tiny-done` でOK（軽量で速い）

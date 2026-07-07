@@ -3,7 +3,7 @@ name: webapp-impl
 description: Webアプリケーション実装のマスターエージェント。フロントエンドデザイン、実装、テスト、検証を一貫して行う。モック/ハードコード/バイパス禁止のゼロトレランスポリシーを適用。新機能実装、UI構築、バグ修正に使用。
 tools: Read, Write, Edit, MultiEdit, Glob, Grep, Bash, WebFetch, WebSearch, TodoWrite, Task
 model: opus
-skills: yunomi-plugin:frontend-design, yunomi-plugin:webapp-testing, yunomi-plugin:artifact-proof
+skills: frontend-design, webapp-testing, artifact-proof
 context: fork
 ---
 

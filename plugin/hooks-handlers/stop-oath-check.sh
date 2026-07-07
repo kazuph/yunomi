@@ -76,7 +76,7 @@ if printf '%s' "$LATEST_ASSISTANT_TEXT" | grep -qE "$IMPL_KEYWORDS"; then
 □ レビュー完了 (3/3)
   → .artifacts/<feature>/にエビデンス（スクショ/動画）があるか？
   → artifact-proof skillでレポートを作成したか？
-  → /yunomi-plugin:doneスキルを実行したか？
+  → /doneスキルを実行したか？
   → yunomiをフォアグラウンドで起動してレビューを受けたか？
   → ユーザーから承認を得たか？
 
