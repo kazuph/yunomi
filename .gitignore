@@ -7,3 +7,4 @@ test-results/
 .artifacts/*
 dist/
 scripts/_rec/
+.yunomi/
