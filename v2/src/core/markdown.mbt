@@ -191,7 +191,17 @@ fn make_heading_key(text : String, counter : Int) -> String {
 
 ///|
 /// Render markdown lines to HTML
-fn render_markdown_lines(lines : Array[String]) -> String {
+///
+/// `line_offset` is the 0-indexed absolute position (within the full,
+/// frontmatter-stripped source) of `lines[0]`. It is 0 for the top-level
+/// call and non-zero when recursing into a `<details>` block's inner
+/// content, so that data-source-line/data-row attributes stay accurate
+/// against the real source instead of restarting from 0 for every nested
+/// block (which used to desync them from `comment.row`/`.md-right`).
+fn render_markdown_lines(
+  lines : Array[String],
+  line_offset? : Int = 0,
+) -> String {
   heading_counter.val = 0
   let buf = StringBuilder::new()
   let mut i = 0
@@ -224,6 +234,9 @@ fn render_markdown_lines(lines : Array[String]) -> String {
           i = i + 1
         }
         // Collect inner content lines (between summary and </details>)
+        // `i` right now points at the first inner line, so this is its
+        // absolute (offset-adjusted) 0-indexed position in the real source.
+        let inner_start_line = i + line_offset
         let inner_lines : Array[String] = []
         let mut depth = 1
         while i < len && depth > 0 {
@@ -241,9 +254,14 @@ fn render_markdown_lines(lines : Array[String]) -> String {
           inner_lines.push(current)
           i = i + 1
         }
-        // Render inner content as markdown
+        // Render inner content as markdown, preserving true source line
+        // numbers so data-row/data-col/data-source-line stay in sync with
+        // comment.row (computed against the full frontmatter-stripped source).
         if inner_lines.length() > 0 {
-          let inner_html = render_markdown_lines(inner_lines)
+          let inner_html = render_markdown_lines(
+            inner_lines,
+            line_offset=inner_start_line,
+          )
           buf.write_string(inner_html)
           buf.write_string("\n")
         }
@@ -292,7 +310,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
         buf.write_string("\" data-heading-level=\"")
         buf.write_string(level.to_string())
         buf.write_string("\" data-source-line=\"")
-        buf.write_string((i + 1).to_string())
+        buf.write_string((i + 1 + line_offset).to_string())
         buf.write_string(
           "\"><span class=\"heading-toggle-icon\">\u{25BC}</span>",
         )
@@ -313,7 +331,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     // Code block
     if line.has_prefix("```") {
       let lang = trim(safe_slice(line, 3))
-      let code_block_start_line = i + 1 // 1-indexed line number of ```mermaid
+      let code_block_start_line = i + 1 + line_offset // 1-indexed line number of ```mermaid
       i = i + 1
       let code_buf = StringBuilder::new()
       let mut code_first = true
@@ -325,7 +343,11 @@ fn render_markdown_lines(lines : Array[String]) -> String {
         code_buf.write_string(lines[i])
         i = i + 1
       }
-      let code_block_end_line = if i < len { i + 1 } else { len }
+      let code_block_end_line = if i < len {
+        i + 1 + line_offset
+      } else {
+        len + line_offset
+      }
       if i < len {
         i = i + 1 // skip closing ```
       }
@@ -365,7 +387,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     // Blockquote
     if line.has_prefix(">") {
       let quote_lines : Array[String] = []
-      let quote_start_line = i + 1
+      let quote_start_line = i + 1 + line_offset
       while i < len && lines[i].has_prefix(">") {
         let content = trim(safe_slice(lines[i], 1))
         quote_lines.push(content)
@@ -374,7 +396,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
       buf.write_string("<blockquote data-source-start-line=\"")
       buf.write_string(quote_start_line.to_string())
       buf.write_string("\" data-source-end-line=\"")
-      buf.write_string(i.to_string())
+      buf.write_string((i + line_offset).to_string())
       buf.write_string("\">")
       for ql in quote_lines {
         buf.write_string("<p>")
@@ -388,20 +410,16 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if line.has_prefix("- ") || line.has_prefix("* ") {
       buf.write_string("<ul>\n")
       while i < len && (lines[i].has_prefix("- ") || lines[i].has_prefix("* ")) {
-        let item_line = i + 1
+        let item_line = i + 1 + line_offset
         let item_text = safe_slice(lines[i], 2)
         // Task list: - [ ] or - [x]
         if item_text.has_prefix("[ ] ") {
-          buf.write_string(
-            "<li class=\"task-list-item\" data-source-line=\"",
-          )
+          buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
           buf.write_string(item_line.to_string())
           buf.write_string("\"><input type=\"checkbox\" disabled /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
         } else if item_text.has_prefix("[x] ") || item_text.has_prefix("[X] ") {
-          buf.write_string(
-            "<li class=\"task-list-item\" data-source-line=\"",
-          )
+          buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
           buf.write_string(item_line.to_string())
           buf.write_string("\"><input type=\"checkbox\" checked disabled /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
@@ -421,7 +439,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if is_ordered_list_item(line) {
       buf.write_string("<ol>\n")
       while i < len && is_ordered_list_item(lines[i]) {
-        let item_line = i + 1
+        let item_line = i + 1 + line_offset
         let content = extract_ordered_list_content(lines[i])
         buf.write_string("<li data-source-line=\"")
         buf.write_string(item_line.to_string())
@@ -437,11 +455,15 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     if i + 1 < len && is_table_separator(lines[i + 1]) {
       buf.write_string("<div class=\"table-container\">\n")
       buf.write_string("<table>\n<thead>\n<tr>\n")
-      let header_line = i + 1
+      let header_line = i + 1 + line_offset
       let headers = parse_table_row(line)
-      for h in headers {
+      for col_idx, h in headers {
         buf.write_string("<th data-source-line=\"")
         buf.write_string(header_line.to_string())
+        buf.write_string("\" data-row=\"")
+        buf.write_string((header_line - 1).to_string())
+        buf.write_string("\" data-col=\"")
+        buf.write_string((col_idx + 1).to_string())
         buf.write_string("\">")
         buf.write_string(render_inline(trim(h)))
         buf.write_string("</th>\n")
@@ -449,12 +471,16 @@ fn render_markdown_lines(lines : Array[String]) -> String {
       buf.write_string("</tr>\n</thead>\n<tbody>\n")
       i = i + 2 // skip header + separator
       while i < len && lines[i].contains("|") {
-        let row_line = i + 1
+        let row_line = i + 1 + line_offset
         let cells = parse_table_row(lines[i])
         buf.write_string("<tr>\n")
-        for cell in cells {
+        for col_idx, cell in cells {
           buf.write_string("<td data-source-line=\"")
           buf.write_string(row_line.to_string())
+          buf.write_string("\" data-row=\"")
+          buf.write_string((row_line - 1).to_string())
+          buf.write_string("\" data-col=\"")
+          buf.write_string((col_idx + 1).to_string())
           buf.write_string("\">")
           buf.write_string(render_inline(trim(cell)))
           buf.write_string("</td>\n")
@@ -468,7 +494,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
     // Paragraph (collect contiguous non-empty, non-block lines)
     let para_buf = StringBuilder::new()
     let mut para_first = true
-    let para_start_line = i + 1
+    let para_start_line = i + 1 + line_offset
     while i < len && trim(lines[i]).length() > 0 && !is_block_start(lines[i]) {
       if !para_first {
         para_buf.write_string(" ")
@@ -482,7 +508,7 @@ fn render_markdown_lines(lines : Array[String]) -> String {
       buf.write_string("<p data-source-start-line=\"")
       buf.write_string(para_start_line.to_string())
       buf.write_string("\" data-source-end-line=\"")
-      buf.write_string(i.to_string())
+      buf.write_string((i + line_offset).to_string())
       buf.write_string("\">")
       buf.write_string(render_inline(para_text))
       buf.write_string("</p>\n")

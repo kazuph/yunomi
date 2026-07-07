@@ -407,7 +407,9 @@ fn build_questions_modal(
     if q.options.length() > 0 {
       buf.write_string("<div class=\"q-options\">")
       for j, opt in q.options {
-        buf.write_string("<button type=\"button\" class=\"q-option-btn\" data-qi=\"")
+        buf.write_string(
+          "<button type=\"button\" class=\"q-option-btn\" data-qi=\"",
+        )
         buf.write_string(i.to_string())
         buf.write_string("\" data-oi=\"")
         buf.write_string(j.to_string())
@@ -453,7 +455,9 @@ fn build_questions_modal(
       if !q.resolved {
         continue
       }
-      buf.write_string("<div class=\"question-card resolved\"><div class=\"q-title\">")
+      buf.write_string(
+        "<div class=\"question-card resolved\"><div class=\"q-title\">",
+      )
       buf.write_string(escape_html(q.question))
       buf.write_string("</div>")
       if q.answer.length() > 0 {
@@ -613,8 +617,20 @@ fn build_script_footer(
     buf.write_string("}")
     buf.write_string("}")
     buf.write_string("};")
+    // Matcha-green Mermaid theme variables so diagrams match the accent
+    // palette instead of Mermaid's default indigo/violet look.
+    buf.write_string("window.__mermaidConfig=function(isLight){")
     buf.write_string(
-      "mermaid.initialize({startOnLoad:false,logLevel:0,theme:document.documentElement.getAttribute('data-theme')==='light'?'default':'dark',securityLevel:'loose'});",
+      "var light={primaryColor:'#e3edd7',primaryTextColor:'#3b2d20',primaryBorderColor:'#5c8a42',lineColor:'#7fa860',secondaryColor:'#d9e8c4',secondaryBorderColor:'#8fae72',tertiaryColor:'#f6efe1',tertiaryBorderColor:'#c9dab0',edgeLabelBackground:'#f6efe1',clusterBkg:'#eef4e3',clusterBorder:'#a9c98a',mainBkg:'#e3edd7',nodeBorder:'#5c8a42',background:'#fffaf0'};",
+    )
+    buf.write_string(
+      "var dark={primaryColor:'#33461f',primaryTextColor:'#f1ebe1',primaryBorderColor:'#9fc47c',lineColor:'#7fa860',secondaryColor:'#2a3a1c',secondaryBorderColor:'#5c8a42',tertiaryColor:'#1c1815',tertiaryBorderColor:'#3a4d2a',edgeLabelBackground:'#1c1815',clusterBkg:'#22301a',clusterBorder:'#5c8a42',mainBkg:'#33461f',nodeBorder:'#9fc47c',background:'#14110f'};",
+    )
+    buf.write_string(
+      "return {startOnLoad:false,logLevel:0,theme:isLight?'default':'dark',securityLevel:'loose',themeVariables:isLight?light:dark};};",
+    )
+    buf.write_string(
+      "mermaid.initialize(window.__mermaidConfig(document.documentElement.getAttribute('data-theme')==='light'));",
     )
     buf.write_string(
       "mermaid.run().then(function(){return window.__collectMermaidErrors();}).catch(function(e){console.error('[yunomi] Mermaid render error:',e);return window.__collectMermaidErrors();});",
@@ -624,7 +640,7 @@ fn build_script_footer(
       "document.querySelectorAll('.mermaid-error-banner').forEach(function(b){b.remove();});",
     )
     buf.write_string(
-      "mermaid.initialize({startOnLoad:false,logLevel:0,theme:theme!=='light'?'dark':'default',securityLevel:'loose'});",
+      "mermaid.initialize(window.__mermaidConfig(theme==='light'));",
     )
     buf.write_string("var divs=document.querySelectorAll('.mermaid');")
     buf.write_string(
@@ -749,7 +765,9 @@ pub fn build_diff_html(
     }
     let is_large = !file.is_binary && diff_line_count > 500
     if is_large {
-      buf.write_string("<details class=\"diff-file diff-file-large\"><summary class=\"diff-file-header\">")
+      buf.write_string(
+        "<details class=\"diff-file diff-file-large\"><summary class=\"diff-file-header\">",
+      )
     } else {
       buf.write_string("<div class=\"diff-file-header\">")
     }

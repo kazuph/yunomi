@@ -1051,7 +1051,11 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|() => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return [];
-  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  // Note: td/th are intentionally excluded here so narrow table cells never
+  #|  // get an overlapping pencil button (it would cover the cell's own text).
+  #|  // Table cells remain commentable via direct click (see setup_preview_click /
+  #|  // open_or_select_preview_comment_target), which resolves per-cell row+col.
+  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
   #|  const out = [];
   #|  const seen = new Set();
   #|  const visible = (el) => {
@@ -1094,11 +1098,13 @@ extern "js" fn table_cell_neighbor(el : Element, direction : String) -> Element 
   #|}
 
 ///|
-extern "js" fn install_preview_comment_buttons(handler : (Element) -> Unit) -> Unit =
+extern "js" fn install_preview_comment_buttons(
+  handler : (Element) -> Unit,
+) -> Unit =
   #|(handler) => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return;
-  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,td,th,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
   #|  const hostFor = (target) => {
   #|    if (!target) return null;
   #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;
@@ -1111,6 +1117,9 @@ extern "js" fn install_preview_comment_buttons(handler : (Element) -> Unit) -> U
   #|    for (const raw of preview.querySelectorAll(selector)) {
   #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
   #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
+  #|      const inTableCell = target.closest?.("td,th");
+  #|      const isMediaTarget = target.matches?.("img:not(.timeline-thumb), video.video-preview, .timeline-thumb-wrapper");
+  #|      if (inTableCell && !isMediaTarget) continue;
   #|      if (seen.has(target)) continue;
   #|      seen.add(target);
   #|      const host = hostFor(target);

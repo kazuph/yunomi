@@ -2,36 +2,37 @@
 /// Build the main CSS styles
 fn build_css() -> String {
   let css =
-    #|/* Dark theme (default) — warm-modern with copper accent */
+    #|/* Dark theme (default) — deep-green, matcha-accent (background is now
+    #|   green-tinted charcoal, not warm brown, per rebrand feedback) */
     #|:root {
     #|  color-scheme: dark;
-    #|  --bg: #14110f;
-    #|  --bg-gradient: radial-gradient(120% 80% at 15% 0%, #26201b 0%, #1a1612 40%, #14110f 80%);
-    #|  --panel: #1c1815;
-    #|  --panel-alpha: rgba(20, 17, 15, 0.82);
-    #|  --panel-solid: #1a1612;
-    #|  --card-bg: rgba(28, 24, 21, 0.96);
-    #|  --input-bg: rgba(32, 27, 23, 0.75);
-    #|  --border: #2e2822;
-    #|  --border-strong: #3a322b;
-    #|  --accent: #d7a67a;
-    #|  --accent-strong: #e7b98b;
-    #|  --accent-2: #a8765a;
-    #|  --accent-soft: rgba(215, 166, 122, 0.14);
+    #|  --bg: #131a12;
+    #|  --bg-gradient: radial-gradient(120% 80% at 15% 0%, #1f2a1b 0%, #182016 40%, #131a12 80%);
+    #|  --panel: #182116;
+    #|  --panel-alpha: rgba(19, 26, 18, 0.82);
+    #|  --panel-solid: #172014;
+    #|  --card-bg: rgba(24, 32, 22, 0.96);
+    #|  --input-bg: rgba(28, 37, 25, 0.75);
+    #|  --border: #2a3524;
+    #|  --border-strong: #37452e;
+    #|  --accent: #9fc47c;
+    #|  --accent-strong: #b9d99a;
+    #|  --accent-2: #5c8a42;
+    #|  --accent-soft: rgba(159, 196, 124, 0.14);
     #|  --text: #f1ebe1;
     #|  --text-inverse: #1a1612;
     #|  --muted: #9f9488;
     #|  --comment: #b78a5a;
     #|  --badge: #6bbf86;
-    #|  --table-bg: rgba(28, 24, 21, 0.72);
-    #|  --row-even: rgba(46, 40, 34, 0.5);
-    #|  --row-odd: rgba(28, 24, 21, 0.25);
-    #|  --selected-bg: rgba(215, 166, 122, 0.16);
-    #|  --hover-bg: rgba(215, 166, 122, 0.08);
+    #|  --table-bg: rgba(24, 32, 22, 0.72);
+    #|  --row-even: rgba(42, 52, 36, 0.5);
+    #|  --row-odd: rgba(24, 32, 22, 0.25);
+    #|  --selected-bg: rgba(159, 196, 124, 0.22);
+    #|  --hover-bg: rgba(159, 196, 124, 0.14);
     #|  --shadow-color: rgba(0,0,0,0.45);
     #|  --shadow-soft: 0 10px 30px rgba(0,0,0,0.35);
     #|  --shadow-card: 0 20px 40px rgba(0,0,0,0.4);
-    #|  --code-bg: #23201c;
+    #|  --code-bg: #1e2819;
     #|  --error: #e06862;
     #|  --success: #6bbf86;
     #|  --warning: #e8b574;
@@ -41,36 +42,38 @@ fn build_css() -> String {
     #|  --radius-pill: 999px;
     #|  --font-display: "Inter", "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, -apple-system, sans-serif;
     #|}
-    #|/* Light theme — warm beige / tan palette (no blue) */
+    #|/* Light theme — wakakusa cream base with sencha/matcha green accent
+    #|   (background is now softly green-tinted, not warm beige, per rebrand
+    #|   feedback: "inside of a teacup filled with green tea") */
     #|[data-theme="light"] {
     #|  color-scheme: light;
-    #|  --bg: #f6efe1;
-    #|  --bg-gradient: linear-gradient(180deg, #fbf6ea 0%, #efe6d3 100%);
-    #|  --panel: #fffaf0;
-    #|  --panel-alpha: rgba(255, 250, 240, 0.92);
-    #|  --panel-solid: #fffaf0;
-    #|  --card-bg: rgba(255, 252, 244, 0.98);
-    #|  --input-bg: #f4ead7;
-    #|  --border: #e4d6bc;
-    #|  --border-strong: #d1bf9e;
-    #|  --accent: #a8785a;
-    #|  --accent-strong: #8c5f43;
-    #|  --accent-2: #c89a70;
-    #|  --accent-soft: rgba(168, 120, 90, 0.12);
+    #|  --bg: #eef3e3;
+    #|  --bg-gradient: linear-gradient(180deg, #f5f8ec 0%, #e3ead2 100%);
+    #|  --panel: #f6faf0;
+    #|  --panel-alpha: rgba(246, 250, 240, 0.92);
+    #|  --panel-solid: #f6faf0;
+    #|  --card-bg: rgba(248, 251, 243, 0.98);
+    #|  --input-bg: #e9f0dc;
+    #|  --border: #d7e2c4;
+    #|  --border-strong: #c2d1a5;
+    #|  --accent: #5c8a42;
+    #|  --accent-strong: #466b30;
+    #|  --accent-2: #9fc47c;
+    #|  --accent-soft: rgba(92, 138, 66, 0.12);
     #|  --text: #3b2d20;
     #|  --text-inverse: #fffaf0;
     #|  --muted: #87735b;
     #|  --comment: #a8785a;
     #|  --badge: #4d9d63;
-    #|  --table-bg: #fffaf0;
-    #|  --row-even: #f6ecd8;
-    #|  --row-odd: #fffaf0;
-    #|  --selected-bg: rgba(168, 120, 90, 0.12);
-    #|  --hover-bg: rgba(168, 120, 90, 0.06);
+    #|  --table-bg: #f6faf0;
+    #|  --row-even: #eaf1de;
+    #|  --row-odd: #f6faf0;
+    #|  --selected-bg: rgba(92, 138, 66, 0.20);
+    #|  --hover-bg: rgba(92, 138, 66, 0.12);
     #|  --shadow-color: rgba(60, 40, 20, 0.08);
     #|  --shadow-soft: 0 6px 18px rgba(60, 40, 20, 0.08);
     #|  --shadow-card: 0 18px 36px rgba(60, 40, 20, 0.12);
-    #|  --code-bg: #f4ead7;
+    #|  --code-bg: #e9f0dc;
     #|  --error: #c9564f;
     #|  --success: #4d9d63;
     #|  --warning: #c58a40;
@@ -888,6 +891,9 @@ fn build_css() -> String {
     #|  display: none;
     #|}
     #|.md-preview p { margin: 0.3em 0; line-height: 1.5; }
+    #|.md-preview a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--accent-soft); }
+    #|.md-preview a:hover { color: var(--accent-strong); text-decoration-color: var(--accent-strong); }
+    #|.md-preview a:visited { color: var(--accent-2); }
     #|.md-preview img { max-width: 100%; height: auto; border-radius: 8px; }
     #|.md-preview video.video-preview { max-width: 100%; height: auto; border-radius: 8px; background: #000; }
     #|.md-preview table video.video-preview {
@@ -927,7 +933,7 @@ fn build_css() -> String {
     #|  table-layout: fixed;
     #|}
     #|.frontmatter-table thead th {
-    #|  background: linear-gradient(135deg, rgba(147, 51, 234, 0.15), rgba(96, 165, 250, 0.15));
+    #|  background: linear-gradient(135deg, rgba(92, 138, 66, 0.15), rgba(159, 196, 124, 0.15));
     #|  color: var(--text);
     #|  font-size: 12px;
     #|  font-weight: 600;
@@ -936,8 +942,8 @@ fn build_css() -> String {
     #|  border-bottom: 1px solid var(--border);
     #|}
     #|.frontmatter-table tbody th {
-    #|  background: rgba(147, 51, 234, 0.08);
-    #|  color: #c084fc;
+    #|  background: var(--accent-soft);
+    #|  color: var(--accent);
     #|  font-weight: 500;
     #|  font-size: 12px;
     #|  padding: 8px 10px;
@@ -957,7 +963,7 @@ fn build_css() -> String {
     #|}
     #|.frontmatter-table .fm-tag {
     #|  display: inline-block;
-    #|  background: rgba(96, 165, 250, 0.15);
+    #|  background: var(--accent-soft);
     #|  color: var(--accent);
     #|  padding: 2px 8px;
     #|  border-radius: 12px;
@@ -1015,9 +1021,6 @@ fn build_css() -> String {
     #|  background: rgba(34, 197, 94, 0.1);
     #|  padding: 4px 8px;
     #|  border-radius: 4px;
-    #|}
-    #|[data-theme="light"] .frontmatter-table tbody th {
-    #|  color: #7c3aed;
     #|}
     #|/* Table scroll container and indicator */
     #|.table-scroll-container {
@@ -1236,14 +1239,14 @@ fn build_css() -> String {
     #|  opacity: 0.85;
     #|}
     #|.timeline-thumb:hover {
-    #|  border-color: rgba(59, 130, 246, 0.5);
+    #|  border-color: rgba(159, 196, 124, 0.5);
     #|  opacity: 1;
     #|  transform: scale(1.05);
     #|}
     #|.timeline-thumb.active {
-    #|  border-color: #3b82f6;
+    #|  border-color: var(--accent);
     #|  opacity: 1;
-    #|  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5);
+    #|  box-shadow: 0 0 12px rgba(159, 196, 124, 0.5);
     #|}
     #|.timeline-loading {
     #|  color: rgba(255, 255, 255, 0.6);
@@ -1258,7 +1261,7 @@ fn build_css() -> String {
     #|  width: 14px;
     #|  height: 14px;
     #|  border: 2px solid rgba(255, 255, 255, 0.3);
-    #|  border-top-color: #3b82f6;
+    #|  border-top-color: var(--accent);
     #|  border-radius: 50%;
     #|  animation: timeline-spin 0.8s linear infinite;
     #|}
@@ -1353,8 +1356,8 @@ fn build_css() -> String {
     #|  border-color: rgba(255, 255, 255, 0.3);
     #|}
     #|.video-settings-buttons button.selected {
-    #|  background: #3b82f6;
-    #|  border-color: #3b82f6;
+    #|  background: #5c8a42;
+    #|  border-color: #5c8a42;
     #|  color: #fff;
     #|}
     #|.video-settings-actions {
@@ -1902,7 +1905,7 @@ fn build_css() -> String {
     #|.image-preview-item img { max-width: 80px; max-height: 60px; border-radius: 4px; border: 1px solid var(--border); object-fit: cover; }
     #|.image-preview-item .remove-image { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--error, #ef4444); color: #fff; border: none; cursor: pointer; font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center; }
     #|.image-preview-item .remove-image:hover { background: #dc2626; }
-    #|.modal-actions button.primary:hover { background: #7dd3fc; }
+    #|.modal-actions button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
     #|.modal-actions-decision { justify-content: space-between; align-items: center; }
     #|.kbd-hint { display: inline-block; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.15); margin-left: 6px; font-family: system-ui; opacity: 0.8; }
     #|[data-theme="light"] .kbd-hint { background: rgba(0,0,0,0.08); }
@@ -2178,7 +2181,7 @@ fn build_css() -> String {
     #|.minimap-viewport {
     #|  position: absolute;
     #|  border: 2px solid var(--accent);
-    #|  background: rgba(102, 126, 234, 0.2);
+    #|  background: rgba(127, 168, 96, 0.25);
     #|  pointer-events: none;
     #|  border-radius: 2px;
     #|}
@@ -2560,7 +2563,7 @@ fn build_css() -> String {
     #|  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
     #|  cursor: pointer;
     #|  z-index: 4;
-    #|  opacity: 0.72;
+    #|  opacity: 0;
     #|  color: var(--accent);
     #|  font-size: 15px;
     #|  font-weight: 700;
