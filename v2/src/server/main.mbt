@@ -853,7 +853,7 @@ fn handle_go_signal(ctx : ServerContext) -> Unit {
   ctx.finished = false
   ctx.html_cache = load_and_build_html(ctx)
   for client in ctx.sse_clients {
-    sse_send(client, "round", review_state_response(ctx.file_path))
+    sse_send(client, "round", review_state_response(ctx.file_path, true))
   }
 }
 
@@ -1057,10 +1057,10 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     res_write_head(res, 200, "application/json")
     res_end(res, history_json)
   } else if http_method == "GET" && url == "/review-state" {
-    let state_json = if ctx.file_path == "<stdin>" || !ctx.is_loop {
-      "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0}"
+    let state_json = if ctx.file_path == "<stdin>" {
+      "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0,\"gate_unresolved_count\":0,\"is_loop\":false}"
     } else {
-      review_state_response(ctx.file_path)
+      review_state_response(ctx.file_path, ctx.is_loop)
     }
     res_write_head(res, 200, "application/json")
     res_end(res, state_json)
@@ -1099,7 +1099,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       res_end(res, "{\"ok\":true}")
       if ctx.file_path != "<stdin>" {
         for client in ctx.sse_clients {
-          sse_send(client, "round", review_state_response(ctx.file_path))
+          sse_send(client, "round", review_state_response(ctx.file_path, ctx.is_loop))
         }
       }
     })

@@ -249,6 +249,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"submit-modal\">")
   buf.write_string("<div class=\"modal-dialog\">")
   buf.write_string("<h3>Submit Review</h3>")
+  buf.write_string(
+    "<div class=\"review-loop-submit-state\" id=\"review-loop-submit-state\"></div>",
+  )
   buf.write_string("<p class=\"modal-summary\" id=\"modal-summary\"></p>")
   buf.write_string(
     "<label for=\"global-comment\">Overall comment (optional)</label>",

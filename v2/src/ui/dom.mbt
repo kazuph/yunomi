@@ -576,7 +576,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const sidebar = document.querySelector("#review-loop-sidebar");
   #|  if (sidebar && panel.parentElement !== sidebar) sidebar.appendChild(panel);
   #|  let state;
-  #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; return 0; }
+  #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  const round = rounds[rounds.length - 1] || {};
@@ -584,11 +584,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  if (comments.length === 0 && rounds.length <= 1) {
   #|    panel.innerHTML = "";
   #|    if (sidebar) sidebar.style.display = "none";
+  #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
+  #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
   #|    return 0;
   #|  }
   #|  if (sidebar) sidebar.style.display = "";
   #|  const currentRound = Number(round.round || 1);
-  #|  const unresolved = comments.filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound);
+  #|  const unresolved = comments.filter(c => c.status !== "resolved");
+  #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
+  #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
+  #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const lineText = (line) => String((line && line.text) || "");
   #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
@@ -640,8 +645,12 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      }).catch(() => {});
   #|    });
   #|  });
-  #|  return unresolved.length;
+  #|  return gateUnresolved;
   #|}
+
+///|
+extern "js" fn get_review_loop_status_text() -> String =
+  #|() => String(window.__YUNOMI_REVIEW_LOOP_STATUS__ || "")
 
 ///|
 /// Paste event handler for images

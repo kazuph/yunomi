@@ -891,8 +891,9 @@ extern "js" fn js_review_response_json(
   review_json : String,
   current_text : String,
   previous_text : String,
+  gate_enabled : Bool,
 ) -> String =
-  #|(reviewJson, currentText, previousText) => {
+  #|(reviewJson, currentText, previousText, gateEnabled) => {
   #|  let review;
   #|  try { review = JSON.parse(reviewJson || "{}"); } catch { review = {}; }
   #|  const prev = String(previousText || "").split(/\r?\n/);
@@ -906,18 +907,19 @@ extern "js" fn js_review_response_json(
   #|    }
   #|  }
   #|  const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
-  #|  const unresolved = (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
-  #|  return JSON.stringify({ review, diff: { lines }, unresolved_count: unresolved });
+  #|  const unresolved = (review.comments || []).filter(c => c.status !== "resolved").length;
+  #|  const gateUnresolved = gateEnabled ? (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
+  #|  return JSON.stringify({ review, diff: { lines }, unresolved_count: unresolved, gate_unresolved_count: gateUnresolved, is_loop: !!gateEnabled });
   #|}
 
 ///|
-fn review_state_response(file_path : String) -> String {
+fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   ensure_review_state(file_path)
   let review_json = read_file_safe(review_json_path_for_file(file_path))
   let round = current_review_round(file_path)
   let prev_path = review_snapshot_path(file_path, round - 1)
   let previous_text = if exists_sync(prev_path) { read_file_safe(prev_path) } else { "" }
-  js_review_response_json(review_json, read_file_safe(file_path), previous_text)
+  js_review_response_json(review_json, read_file_safe(file_path), previous_text, gate_enabled)
 }
 
 ///|

@@ -134,6 +134,7 @@ async function main(): Promise<void> {
   assert.match(uiJs.body, /この課題の該当箇所/, "review loop UI must render per-comment before/after snippets");
   assert.match(uiJs.body, /提出時.*現在.*差分/, "review loop UI must label what the round diff compares");
   assert.match(uiJs.body, /All resolved.*Approve/, "review loop UI must show approve-ready state when all threads resolve");
+  assert.match(uiJs.body, /review-loop-submit-state/, "submit modal must render review loop status text");
 
   const firstSubmit = await request(
     port,
@@ -232,9 +233,17 @@ async function main(): Promise<void> {
   });
   const nonLoopPort = await waitForServerOutput(nonLoop);
   await waitForHealth(nonLoopPort);
+  const nonLoopHtml = await request(nonLoopPort, "GET", "/");
+  assert.equal(nonLoopHtml.status, 200);
+  assert.match(nonLoopHtml.body, /review-loop-sidebar/, "non-loop page with review.json must still have the sidebar mount");
+  assert.match(nonLoopHtml.body, /review-loop-submit-state/, "submit modal must include a review loop status row");
   const nonLoopState = await request(nonLoopPort, "GET", "/review-state");
   assert.equal(nonLoopState.status, 200);
-  assert.equal(JSON.parse(nonLoopState.body).unresolved_count, 0, "non-loop review-state must not expose loop unresolved gate");
+  const nonLoopStateJson = JSON.parse(nonLoopState.body);
+  assert.equal(nonLoopStateJson.review.rounds.at(-1)?.round, 2, "non-loop review-state must expose the current review round");
+  assert.equal(nonLoopStateJson.review.comments[0]?.status, "unresolved", "non-loop review-state must expose thread status");
+  assert.equal(nonLoopStateJson.unresolved_count, 1, "non-loop review-state must display unresolved thread count");
+  assert.equal(nonLoopStateJson.gate_unresolved_count, 0, "non-loop review-state must not enable approve gate");
   const nonLoopApprove = await request(
     nonLoopPort,
     "POST",

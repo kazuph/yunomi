@@ -584,6 +584,7 @@ fn build_css() -> String {
     #|.review-loop-snip-row code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
     #|.review-loop-diff-block { display: grid; gap: 5px; }
     #|.review-loop-diff { margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
+    #|.review-loop-submit-state { display: none; margin: 0 0 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; }
     #|.comment-list.collapsed {
     #|  opacity: 0;
     #|  pointer-events: none;

@@ -1497,6 +1497,22 @@ fn show_submit_modal() -> Unit {
       set_attribute(approve, "title", "Approve")
     }
   }
+  let loop_state = query("#review-loop-submit-state")
+  if !is_null(loop_state) {
+    let status_text = get_review_loop_status_text()
+    if status_text.length() > 0 {
+      let suffix = if review_loop_unresolved_count.val > 0 {
+        " — Resolve before approving"
+      } else {
+        ""
+      }
+      set_text_content(loop_state, status_text + suffix)
+      set_style(loop_state, "display", "block")
+    } else {
+      set_text_content(loop_state, "")
+      set_style(loop_state, "display", "none")
+    }
+  }
   // Show mermaid errors if any
   // Show mermaid errors if any
   let mermaid_error_area = query("#mermaid-error-area")
