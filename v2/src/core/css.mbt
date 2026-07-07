@@ -891,6 +891,9 @@ fn build_css() -> String {
     #|  display: none;
     #|}
     #|.md-preview p { margin: 0.3em 0; line-height: 1.5; }
+    #|.md-preview .task-list-item { list-style: none; margin-left: -1.2em; }
+    #|.md-preview .task-list-item input[type="checkbox"] { margin-right: 0.45em; accent-color: var(--accent); cursor: pointer; }
+    #|.md-preview .decision-done { color: var(--accent-strong); background: var(--accent-soft); border-left: 3px solid var(--accent); padding: 2px 8px; border-radius: var(--radius-sm); }
     #|.md-preview a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--accent-soft); }
     #|.md-preview a:hover { color: var(--accent-strong); text-decoration-color: var(--accent-strong); }
     #|.md-preview a:visited { color: var(--accent-2); }

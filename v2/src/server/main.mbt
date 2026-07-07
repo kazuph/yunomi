@@ -35,6 +35,10 @@ let encoding_override : Ref[String] = Ref("")
 let bind_host : Ref[String] = Ref("127.0.0.1")
 
 ///|
+/// Optional pane to notify when human decisions are made in the preview.
+let notify_pane_id : Ref[String] = Ref("")
+
+///|
 /// Results collected from submissions
 let all_results : Array[@core.ReviewResult] = []
 
@@ -151,7 +155,7 @@ fn is_port_locked(port : Int) -> Bool {
     try_call_void(fn() { unlink_sync(lp) })
     return false
   }
-  let pid = @core.parse_int_safe(content)
+  let pid = js_lock_pid(content)
   if pid <= 0 {
     try_call_void(fn() { unlink_sync(lp) })
     return false
@@ -167,10 +171,18 @@ fn is_port_locked(port : Int) -> Bool {
 
 ///|
 /// Write lock file for a port (stores PID)
-fn write_lock(port : Int) -> Unit {
+fn write_lock(port : Int, file_path : String) -> Unit {
   ensure_lock_dir()
   let lp = lock_path(port)
-  write_file_sync(lp, process_pid().to_string())
+  let resolved_file = if file_path == "<stdin>" {
+    file_path
+  } else {
+    path_resolve(file_path)
+  }
+  write_file_sync(
+    lp,
+    "{\"pid\":\{process_pid()},\"port\":\{port},\"file\":\{json_encode_value(resolved_file)}}",
+  )
 }
 
 ///|
@@ -243,6 +255,11 @@ fn main {
       if i < args.length() {
         bind_host.val = args[i]
       }
+    } else if arg == "--notify-pane" {
+      i = i + 1
+      if i < args.length() {
+        notify_pane_id.val = args[i]
+      }
     } else if arg == "--encoding" || arg == "-e" {
       i = i + 1
       if i < args.length() {
@@ -252,6 +269,9 @@ fn main {
       files.push(arg)
     }
     i = i + 1
+  }
+  if notify_pane_id.val.length() == 0 {
+    notify_pane_id.val = get_env_var("HERDR_PANE_ID")
   }
   // Interactive terminal with no files: the reader is almost always an
   // AI agent told "run npx yunomi". Serve the skill document before any
@@ -349,6 +369,7 @@ fn print_usage() -> Unit {
     #|  --port <n>        Base port (default: 4989)
     #|  --host <addr>     Bind address (default: 127.0.0.1, use 0.0.0.0 for remote)
     #|  --no-open         Don't open browser
+    #|  --notify-pane <id>  Notify this Herdr pane on checkbox decisions
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -498,37 +519,72 @@ fn write_review_comment(target : CommentTarget, text : String, author : String) 
 }
 
 ///|
-fn post_comment_to_running_servers(target : CommentTarget, text : String) -> Unit {
+fn post_comment_to_running_servers(target : CommentTarget, text : String) -> String {
   let curl = resolve_command("curl")
-  if curl.length() == 0 || !exists_sync(lock_dir()) {
-    return
+  if curl.length() == 0 {
+    return "curl command not found"
+  }
+  if !exists_sync(lock_dir()) {
+    return "lock directory not found: " + lock_dir()
   }
   let entries = readdir_sync(lock_dir())
+  if entries.length() == 0 {
+    return "no lock files found in " + lock_dir()
+  }
+  let target_abs = path_resolve(target.file)
   let body = "{\"type\":\"comment\",\"key\":\"cli-\{target.line}\",\"row\":\{target.line},\"col\":0,\"text\":\{json_encode_value(text)}}"
+  let mut scanned = 0
+  let mut candidates = 0
+  let mut last_error = ""
   for entry in entries {
     if !entry.contains(".lock") {
       continue
     }
+    scanned = scanned + 1
     let port_s = @core.safe_slice_range(entry, 0, entry.length() - 5)
     let port = @core.parse_int_safe(port_s)
     if port <= 0 {
+      last_error = "invalid lock filename: " + entry
       continue
     }
-    ignore(
-      spawn_sync_stdout_args(
-        curl,
-        [
-          "-sS",
-          "-X",
-          "POST",
-          "-H",
-          "Content-Type: application/json",
-          "--data-binary",
-          body,
-          "http://127.0.0.1:\{port}/comment",
-        ],
-      ),
+    let lp = path_join(lock_dir(), entry)
+    let content = read_file_safe(lp)
+    if content.length() > 0 && !js_lock_matches_file(content, target_abs) {
+      continue
+    }
+    candidates = candidates + 1
+    let result = spawn_sync_status_args(
+      curl,
+      [
+        "-sS",
+        "-f",
+        "-X",
+        "POST",
+        "-H",
+        "Content-Type: application/json",
+        "--data-binary",
+        body,
+        "http://127.0.0.1:\{port}/comment",
+      ],
     )
+    if result.0 == 0 {
+      return ""
+    }
+    let detail = js_trim_string(result.1)
+    last_error = if detail.length() > 0 {
+      "POST http://127.0.0.1:\{port}/comment failed: " + detail
+    } else {
+      "POST http://127.0.0.1:\{port}/comment failed with exit " + result.0.to_string()
+    }
+  }
+  if candidates == 0 {
+    if scanned == 0 {
+      "no .lock files found in " + lock_dir()
+    } else {
+      "no running server lock matched " + target_abs
+    }
+  } else {
+    last_error
   }
 }
 
@@ -553,8 +609,13 @@ fn handle_comment_command(args : Array[String]) -> Unit {
     }
     i = i + 1
   }
+  let fallback_reason = post_comment_to_running_servers(target, text)
+  if fallback_reason.length() == 0 {
+    console_log("Posted comment to running yunomi server")
+    return
+  }
+  console_error("yunomi comment: falling back to offline review.json: " + fallback_reason)
   let path = write_review_comment(target, text, author)
-  post_comment_to_running_servers(target, text)
   console_log("Added comment to " + path)
 }
 
@@ -709,6 +770,11 @@ fn print_skill_doc_text() -> String {
     #|  them as images.
     #|- Put any question for the human right next to the facts needed to
     #|  answer it, so they can decide without reading the whole document.
+    #|- For AskUserQ-style decisions, write choices as task items like
+    #|  `- [ ] Use OAuth`. When the human checks one, yunomi notifies you
+    #|  immediately and rewrites `[ ]` to `[x]` in the source. After receiving
+    #|  that notification, replace the hearing item with `- ✅️ Use OAuth`
+    #|  (the decided wording). Do not leave accepted decisions as `- [ ]`.
     #|
     #|## Verdict schema (stdout YAML, printed when the human submits)
     #|
@@ -732,7 +798,7 @@ fn print_skill_doc_text() -> String {
     #|## CLI reference
     #|
     #|```bash
-    #|yunomi <file...> [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> [--port n] [--host addr] [--no-open] [--notify-pane id] [-e encoding]
     #|git diff | yunomi      # review a diff from stdin
     #|yunomi --skill         # print this document again
     #|```
@@ -1191,7 +1257,7 @@ fn try_listen(
   let host = bind_host.val
   server_listen(server, port, host, fn() {
     ctx.port = port
-    write_lock(port)
+    write_lock(port, ctx.file_path)
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
     let url = "http://\{display_host}:\{port}"
     console_log("yunomi serving \{ctx.filename} at \{url}")
@@ -1264,6 +1330,12 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   } else if http_method == "POST" && url == "/comment" {
     read_body(req, fn(body) {
       handle_comment(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
+  } else if http_method == "POST" && url == "/decision" {
+    read_body(req, fn(body) {
+      handle_decision(ctx, body)
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
     })
@@ -1510,6 +1582,111 @@ fn cancel_pending_close(ctx : ServerContext) -> Unit {
     clear_timeout(ctx.pending_close_timer)
     ctx.pending_close_timer = js_null()
   }
+}
+
+///|
+fn write_review_decision(
+  file_path : String,
+  line : Int,
+  text : String,
+  checked : Bool,
+  now : String,
+) -> String {
+  let path = review_file_path()
+  ensure_parent_dir(path)
+  let existing = read_file_safe(path)
+  let updated = js_upsert_decision_review_json(
+    existing,
+    current_branch(),
+    file_path,
+    line,
+    text,
+    checked,
+    now,
+  )
+  write_file_sync(path, updated)
+  path
+}
+
+///|
+fn update_task_decision_source(ctx : ServerContext, line : Int, checked : Bool) -> Bool {
+  if ctx.file_path == "<stdin>" {
+    return false
+  }
+  let content = decode_file(ctx.file_path, encoding_override.val)
+  let updated = js_replace_task_checkbox_line(content, line, checked)
+  if updated.length() == 0 {
+    return false
+  }
+  write_file_sync(ctx.file_path, updated)
+  ctx.html_cache = load_and_build_html(ctx)
+  true
+}
+
+///|
+fn decision_url(ctx : ServerContext) -> String {
+  "http://127.0.0.1:\{ctx.port}"
+}
+
+///|
+fn notify_decision(ctx : ServerContext, line : Int, text : String, checked : Bool) -> Unit {
+  let msg = "[yunomi] decision \{ctx.filename}:\{line} checked=\{checked.to_string()} " +
+    json_encode_value(text) + " url=" + decision_url(ctx)
+  let custom_cmd = get_env_var("YUNOMI_NOTIFY_CMD")
+  if custom_cmd.length() > 0 {
+    let command = replace_notify_placeholder(custom_cmd, msg)
+    let result = spawn_sync_shell_status(command)
+    if result.0 != 0 {
+      let detail = js_trim_string(result.1)
+      let reason = if detail.length() > 0 { detail } else { "exit " + result.0.to_string() }
+      console_error("yunomi decision: notify command failed: " + reason)
+    }
+    return
+  }
+  if notify_pane_id.val.length() == 0 {
+    return
+  }
+  let herdr = resolve_command("herdr")
+  if herdr.length() == 0 {
+    console_error("yunomi decision: notify failed: herdr command not found")
+    return
+  }
+  let result = spawn_sync_status_args(herdr, ["agent", "send", notify_pane_id.val, msg])
+  if result.0 != 0 {
+    let detail = js_trim_string(result.1)
+    let reason = if detail.length() > 0 { detail } else { "exit " + result.0.to_string() }
+    console_error(
+      "yunomi decision: notify failed for pane " + notify_pane_id.val + ": " + reason,
+    )
+  }
+}
+
+///|
+fn handle_decision(ctx : ServerContext, body : String) -> Unit {
+  if ctx.finished {
+    return
+  }
+  let line = @core.parse_int_safe(json_parse_string("line", body))
+  if line <= 0 {
+    console_error("yunomi decision: invalid line")
+    return
+  }
+  let text = json_parse_string("text", body)
+  let checked = json_parse_string("checked", body) == "true"
+  let timestamp = iso_now()
+  let source_updated = update_task_decision_source(ctx, line, checked)
+  ignore(write_review_decision(ctx.file_path, line, text, checked, timestamp))
+  let event = "{\"type\":\"decision\",\"file\":" + json_encode_value(ctx.filename) +
+    ",\"line\":\{line},\"text\":" + json_encode_value(text) + ",\"checked\":" +
+    checked.to_string() + ",\"decided_at\":" + json_encode_value(timestamp) + "}"
+  append_live_log(event)
+  for client in ctx.sse_clients {
+    sse_send(client, "decision", event)
+    if source_updated {
+      sse_send(client, "reload", "")
+    }
+  }
+  notify_decision(ctx, line, text, checked)
 }
 
 ///|

@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "branch": "feature/agent-interop",
+  "files": [
+    "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/yunomi-interop-demo/PLAN-QA.md",
+    "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.scJ7wcVxkB/t.md",
+    "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrqkx8AVr9/t.md",
+    "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.CxnuwEKTFQ/t.md",
+    "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrGM56Rb4z/t.md"
+  ],
+  "rounds": [],
+  "comments": [],
+  "decisions": [
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/yunomi-interop-demo/PLAN-QA.md",
+      "line": 7,
+      "text": "OAuth (Google)",
+      "checked": true,
+      "decided_at": "2026-07-07T22:16:49.307Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/yunomi-interop-demo/PLAN-QA.md",
+      "line": 13,
+      "text": "JWT",
+      "checked": true,
+      "decided_at": "2026-07-07T22:16:50.553Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.scJ7wcVxkB/t.md",
+      "line": 3,
+      "text": "A",
+      "checked": true,
+      "decided_at": "2026-07-07T22:17:25.529Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.scJ7wcVxkB/t.md",
+      "line": 4,
+      "text": "B",
+      "checked": true,
+      "decided_at": "2026-07-07T22:17:26.432Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.scJ7wcVxkB/t.md",
+      "line": 5,
+      "text": "C",
+      "checked": true,
+      "decided_at": "2026-07-07T22:17:27.022Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrqkx8AVr9/t.md",
+      "line": 3,
+      "text": "A",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:08.789Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrqkx8AVr9/t.md",
+      "line": 4,
+      "text": "B",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:10.338Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrqkx8AVr9/t.md",
+      "line": 5,
+      "text": "C",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:11.889Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.CxnuwEKTFQ/t.md",
+      "line": 5,
+      "text": "x5",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:46.857Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.CxnuwEKTFQ/t.md",
+      "line": 3,
+      "text": "x3",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:47.332Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.CxnuwEKTFQ/t.md",
+      "line": 4,
+      "text": "x4",
+      "checked": true,
+      "decided_at": "2026-07-07T22:18:47.451Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrGM56Rb4z/t.md",
+      "line": 3,
+      "text": "x3",
+      "checked": true,
+      "decided_at": "2026-07-07T22:34:25.808Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrGM56Rb4z/t.md",
+      "line": 5,
+      "text": "x5",
+      "checked": true,
+      "decided_at": "2026-07-07T22:34:26.233Z"
+    },
+    {
+      "id": "d-L3Zhci9mb2xkZXJz",
+      "file": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/tmp.jrGM56Rb4z/t.md",
+      "line": 4,
+      "text": "x4",
+      "checked": true,
+      "decided_at": "2026-07-07T22:34:26.276Z"
+    }
+  ]
+}

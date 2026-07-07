@@ -472,6 +472,17 @@ extern "js" fn js_obj_stdout(obj : JsValue) -> String =
   #|(obj) => obj?.stdout || ""
 
 ///|
+extern "js" fn js_obj_status(obj : JsValue) -> Int =
+  #|(obj) => {
+  #|  const status = Number(obj?.status);
+  #|  return Number.isFinite(status) ? status : 1;
+  #|}
+
+///|
+extern "js" fn js_obj_stderr(obj : JsValue) -> String =
+  #|(obj) => String(obj?.stderr || "")
+
+///|
 extern "js" fn js_spawn_opts_pipe() -> JsValue =
   #|() => ({ stdio: ["pipe", "pipe", "pipe"] })
 
@@ -696,6 +707,29 @@ extern "js" fn js_trim_string(s : String) -> String =
   #|(s) => String(s).trim()
 
 ///|
+extern "js" fn js_lock_pid(content : String) -> Int =
+  #|(s) => {
+  #|  try {
+  #|    const v = JSON.parse(s);
+  #|    return Number(v?.pid || 0) || 0;
+  #|  } catch {
+  #|    return parseInt(String(s).trim(), 10) || 0;
+  #|  }
+  #|}
+
+///|
+extern "js" fn js_lock_matches_file(content : String, file : String) -> Bool =
+  #|(s, file) => {
+  #|  try {
+  #|    const v = JSON.parse(s);
+  #|    if (!v || !v.file) return true;
+  #|    return String(v.file) === String(file);
+  #|  } catch {
+  #|    return true;
+  #|  }
+  #|}
+
+///|
 fn resolve_command(cmd : String) -> String {
   if cmd.contains("/") && exists_sync(cmd) {
     return cmd
@@ -732,16 +766,74 @@ fn spawn_sync_stdout(cmd : String, args_json : String) -> String {
 }
 
 ///|
-fn spawn_sync_stdout_args(cmd : String, args : Array[String]) -> String {
-  try_call_string(
-    fn() {
-      js_obj_stdout(
-        child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe()),
-      )
-    },
-    "",
-  )
+fn spawn_sync_status_args(cmd : String, args : Array[String]) -> (Int, String) {
+  let result = child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe())
+  (js_obj_status(result), js_obj_stderr(result))
 }
+
+///|
+fn spawn_sync_shell_status(cmd : String) -> (Int, String) {
+  let result = child_spawn_sync(cmd, js_array_from_strings([]), js_spawn_opts_shell_utf8())
+  (js_obj_status(result), js_obj_stderr(result))
+}
+
+///|
+extern "js" fn js_spawn_opts_shell_utf8() -> JsValue =
+  #|() => ({ encoding: "utf8", shell: true, stdio: ["ignore", "pipe", "pipe"] })
+
+///|
+extern "js" fn replace_notify_placeholder(cmd : String, msg : String) -> String =
+  #|(cmd, msg) => {
+  #|  const quoted = "'" + String(msg).replace(/'/g, "'\\''") + "'";
+  #|  return String(cmd).includes("{msg}") ? String(cmd).replaceAll("{msg}", quoted) : String(cmd) + " " + quoted;
+  #|}
+
+///|
+extern "js" fn js_replace_task_checkbox_line(
+  content : String,
+  line : Int,
+  checked : Bool,
+) -> String =
+  #|(content, line, checked) => {
+  #|  const lines = String(content).split(/\n/);
+  #|  const idx = Number(line) - 1;
+  #|  if (idx < 0 || idx >= lines.length) return "";
+  #|  const before = lines[idx];
+  #|  const after = before.replace(/^(\s*[-*]\s+\[)( |x|X)(\]\s+.*)$/, `$1${checked ? "x" : " "}$3`);
+  #|  if (after === before) return "";
+  #|  lines[idx] = after;
+  #|  return lines.join("\n");
+  #|}
+
+///|
+extern "js" fn js_upsert_decision_review_json(
+  existing : String,
+  branch : String,
+  file : String,
+  line : Int,
+  text : String,
+  checked : Bool,
+  now : String,
+) -> String =
+  #|(existing, branch, file, line, text, checked, now) => {
+  #|  let review;
+  #|  try { review = existing ? JSON.parse(existing) : null; } catch { review = null; }
+  #|  if (!review || typeof review !== "object" || review.version !== 1) {
+  #|    review = { version: 1, branch, files: [], rounds: [], comments: [], decisions: [] };
+  #|  }
+  #|  review.version = 1;
+  #|  review.branch = review.branch || branch;
+  #|  review.files = Array.isArray(review.files) ? review.files : [];
+  #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  review.decisions = Array.isArray(review.decisions) ? review.decisions : [];
+  #|  if (!review.files.includes(file)) review.files.push(file);
+  #|  const id = `d-${Buffer.from(`${file}:${line}`).toString("base64url").slice(0, 16)}`;
+  #|  const next = { id, file, line, text, checked: !!checked, decided_at: now };
+  #|  const idx = review.decisions.findIndex((d) => d && d.file === file && Number(d.line) === Number(line));
+  #|  if (idx >= 0) review.decisions[idx] = next; else review.decisions.push(next);
+  #|  return JSON.stringify(review, null, 2) + "\n";
+  #|}
 
 ///|
 /// path.dirname
