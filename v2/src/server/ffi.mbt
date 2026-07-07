@@ -71,6 +71,10 @@ extern "js" fn get_argv() -> Array[String] =
   #|() => process.argv
 
 ///|
+extern "js" fn process_exec_path() -> String =
+  #|() => process.execPath
+
+///|
 extern "js" fn process_exit(code : Int) -> Unit =
   #|(code) => process.exit(code)
 
@@ -480,6 +484,18 @@ extern "js" fn js_obj_stdout(obj : JsValue) -> String =
   #|(obj) => obj?.stdout || ""
 
 ///|
+extern "js" fn js_obj_stderr(obj : JsValue) -> String =
+  #|(obj) => obj?.stderr || ""
+
+///|
+extern "js" fn js_obj_status(obj : JsValue) -> Int =
+  #|(obj) => obj?.status == null ? 0 : obj.status
+
+///|
+extern "js" fn js_obj_error_message(obj : JsValue) -> String =
+  #|(obj) => obj?.error?.message || ""
+
+///|
 extern "js" fn js_spawn_opts_pipe() -> JsValue =
   #|() => ({ stdio: ["pipe", "pipe", "pipe"] })
 
@@ -784,10 +800,11 @@ fn ensure_review_state(file_path : String) -> Unit {
 }
 
 ///|
-fn write_review_server(file_path : String, port : Int) -> Unit {
+fn write_review_server(file_path : String, port : Int, notify_pane : String) -> Unit {
   ensure_review_state(file_path)
   let data = "{\"pid\":" + process_pid().to_string() + ",\"port\":" +
     port.to_string() + ",\"file\":" + json_encode_value(path_resolve(file_path)) +
+    ",\"notify_pane\":" + json_encode_value(notify_pane) +
     ",\"updated_at\":" + json_encode_value(iso_now()) + "}"
   write_file_secure(review_server_path_for_file(file_path), data)
 }
@@ -938,6 +955,41 @@ fn resolve_review_comment(file_path : String, id : String) -> Unit {
 }
 
 ///|
+extern "js" fn js_review_reply(
+  json : String,
+  id : String,
+  text : String,
+  author : String,
+) -> String =
+  #|(json, id, text, author) => {
+  #|  const review = JSON.parse(json || "{}");
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const currentRound = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  for (const c of review.comments) {
+  #|    if (c.id === id) {
+  #|      c.replies = Array.isArray(c.replies) ? c.replies : [];
+  #|      c.replies.push({ author: author || "agent", round: currentRound, text: String(text || "") });
+  #|      break;
+  #|    }
+  #|  }
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn reply_review_comment(file_path : String, id : String, text : String, author : String) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  write_file_secure(review_path, js_review_reply(read_file_safe(review_path), id, text, author))
+}
+
+///|
+fn reply_review_comment_cwd(id : String, text : String, author : String) -> Unit {
+  let review_path = review_json_path_for_cwd()
+  write_file_secure(review_path, js_review_reply(read_file_safe(review_path), id, text, author))
+}
+
+///|
 extern "js" fn js_review_prior_unresolved_count(json : String) -> Int =
   #|(json) => {
   #|  try {
@@ -1023,6 +1075,52 @@ extern "js" fn split_path_list(path : String) -> Array[String] =
   #|(path) => path.split(":").filter(Boolean)
 
 ///|
+extern "js" fn split_notify_command(command : String, msg : String) -> Array[String] =
+  #|(command, msg) => {
+  #|  const out = [];
+  #|  let cur = "", quote = "";
+  #|  for (let i = 0; i < command.length; i++) {
+  #|    const ch = command[i];
+  #|    if (quote) {
+  #|      if (ch === quote) quote = "";
+  #|      else cur += ch;
+  #|    } else if (ch === '"' || ch === "'") {
+  #|      quote = ch;
+  #|    } else if (/\s/.test(ch)) {
+  #|      if (cur) { out.push(cur); cur = ""; }
+  #|    } else {
+  #|      cur += ch;
+  #|    }
+  #|  }
+  #|  if (cur) out.push(cur);
+  #|  let hadPlaceholder = false;
+  #|  const replaced = out.map(part => {
+  #|    if (part.includes("{msg}")) {
+  #|      hadPlaceholder = true;
+  #|      return part.replaceAll("{msg}", msg);
+  #|    }
+  #|    return part;
+  #|  });
+  #|  if (replaced.length > 0 && !hadPlaceholder) replaced.push(msg);
+  #|  return replaced;
+  #|}
+
+
+///|
+fn json_array_of_strings(values : Array[String]) -> String {
+  let buf = StringBuilder::new()
+  buf.write_char('[')
+  for i, value in values {
+    if i > 0 {
+      buf.write_char(',')
+    }
+    buf.write_string(json_encode_value(value))
+  }
+  buf.write_char(']')
+  buf.to_string()
+}
+
+///|
 fn resolve_command(cmd : String) -> String {
   if cmd.contains("/") && exists_sync(cmd) {
     return cmd
@@ -1057,6 +1155,48 @@ fn spawn_sync_stdout(cmd : String, args_json : String) -> String {
     "",
   )
 }
+
+///|
+fn spawn_sync_status(cmd : String, args : Array[String]) -> String {
+  let result = child_spawn_sync(
+    cmd,
+    js_parse_json(json_array_of_strings(args)),
+    js_spawn_opts_utf8_pipe(),
+  )
+  let error = js_obj_error_message(result)
+  if error.length() > 0 {
+    return cmd + ": " + error
+  }
+  let status = js_obj_status(result)
+  if status != 0 {
+    let detail = js_obj_stderr(result)
+    let out = js_obj_stdout(result)
+    let message = if detail.length() > 0 { detail } else { out }
+    return cmd + " exited " + status.to_string() + ": " + message
+  }
+  ""
+}
+
+///|
+fn send_notify_message(notify_pane : String, msg : String) -> String {
+  let custom = get_env_var("YUNOMI_NOTIFY_CMD")
+  if custom.length() > 0 {
+    let parts = split_notify_command(custom, msg)
+    if parts.length() == 0 {
+      return "YUNOMI_NOTIFY_CMD is empty"
+    }
+    let args : Array[String] = []
+    for i = 1; i < parts.length(); i = i + 1 {
+      args.push(parts[i])
+    }
+    return spawn_sync_status(parts[0], args)
+  }
+  if notify_pane.length() == 0 {
+    return ""
+  }
+  spawn_sync_status("herdr", ["agent", "send", notify_pane, msg])
+}
+
 
 ///|
 /// path.dirname

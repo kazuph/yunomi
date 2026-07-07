@@ -119,7 +119,7 @@ function startServer(
       process.execPath,
       [SERVER_JS, mdPath, "--no-open", "--port", String(requestedPort)],
       {
-        env: { ...process.env, YUNOMI_LOCK_DIR: lockDir, YUNOMI_REVIEW_DIR: join(lockDir, "../reviews-" + Date.now()) },
+        env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: lockDir, YUNOMI_REVIEW_DIR: join(lockDir, "../reviews-" + Date.now()) },
         stdio: ["ignore", "pipe", "pipe"],
       },
     );

@@ -116,7 +116,7 @@ async function waitForRound(port: number, round: number): Promise<any> {
 async function main(): Promise<void> {
   const REVIEW_DIR = join(TMP_DIR, ".yunomi", "reviews", "no-branch");
   mkdirSync(REVIEW_DIR, { recursive: true });
-  const env = { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR };
+  const env = { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR };
   const server = spawn(process.execPath, [SERVER_JS, "--no-open", "--loop", "--port", String(PORT), REPORT], {
     cwd: TMP_DIR,
     env,
@@ -225,7 +225,7 @@ async function main(): Promise<void> {
       2,
     ),
   );
-  const nonLoopEnv = { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: NON_LOOP_REVIEW_DIR };
+  const nonLoopEnv = { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: NON_LOOP_REVIEW_DIR };
   const nonLoop = spawn(process.execPath, [SERVER_JS, "--no-open", "--port", String(NON_LOOP_PORT), NON_LOOP_REPORT], {
     cwd: TMP_DIR,
     env: nonLoopEnv,

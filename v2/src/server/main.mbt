@@ -21,6 +21,7 @@ struct ServerContext {
   // reporting itself closed). Used to correlate a close against a nearby
   // index GET to distinguish "tab reloading" from "tab genuinely abandoned".
   mut last_close_signal_ms : Double
+  notify_pane : String
 }
 
 ///|
@@ -55,6 +56,85 @@ let live_log_path : Ref[String] = Ref("")
 
 ///|
 let loop_mode : Ref[Bool] = Ref(false)
+
+///|
+let notify_pane_arg : Ref[String] = Ref("")
+
+///|
+fn resolve_notify_pane() -> String {
+  if notify_pane_arg.val.length() > 0 {
+    notify_pane_arg.val
+  } else {
+    get_env_var("HERDR_PANE_ID")
+  }
+}
+
+///|
+fn review_url(ctx : ServerContext) -> String {
+  let host = if bind_host.val == "0.0.0.0" { "127.0.0.1" } else { bind_host.val }
+  "http://\{host}:\{ctx.port}"
+}
+
+///|
+fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
+  let err = send_notify_message(ctx.notify_pane, msg)
+  if err.length() > 0 {
+    console_error("[yunomi] notify failed: " + err)
+  }
+}
+
+///|
+fn normalized_decision_for_notify(decision : String, action : String) -> String {
+  if decision.length() > 0 {
+    decision
+  } else if action == "final_approve" {
+    "approve"
+  } else if action == "final_request_changes" {
+    "request_changes"
+  } else {
+    ""
+  }
+}
+
+///|
+fn normalized_action_for_notify(decision : String, action : String) -> String {
+  if action.length() > 0 {
+    action
+  } else if decision == "approve" {
+    "final_approve"
+  } else if decision == "request_changes" {
+    "final_request_changes"
+  } else {
+    ""
+  }
+}
+
+///|
+fn verdict_notify_message(
+  ctx : ServerContext,
+  decision : String,
+  action : String,
+  comment_count : Int,
+) -> String {
+  let normalized_decision = normalized_decision_for_notify(decision, action)
+  let normalized_action = normalized_action_for_notify(normalized_decision, action)
+  let buf = StringBuilder::new()
+  buf.write_string("[yunomi] verdict ")
+  buf.write_string(ctx.filename)
+  if normalized_decision.length() > 0 {
+    buf.write_string(" decision=")
+    buf.write_string(normalized_decision)
+  }
+  if normalized_action.length() > 0 {
+    buf.write_string(" action=")
+    buf.write_string(normalized_action)
+  }
+  buf.write_string(" comments=")
+  buf.write_string(comment_count.to_string())
+  buf.write_string(" url=")
+  buf.write_string(review_url(ctx))
+  buf.to_string()
+}
 
 ///|
 /// Initialize live log file
@@ -215,6 +295,9 @@ fn main {
   let mut port = 4989
   let mut no_open = false
   let mut go_mode = false
+  let mut reply_mode = false
+  let mut reply_id = ""
+  let mut reply_text = ""
   let files : Array[String] = []
   let mut i = 0
   while i < args.length() {
@@ -231,8 +314,20 @@ fn main {
       exit_process("version requested", 0)
     } else if arg == "go" && files.is_empty() {
       go_mode = true
+    } else if arg == "reply" && files.is_empty() {
+      reply_mode = true
+      if i + 2 < args.length() {
+        reply_id = args[i + 1]
+        reply_text = args[i + 2]
+        i = i + 2
+      }
     } else if arg == "--loop" {
       loop_mode.val = true
+    } else if arg == "--notify-pane" {
+      i = i + 1
+      if i < args.length() {
+        notify_pane_arg.val = args[i]
+      }
     } else if arg == "--port" {
       i = i + 1
       if i < args.length() {
@@ -257,6 +352,10 @@ fn main {
   }
   if go_mode {
     handle_go_command(port, no_open)
+    return
+  }
+  if reply_mode {
+    handle_reply_command(reply_id, reply_text)
     return
   }
   // Interactive terminal with no files: the reader is almost always an
@@ -354,6 +453,7 @@ fn print_usage() -> Unit {
     #|  --host <addr>     Bind address (default: 127.0.0.1, use 0.0.0.0 for remote)
     #|  --no-open         Don't open browser
     #|  --loop            Keep serving after request_changes; exit only on approve
+    #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -362,6 +462,7 @@ fn print_usage() -> Unit {
     #|Supported formats: CSV, TSV, Markdown, Diff, Plain text
     #|Pipe stdin for diff: git diff | yunomi
     #|Continue a loop: yunomi go
+    #|Reply to a thread: yunomi reply <comment-id> '<text>'
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
 }
@@ -414,10 +515,21 @@ fn print_skill_doc() -> Unit {
     #|5. The browser updates to the next round at the same URL, showing the
     #|   previous submitted REPORT.md versus the current REPORT.md diff.
     #|   Comments remain unresolved until the human clicks Resolve.
-    #|6. Do not ask for or claim approval while unresolved comments remain:
+    #|6. When yunomi sends you a live comment notification, fix the exact
+    #|   referenced location immediately. If useful, report what you changed
+    #|   back into the thread without resolving it yourself:
+    #|
+    #|   ```bash
+    #|   npx yunomi reply c-2-3 'Fixed the Japanese error message wording.'
+    #|   ```
+    #|
+    #|   Save the file; yunomi hot-reloads the browser. Wait for the human
+    #|   to click Resolve, comment again, approve, or reject. Keep the
+    #|   process alive until approval/rejection completes.
+    #|7. Do not ask for or claim approval while unresolved comments remain:
     #|   yunomi blocks `approve` until every thread is resolved. Repeat
     #|   fix -> `yunomi go` until the human approves.
-    #|7. Only after `decision: approve`: commit, push, publish, or report
+    #|8. Only after `decision: approve`: commit, push, publish, or report
     #|   completion.
     #|
     #|## REPORT.md rules
@@ -488,7 +600,9 @@ fn print_skill_doc() -> Unit {
     #|
     #|```bash
     #|yunomi <file...> [--loop] [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> --loop --notify-pane <pane-id>
     #|yunomi go              # start the next round for this branch
+    #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
     #|git diff | yunomi      # review a diff from stdin
     #|yunomi --skill         # print this document again
     #|```
@@ -762,6 +876,7 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     is_loop: loop_mode.val,
     last_index_get_ms: 0.0,
     last_close_signal_ms: 0.0,
+    notify_pane: resolve_notify_pane(),
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -788,6 +903,7 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
     is_loop: loop_mode.val,
     last_index_get_ms: 0.0,
     last_close_signal_ms: 0.0,
+    notify_pane: resolve_notify_pane(),
   }
   ctx.html_cache = load_and_build_html(ctx)
   ensure_review_state(resolved)
@@ -842,6 +958,49 @@ fn handle_go_command(port : Int, no_open : Bool) -> Unit {
   start_next_review_round(file_path)
   expected_count.val = 1
   start_file_server(file_path, port, no_open)
+}
+
+///|
+fn post_reply_to_server(port : Int, body : String) -> String {
+  let script =
+    "const http=require('node:http');const port=Number(process.argv[1]);const path=process.argv[2];const body=process.argv[3];const req=http.request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},res=>{let data='';res.on('data',c=>data+=c);res.on('end',()=>{if(res.statusCode!==200){console.error(data);process.exit(1)}})});req.on('error',e=>{console.error(e.message);process.exit(1)});req.write(body);req.end();"
+  spawn_sync_status(process_exec_path(), ["-e", script, port.to_string(), "/reply-comment", body])
+}
+
+///|
+fn handle_reply_command(id : String, text : String) -> Unit {
+  if id.length() == 0 || text.length() == 0 {
+    console_error("yunomi reply: usage: yunomi reply <comment-id> '<text>'")
+    exit_process("reply usage", 1)
+  }
+  let body = "{\"id\":" + json_encode_value(id) + ",\"text\":" +
+    json_encode_value(text) + ",\"author\":\"agent\"}"
+  let review_path = review_json_path_for_cwd()
+  if !exists_sync(review_path) {
+    console_error("yunomi reply: no review.json found for this repository branch")
+    exit_process("reply missing review", 1)
+  }
+  let server_path = review_server_path_for_cwd()
+  if exists_sync(server_path) {
+    let server_json = read_file_safe(server_path)
+    let pid = json_parse_int_field("pid", server_json)
+    let server_port = json_parse_int_field("port", server_json)
+    if pid > 0 && server_port > 0 && process_exists(pid) {
+      let err = post_reply_to_server(server_port, body)
+      if err.length() == 0 {
+        console_log("yunomi reply: notified running review server")
+        exit_process("reply notified", 0)
+      }
+      console_error("yunomi reply: server POST failed, writing review.json directly: " + err)
+    } else {
+      console_error("yunomi reply: server metadata is stale; writing review.json directly")
+    }
+  } else {
+    console_error("yunomi reply: no running server metadata; writing review.json directly")
+  }
+  reply_review_comment_cwd(id, text, "agent")
+  console_log("yunomi reply: wrote review.json")
+  exit_process("reply wrote review", 0)
 }
 
 ///|
@@ -999,7 +1158,7 @@ fn try_listen(
     ctx.port = port
     write_lock(port)
     if ctx.file_path != "<stdin>" {
-      write_review_server(ctx.file_path, port)
+      write_review_server(ctx.file_path, port, ctx.notify_pane)
     }
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
     let url = "http://\{display_host}:\{port}"
@@ -1094,6 +1253,25 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     read_body(req, fn(body) {
       if ctx.file_path != "<stdin>" {
         resolve_review_comment(ctx.file_path, json_parse_string("id", body))
+      }
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+      if ctx.file_path != "<stdin>" {
+        for client in ctx.sse_clients {
+          sse_send(client, "round", review_state_response(ctx.file_path, ctx.is_loop))
+        }
+      }
+    })
+  } else if http_method == "POST" && url == "/reply-comment" {
+    read_body(req, fn(body) {
+      if ctx.file_path != "<stdin>" {
+        let author = json_parse_string("author", body)
+        reply_review_comment(
+          ctx.file_path,
+          json_parse_string("id", body),
+          json_parse_string("text", body),
+          if author.length() > 0 { author } else { "agent" },
+        )
       }
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
@@ -1413,6 +1591,17 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   }
   buf.write_string("}")
   append_live_log(buf.to_string())
+  if text.length() > 0 && event_type != "delete" {
+    let line = json_parse_int_field("row", body) + 1
+    let round = if ctx.file_path == "<stdin>" { 1 } else { current_review_round(ctx.file_path) }
+    let id = if key.length() > 0 { key } else { "draft" }
+    notify_reviewer(
+      ctx,
+      "[yunomi] comment " + ctx.filename + ":" + line.to_string() +
+      " id=" + id + " round=" + round.to_string() + " " +
+      json_encode_value(text) + " url=" + review_url(ctx),
+    )
+  }
   // Notify SSE clients about the comment event
   for client in ctx.sse_clients {
     sse_send(client, "comment", buf.to_string())
@@ -1560,6 +1749,10 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   }
   console_log(
     "Received review for \{ctx.filename} (\{comments.length()} comments)",
+  )
+  notify_reviewer(
+    ctx,
+    verdict_notify_message(ctx, decision_str, action_str, comments.length()),
   )
   let loop_waiting = ctx.is_loop && decision_str == "request_changes"
   if loop_waiting {

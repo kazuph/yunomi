@@ -103,7 +103,7 @@ type ServerHandle = { proc: ChildProcess; getOutput: () => string; port: number 
 function startServer(mdPath: string, port: number, lockDir: string): Promise<ServerHandle> {
   return new Promise((resolve, reject) => {
     const proc = spawn(process.execPath, [SERVER_JS, mdPath, "--no-open", "--port", String(port)], {
-      env: { ...process.env, YUNOMI_LOCK_DIR: lockDir, YUNOMI_REVIEW_DIR: join(lockDir, "../reviews-" + Date.now()) },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: lockDir, YUNOMI_REVIEW_DIR: join(lockDir, "../reviews-" + Date.now()) },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let out = "";

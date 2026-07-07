@@ -38,7 +38,7 @@ function startServer(file: string): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
     const proc = spawn("node", [SERVER_JS, file, "--no-open", "--port", String(PORT)], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, YUNOMI_LOCK_DIR: join(WORK_DIR, "locks"), YUNOMI_REVIEW_DIR: join(WORK_DIR, "reviews-" + Date.now()) },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: join(WORK_DIR, "locks"), YUNOMI_REVIEW_DIR: join(WORK_DIR, "reviews-" + Date.now()) },
     });
     let out = "";
     const onData = (d: Buffer) => {

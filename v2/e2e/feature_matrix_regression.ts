@@ -40,7 +40,7 @@ function startYunomi(args: string[], expectedUrls: string[]): Promise<ServerHand
   return new Promise((resolve, reject) => {
     const proc = spawn("node", [SERVER_JS, ...args], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
     });
     let output = "";
     let resolved = false;

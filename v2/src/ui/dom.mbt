@@ -620,8 +620,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const replies = Array.isArray(c.replies) && c.replies.length
   #|          ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
   #|          : "";
+  #|        const hasAgentReply = Array.isArray(c.replies) && c.replies.some(r => String(r.author || "") === "agent");
+  #|        const stateText = c.status === "resolved" ? "resolved" : (hasAgentReply ? "unresolved + replied" : "unresolved");
   #|        const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">resolved</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}">Resolve</button>`;
-  #|        return `<li class="review-loop-comment"><div class="review-loop-comment-head"><strong>${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(c.status)}]</span></div><div class="review-loop-comment-text">${esc(c.text)}</div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
+  #|        return `<li class="review-loop-comment"><div class="review-loop-comment-head"><strong>${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(stateText)}]</span></div><div class="review-loop-comment-text">${esc(c.text)}</div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
   #|      }).join("")
   #|    : `<li class="review-loop-comment">No review threads yet</li>`;
   #|  const diffHtml = diffLines.length

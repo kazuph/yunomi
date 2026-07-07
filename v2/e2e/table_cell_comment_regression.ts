@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     [SERVER_JS, "--no-open", "--port", String(BASE_PORT), FEATURES_MD],
     {
       cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

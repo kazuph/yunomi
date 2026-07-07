@@ -123,7 +123,7 @@ async function runTest(
   console.log(`\n--- ${label} ---`);
   const proc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT), testFile], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
 
   let stdout = "";
@@ -527,7 +527,7 @@ console.log("\n--- Submit Data Persistence ---");
 {
   const submitProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 30), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let sStdout = "";
   let sResolved = false;
@@ -586,7 +586,7 @@ console.log("\n--- Submit with Empty Answers ---");
 {
   const emptyProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 31), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let eStdout = "";
   let eResolved = false;
@@ -631,7 +631,7 @@ console.log("\n--- Session Close Ordering ---");
 {
   const sessionProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 31), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let sessionStdout = "";
   let sessionResolved = false;
@@ -772,7 +772,7 @@ if (playwrightAvailable) {
   console.log("\n--- Playwright Browser E2E ---");
   const browserProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 50), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let bStdout = "";
   let bResolved = false;
@@ -1003,7 +1003,7 @@ if (playwrightAvailable) {
     // --- Close detection: reload must not terminate, final close must flush draft and exit ---
     const closeProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 51), TEST_MD], {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
     });
     let closeStdout = "";
     let closeResolved = false;
@@ -1088,7 +1088,7 @@ async function testDecisionSubmit(
   console.log(`\n--- ${label} ---`);
   const proc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + portOffset), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let stdout = "";
   proc.stdout!.on("data", (d: Buffer) => (stdout += d));
@@ -1145,7 +1145,7 @@ await testDecisionSubmit(
   console.log("\n--- Live comment IPC test ---");
   const liveProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 62), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   let liveStderr = "";
   liveProc.stderr!.on("data", (d: Buffer) => (liveStderr += d));
@@ -1211,7 +1211,7 @@ await testDecisionSubmit(
   console.log("\n--- Restart healthz test ---");
   const restartProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 66), TEST_MD], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
   });
   restartProc.stdout!.on("data", () => {});
   restartProc.stderr!.on("data", () => {});
