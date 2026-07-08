@@ -349,6 +349,15 @@ fn main {
     if args[0] == "comment" {
       handle_comment_command(args)
       exit_process("comment command", 0)
+    } else if args[0] == "status" {
+      handle_meta_status(parse_meta_json_flag(args))
+      exit_process("status command", 0)
+    } else if args[0] == "stats" {
+      handle_meta_stats(parse_meta_json_flag(args))
+      exit_process("stats command", 0)
+    } else if args[0] == "cleanup" {
+      handle_meta_cleanup(parse_meta_json_flag(args), parse_cleanup_older_than(args))
+      exit_process("cleanup command", 0)
     } else if args[0] == "mcp" {
       run_mcp_server()
       return
@@ -670,6 +679,9 @@ fn print_usage() -> Unit {
     #|       yunomi share <file...> [--host <addr>] [--port <n>] [--no-open]
     #|       yunomi pull [pr-number|url]
     #|       yunomi push [pr-number|url]
+    #|       yunomi status [--json]
+    #|       yunomi stats [--json]
+    #|       yunomi cleanup [--older-than <days>] [--json]
     #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:
@@ -2690,6 +2702,10 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     entry_buf.write_string(@core.escape_js_string(summary))
     entry_buf.write_string("\",\"commentCount\":")
     entry_buf.write_string(comments.length().to_string())
+    entry_buf.write_string(",\"decision\":\"")
+    entry_buf.write_string(@core.escape_js_string(decision_str))
+    entry_buf.write_string("\",\"roundCount\":")
+    entry_buf.write_string(current_round.to_string())
     entry_buf.write_string("}")
     save_history(ctx.file_path, entry_buf.to_string())
   }
