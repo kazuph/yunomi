@@ -208,3 +208,15 @@ crit最大の差別化ポイント。ここが無いと「AIネイティブ」�
 - [kevindutra/crit（TUI版）](https://github.com/kevindutra/crit)
 - [Cloudflare: Orchestrating AI Code Review at scale](https://blog.cloudflare.com/ai-code-review/)（人間のescape hatch設計）
 - [Sourcegraph: Automated Code Review Tools 2026](https://sourcegraph.com/blog/automated-code-review-tools)（市場俯瞰）
+
+---
+
+## 7. 実装計画（Codex 単独遂行用）
+
+本 PLAN.md は **北極星ドキュメント（コンセプト・方向性）**。Codex が単独で実装を進められる粒度の **Task Card 集** は別ファイルに分離した：
+
+**→ [`PLAN-v3.md`](PLAN-v3.md)**
+
+そちらでは Phase 0〜3 のうち未完了項目を **Task Card 2.1〜2.11** として、worktree 戦略・受け入れ条件・変更ファイル・依存関係・実装順序・リリース手順（v3.0.0-alpha.1 → GA）まで一気通貫でまとめてある。
+
+加えて 2026-07-08 07:19 の外部 kill 事故を受けた **プロセス掃除の運用ルール（自 PID 限定）** と **ポート自動回避の回帰防止** も同ドキュメントに収録。
