@@ -70,6 +70,9 @@ let review_mux_mode : Ref[Bool] = Ref(false)
 ///| Read-only sharing mode. Explicitly enabled only by `yunomi share`.
 let share_mode : Ref[Bool] = Ref(false)
 
+///| Current read-only share token for the running share server.
+let share_token : Ref[String] = Ref("")
+
 ///|
 let vim_keys_enabled : Ref[Bool] = Ref(true)
 
@@ -1522,6 +1525,10 @@ fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
     nav.write_string(cls)
     nav.write_string(" href=\"/?f=")
     nav.write_string(i.to_string())
+    if share_mode.val && share_token.val.length() > 0 {
+      nav.write_string("&share=")
+      nav.write_string(share_token.val)
+    }
     nav.write_string("\">")
     nav.write_string((i + 1).to_string())
     nav.write_string(". ")
@@ -1651,6 +1658,12 @@ fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit
   expected_count.val = files.length()
   ensure_lock_dir()
   let actual_port = find_available_port(port)
+  let token = create_share_token(
+    files,
+    bind_host.val,
+    actual_port,
+  )
+  share_token.val = token
   for file_path in files {
     let ctx = create_file_context(file_path, actual_port)
     active_servers.push(ctx)
@@ -1659,6 +1672,14 @@ fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit
   for ctx in active_servers {
     watch_share_file(ctx)
   }
+  let display_host = if bind_host.val == "0.0.0.0" {
+    "127.0.0.1"
+  } else {
+    bind_host.val
+  }
+  console_log(
+    "yunomi share token \{token} expires in 24h at http://\{display_host}:\{actual_port}/?share=\{token}",
+  )
   start_http_server(active_servers[0], no_open)
 }
 
@@ -1666,6 +1687,7 @@ fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit
 fn handle_share_command(args : Array[String]) -> Unit {
   let mut port = 4989
   let mut no_open = false
+  let mut revoke_token = ""
   let files : Array[String] = []
   let mut i = 1
   while i < args.length() {
@@ -1679,6 +1701,13 @@ fn handle_share_command(args : Array[String]) -> Unit {
       no_open = true
     } else if arg == "--no-vim" {
       vim_keys_enabled.val = false
+    } else if arg == "--public" {
+      bind_host.val = "0.0.0.0"
+    } else if arg == "--revoke" {
+      i = i + 1
+      if i < args.length() {
+        revoke_token = args[i]
+      }
     } else if arg == "--host" {
       i = i + 1
       if i < args.length() {
@@ -1693,6 +1722,15 @@ fn handle_share_command(args : Array[String]) -> Unit {
       files.push(arg)
     }
     i = i + 1
+  }
+  if revoke_token.length() > 0 {
+    if revoke_share_token(revoke_token) {
+      console_log("yunomi share revoked \{revoke_token}")
+      exit_process("share revoked", 0)
+    } else {
+      console_error("yunomi share: token not found")
+      exit_process("share revoke failed", 1)
+    }
   }
   server_instance_id.val = gen_instance_id()
   start_share_server(files, port, no_open)
@@ -1977,7 +2015,12 @@ fn try_listen(
       console_log("yunomi serving \{ctx.filename} at \{url}")
     }
     if !no_open {
-      open_browser(url)
+      let open_url = if share_mode.val && share_token.val.length() > 0 {
+        "\{url}/?share=\{share_token.val}"
+      } else {
+        url
+      }
+      open_browser(open_url)
     }
   })
   // Heartbeat for SSE
@@ -2009,8 +2052,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     request_ctx.last_index_get_ms = now_ms()
   }
   if http_method == "GET" && is_index_url(url) {
-    res_write_head(res, 200, "text/html; charset=utf-8")
-    res_end(res, request_ctx.html_cache)
+    if share_mode.val && parse_query_param(url, "share") != share_token.val {
+      res_write_head(res, 403, "text/plain; charset=utf-8")
+      res_end(res, "invalid or missing share token")
+    } else {
+      res_write_head(res, 200, "text/html; charset=utf-8")
+      res_end(res, request_ctx.html_cache)
+    }
   } else if http_method == "GET" && url == "/ui.js" {
     res_set_header(res, "Cache-Control", "no-store, no-cache, must-revalidate")
     res_write_head(res, 200, "application/javascript; charset=utf-8")

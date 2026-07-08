@@ -125,8 +125,12 @@ try {
     assert(
       toolNames.includes("yunomi_review_state") &&
         toolNames.includes("yunomi_add_comment") &&
-        toolNames.includes("yunomi_go"),
-      "MCP tools/list exposes review_state, add_comment, and go",
+        toolNames.includes("yunomi_go") &&
+        toolNames.includes("mcp__yunomi__list_reviews") &&
+        toolNames.includes("mcp__yunomi__get_review") &&
+        toolNames.includes("mcp__yunomi__add_comment") &&
+        toolNames.includes("mcp__yunomi__advance_round"),
+      "MCP tools/list exposes existing tools and PLAN-named aliases",
       { toolNames },
     );
 
@@ -158,6 +162,27 @@ try {
     const goResult = JSON.parse(textContent(go));
     const afterGo = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));
     assert(goResult.round === 1 && afterGo.rounds.length === 1, "MCP go is idempotent while the current round is still open", goResult);
+
+    const listedReviews = await client.request("tools/call", {
+      name: "mcp__yunomi__list_reviews",
+      arguments: { cwd: WORK_DIR },
+    });
+    const reviews = JSON.parse(textContent(listedReviews));
+    assert(Array.isArray(reviews) && reviews.length >= 1 && reviews[0].unresolved >= 1, "MCP list_reviews alias returns review summaries", reviews);
+
+    const aliasState = await client.request("tools/call", {
+      name: "mcp__yunomi__get_review",
+      arguments: { cwd: WORK_DIR },
+    });
+    const aliasReview = JSON.parse(textContent(aliasState));
+    assert(aliasReview.comments?.[0]?.text === "MCP comment text", "MCP get_review alias returns review.json content", aliasReview.comments?.[0]);
+
+    const aliasGo = await client.request("tools/call", {
+      name: "mcp__yunomi__advance_round",
+      arguments: { cwd: WORK_DIR },
+    });
+    const aliasGoResult = JSON.parse(textContent(aliasGo));
+    assert(aliasGoResult.round === 1 || aliasGoResult.path, "MCP advance_round alias reaches the round transition handler", aliasGoResult);
   } finally {
     client.close();
   }

@@ -133,6 +133,44 @@ extern "js" fn gen_instance_id() -> String =
   #|() => Date.now().toString(36) + "-" + process.pid + "-" + Math.random().toString(36).slice(2, 8)
 
 ///|
+extern "js" fn create_share_token(files : Array[String], host : String, port : Int) -> String =
+  #|(filesArg, host, port) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const os = process.getBuiltinModule("node:os");
+  #|  const crypto = process.getBuiltinModule("node:crypto");
+  #|  const dir = process.env.YUNOMI_SHARE_DIR || path.join(os.homedir(), ".yunomi", "shares");
+  #|  fs.mkdirSync(dir, { recursive: true });
+  #|  const token = crypto.randomBytes(16).toString("hex");
+  #|  const files = Array.isArray(filesArg) ? filesArg.map(String) : [];
+  #|  const meta = {
+  #|    token,
+  #|    files,
+  #|    host,
+  #|    port,
+  #|    read_only: true,
+  #|    created_at: new Date().toISOString(),
+  #|    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+  #|  };
+  #|  fs.writeFileSync(path.join(dir, `${token}.json`), JSON.stringify(meta, null, 2));
+  #|  return token;
+  #|}
+
+///|
+extern "js" fn revoke_share_token(token : String) -> Bool =
+  #|(token) => {
+  #|  if (!/^[A-Za-z0-9._-]+$/.test(String(token || ""))) return false;
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const os = process.getBuiltinModule("node:os");
+  #|  const dir = process.env.YUNOMI_SHARE_DIR || path.join(os.homedir(), ".yunomi", "shares");
+  #|  const file = path.join(dir, `${token}.json`);
+  #|  if (!fs.existsSync(file)) return false;
+  #|  fs.unlinkSync(file);
+  #|  return true;
+  #|}
+
+///|
 /// Node.js http module - import createServer via #module
 #module("node:http")
 extern "js" fn http_create_server_raw(
@@ -1814,6 +1852,36 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!fs.existsSync(p)) return { version: 1, branch: branchName(repoRoot(cwd || ".")), files: [], rounds: [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }], comments: [] };
   #|    return JSON.parse(fs.readFileSync(p, "utf8") || "{}");
   #|  };
+  #|  const listReviews = (args) => {
+  #|    const base = process.env.YUNOMI_REVIEW_DIR || path.join(repoRoot((args && args.cwd) || process.cwd()), ".yunomi", "reviews");
+  #|    if (!fs.existsSync(base)) return [];
+  #|    const direct = path.join(base, "review.json");
+  #|    if (fs.existsSync(direct)) {
+  #|      let review = {};
+  #|      try { review = JSON.parse(fs.readFileSync(direct, "utf8") || "{}"); } catch (_) {}
+  #|      const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|      return [{
+  #|        id: review.branch || path.basename(base),
+  #|        path: direct,
+  #|        branch: review.branch || path.basename(base),
+  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds[review.rounds.length - 1].round || review.rounds.length) : 1,
+  #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
+  #|      }];
+  #|    }
+  #|    return fs.readdirSync(base, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
+  #|      const p = path.join(base, entry.name, "review.json");
+  #|      let review = {};
+  #|      try { review = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8") || "{}") : {}; } catch (_) {}
+  #|      const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|      return {
+  #|        id: entry.name,
+  #|        path: p,
+  #|        branch: review.branch || entry.name,
+  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds[review.rounds.length - 1].round || review.rounds.length) : 1,
+  #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
+  #|      };
+  #|    });
+  #|  };
   #|  const writeReview = (cwd, review) => {
   #|    const dir = reviewDir(cwd);
   #|    ensureDir(dir);
@@ -1889,12 +1957,20 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    return { notified: false, path: p, round: Number((review.rounds[review.rounds.length - 1] || {}).round || 1) };
   #|  };
   #|  const tools = [
+  #|    { name: "mcp__yunomi__list_reviews", description: "List yunomi review sessions.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
+  #|    { name: "mcp__yunomi__get_review", description: "Read a yunomi review.json session.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
+  #|    { name: "mcp__yunomi__add_comment", description: "Add a structured review comment to yunomi review.json.", inputSchema: { type: "object", required: ["file", "line", "text"], properties: { cwd: { type: "string" }, file: { type: "string" }, line: { type: "number" }, text: { type: "string" }, author: { type: "string" }, id: { type: "string" } } } },
+  #|    { name: "mcp__yunomi__advance_round", description: "Advance or notify the next yunomi review round.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
   #|    { name: "yunomi_review_state", description: "Read the current yunomi review.json state for a repository branch.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
   #|    { name: "yunomi_add_comment", description: "Add a structured review comment to yunomi review.json.", inputSchema: { type: "object", required: ["file", "line", "text"], properties: { cwd: { type: "string" }, file: { type: "string" }, line: { type: "number" }, text: { type: "string" }, author: { type: "string" }, id: { type: "string" } } } },
   #|    { name: "yunomi_go", description: "Advance or notify the next yunomi review round.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } }
   #|  ];
   #|  const resultContent = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] });
   #|  const callTool = (name, args) => {
+  #|    if (name === "mcp__yunomi__list_reviews") return resultContent(listReviews(args || {}));
+  #|    if (name === "mcp__yunomi__get_review") return resultContent(readReview(path.resolve((args && args.cwd) || process.cwd())));
+  #|    if (name === "mcp__yunomi__add_comment") return resultContent(addComment(args || {}));
+  #|    if (name === "mcp__yunomi__advance_round") return resultContent(goRound(args || {}));
   #|    if (name === "yunomi_review_state") return resultContent(readReview(path.resolve((args && args.cwd) || process.cwd())));
   #|    if (name === "yunomi_add_comment") return resultContent(addComment(args || {}));
   #|    if (name === "yunomi_go") return resultContent(goRound(args || {}));
