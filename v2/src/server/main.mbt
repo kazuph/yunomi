@@ -358,6 +358,9 @@ fn main {
     } else if args[0] == "cleanup" {
       handle_meta_cleanup(parse_meta_json_flag(args), parse_cleanup_older_than(args))
       exit_process("cleanup command", 0)
+    } else if args[0] == "init" {
+      handle_init_command(args)
+      exit_process("init command", 0)
     } else if args[0] == "mcp" {
       run_mcp_server()
       return
@@ -682,6 +685,7 @@ fn print_usage() -> Unit {
     #|       yunomi status [--json]
     #|       yunomi stats [--json]
     #|       yunomi cleanup [--older-than <days>] [--json]
+    #|       yunomi init [--template <name>] [--list-templates] [--json]
     #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:

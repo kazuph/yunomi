@@ -56,6 +56,7 @@ One cup is never the whole conversation. The next major evolution of yunomi turn
 - **GitHub PR sync** — `yunomi pull 123` imports PR review comments into `review.json`; `yunomi push 123` sends unsynced yunomi comments back through the GitHub CLI
 - **Keyboard review** — `j/k` moves through review targets, `c` comments, `n/N` jumps comments, `r` resolves threads, and `?` opens the key help
 - **Review metadata commands** — `yunomi status`, `yunomi stats`, and `yunomi cleanup` show active sessions, summarize recent review history, and remove old approved review files
+- **Report templates** — `yunomi init --template bugfix` creates `.artifacts/<feature>/REPORT.md` from built-in or `~/.yunomi/templates/*.md` templates
 - **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and a stdio MCP server exposing review state, comment creation, and next-round control
 
 The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi will keep reviewing **the work, not just the diff**.
