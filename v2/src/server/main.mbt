@@ -341,6 +341,9 @@ fn main {
     if args[0] == "comment" {
       handle_comment_command(args)
       exit_process("comment command", 0)
+    } else if args[0] == "mcp" {
+      run_mcp_server()
+      return
     } else if args[0] == "install" {
       handle_install_command(args)
       exit_process("install command", 0)
@@ -642,6 +645,7 @@ fn print_usage() -> Unit {
     #|       yunomi review [base-ref] [options]
     #|       yunomi live <http://localhost:port> [options]
     #|       yunomi comment <file:line> <text> [--author <name>]
+    #|       yunomi mcp
     #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:
@@ -661,6 +665,7 @@ fn print_usage() -> Unit {
     #|Review changed files: yunomi review main
     #|Continue a loop: yunomi go
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
+    #|MCP bridge: yunomi mcp
     #|Live review accepts only http://localhost or http://127.0.0.1 targets.
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
