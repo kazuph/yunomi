@@ -416,13 +416,30 @@ fn render_markdown_lines(
         if item_text.has_prefix("[ ] ") {
           buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
           buf.write_string(item_line.to_string())
-          buf.write_string("\"><input type=\"checkbox\" disabled /> ")
+          buf.write_string(
+            "\"><input class=\"task-decision-checkbox\" type=\"checkbox\" data-source-line=\"",
+          )
+          buf.write_string(item_line.to_string())
+          buf.write_string("\" data-decision-text=\"")
+          buf.write_string(escape_html(safe_slice(item_text, 4)))
+          buf.write_string("\" /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
         } else if item_text.has_prefix("[x] ") || item_text.has_prefix("[X] ") {
           buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
           buf.write_string(item_line.to_string())
-          buf.write_string("\"><input type=\"checkbox\" checked disabled /> ")
+          buf.write_string(
+            "\"><input class=\"task-decision-checkbox\" type=\"checkbox\" checked data-source-line=\"",
+          )
+          buf.write_string(item_line.to_string())
+          buf.write_string("\" data-decision-text=\"")
+          buf.write_string(escape_html(safe_slice(item_text, 4)))
+          buf.write_string("\" /> ")
           buf.write_string(render_inline(safe_slice(item_text, 4)))
+        } else if item_text.has_prefix("✅️ ") {
+          buf.write_string("<li class=\"decision-done\" data-source-line=\"")
+          buf.write_string(item_line.to_string())
+          buf.write_string("\">")
+          buf.write_string(render_inline(safe_slice(item_text, 3)))
         } else {
           buf.write_string("<li data-source-line=\"")
           buf.write_string(item_line.to_string())

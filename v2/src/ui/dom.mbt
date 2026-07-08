@@ -162,6 +162,14 @@ extern "js" fn set_disabled(el : Element, disabled : Bool) -> Unit =
   #|(el, disabled) => { if (el) el.disabled = disabled; }
 
 ///|
+extern "js" fn is_checked(el : Element) -> Bool =
+  #|(el) => !!el?.checked
+
+///|
+extern "js" fn set_checked(el : Element, checked : Bool) -> Unit =
+  #|(el, checked) => { if (el) el.checked = checked; }
+
+///|
 extern "js" fn prevent_default(e : Event) -> Unit =
   #|(e) => e.preventDefault()
 

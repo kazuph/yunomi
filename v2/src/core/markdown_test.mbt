@@ -107,6 +107,29 @@ test "parse markdown unordered list" {
 }
 
 ///|
+test "parse markdown task decisions" {
+  let md = parse_markdown("- [ ] Use OAuth\n- [x] Use password\n- ✅️ Use OAuth")
+  debug_inspect(
+    md.html.contains("class=\"task-decision-checkbox\" type=\"checkbox\" data-source-line=\"1\""),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains("class=\"task-decision-checkbox\" type=\"checkbox\" checked data-source-line=\"2\""),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains("<li class=\"decision-done\" data-source-line=\"3\">Use OAuth</li>"),
+    content=(
+      #|true
+    ),
+  )
+}
+
+///|
 test "parse markdown ordered list" {
   let md = parse_markdown("1. first\n2. second")
   debug_inspect(

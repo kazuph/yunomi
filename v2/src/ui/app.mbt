@@ -880,6 +880,7 @@ pub fn init_app() -> Unit {
     setup_preview_comment_buttons()
     setup_comment_keyboard_shortcuts()
     setup_preview_mouseup()
+    setup_task_decision_checkboxes()
     // Initialize heading toggles (collapsible sections)
     init_heading_toggles()
     // Setup fullscreen viewers with pure MoonBit ZoomPanViewer/VideoTimeline
@@ -934,6 +935,47 @@ fn draft_comment_count() -> Int {
     }
   })
   count.val
+}
+
+///|
+fn setup_task_decision_checkboxes() -> Unit {
+  let boxes = query_all(".task-decision-checkbox")
+  for box in boxes {
+    on(box, "click", fn(e) {
+      stop_propagation(e)
+    })
+    on(box, "change", fn(e) {
+      stop_propagation(e)
+      let target = event_target(e)
+      let line = str_to_int(get_attr(target, "data-source-line"))
+      let text = get_attr(target, "data-decision-text")
+      let checked = is_checked(target)
+      send_decision_to_server(target, line, text, checked)
+    })
+  }
+}
+
+///|
+fn send_decision_to_server(
+  box : Element,
+  line : Int,
+  text : String,
+  checked : Bool,
+) -> Unit {
+  if line <= 0 {
+    return
+  }
+  let url = location_origin() + "/decision"
+  let checked_json = if checked { "true" } else { "false" }
+  let body = "{\"file\":\"" + get_yunomi_filename() + "\",\"line\":" +
+    line.to_string() + ",\"text\":" + json_encode_string(text) + ",\"checked\":" +
+    checked_json + "}"
+  fetch_post(url, body, fn(response) {
+    if response == "error" {
+      set_checked(box, !checked)
+      show_toast("Decision update failed")
+    }
+  })
 }
 
 ///|

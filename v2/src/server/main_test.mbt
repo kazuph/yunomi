@@ -89,3 +89,33 @@ test "is_within_correlation_window: index GET long after close signal is rejecte
     ),
   )
 }
+
+///|
+test "parse_comment_target: splits file and positive line" {
+  debug_inspect(comment_target_file("REPORT.md:42"), content="\"REPORT.md\"")
+  debug_inspect(comment_target_line("REPORT.md:42"), content="42")
+}
+
+///|
+test "sanitize_branch_name: produces review-directory-safe branch name" {
+  debug_inspect(
+    sanitize_branch_name("feature/agent interop:cli"),
+    content="\"feature-agent-interop-cli\"",
+  )
+}
+
+///|
+test "install_target_path: codex project skill path follows agents convention" {
+  debug_inspect(
+    install_target_path("codex", false).contains(".agents/skills/yunomi/SKILL.md"),
+    content="true",
+  )
+}
+
+///|
+test "install_target_path: claude global skill path follows claude convention" {
+  debug_inspect(
+    install_target_path("claude", true).contains(".claude/skills/yunomi/SKILL.md"),
+    content="true",
+  )
+}
