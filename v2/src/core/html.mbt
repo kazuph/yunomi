@@ -237,9 +237,14 @@ fn build_comment_card(buf : StringBuilder) -> Unit {
   buf.write_string(
     "<button class=\"danger-text\" id=\"clear-comment\">Delete</button>",
   )
+  buf.write_string("<div class=\"card-actions-right\">")
+  buf.write_string(
+    "<button class=\"send-now-btn\" id=\"send-now-comment\">Send now</button>",
+  )
   buf.write_string(
     "<button class=\"primary\" id=\"save-comment\">Save</button>",
   )
+  buf.write_string("</div>")
   buf.write_string("</div>")
   buf.write_string("</div>")
 }
@@ -737,6 +742,7 @@ pub fn build_csv_html(
   }
   buf.write_string("</tbody></table></div>")
   build_comment_card(buf)
+  build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
   build_recovery_modal(buf)
@@ -889,6 +895,7 @@ pub fn build_diff_html(
   }
   buf.write_string("</div></main></div>")
   build_comment_card(buf)
+  build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
   build_recovery_modal(buf)
@@ -920,6 +927,7 @@ pub fn build_text_html(
   }
   buf.write_string("</div>")
   build_comment_card(buf)
+  build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
   build_recovery_modal(buf)

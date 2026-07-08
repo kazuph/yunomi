@@ -758,6 +758,10 @@ pub fn init_app() -> Unit {
   if !is_null(save_btn) {
     on(save_btn, "click", fn(_e) { save_comment() })
   }
+  let send_now_btn = query("#send-now-comment")
+  if !is_null(send_now_btn) {
+    on(send_now_btn, "click", fn(_e) { send_now_comment() })
+  }
   let comment_input = query("#comment-input")
   if !is_null(comment_input) {
     on(comment_input, "keydown", fn(e) {
@@ -1323,6 +1327,7 @@ fn render_comment_list() -> Unit {
     return
   }
   set_inner_html(list, buf.to_string())
+  render_comment_replies_for_file(get_yunomi_filename())
   let entries = query_all(".comment-list-entry")
   for entry in entries {
     on(entry, "click", fn(e) {
@@ -1357,6 +1362,48 @@ fn toggle_comment_list_panel() -> Unit {
     remove_class(panel, "collapsed")
   } else {
     add_class(panel, "collapsed")
+  }
+}
+
+///|
+fn send_now_comment() -> Unit {
+  let textarea = query("#comment-input")
+  if is_null(textarea) {
+    return
+  }
+  let text = get_value(textarea)
+  let key = active_key.val
+  if key.length() == 0 {
+    return
+  }
+  match comments.get(key) {
+    Some(comment) => {
+      comment.text = text
+      comment.image = current_comment_image.val
+      send_comment_to_server(
+        comment.row,
+        comment.col,
+        text,
+        "send-now",
+        key,
+        current_comment_image.val.length() > 0,
+      )
+      current_comment_image.val = ""
+      hide_comment_card()
+      update_comment_indicators()
+      persist_draft()
+      render_comment_list()
+      show_comment_list_panel()
+    }
+    None => ()
+  }
+}
+
+///|
+fn show_comment_list_panel() -> Unit {
+  let panel = query(".comment-list")
+  if !is_null(panel) {
+    remove_class(panel, "collapsed")
   }
 }
 
@@ -1902,6 +1949,11 @@ let sse_was_connected : Ref[Bool] = Ref(false)
 /// new review, otherwise closing one tab can make other stale tabs reappear.
 let sse_server_instance : Ref[String] = Ref("")
 
+///| Reply events update the current DOM directly. The server also emits a
+/// `round` event for compatibility with older clients/tests; suppress the
+/// next round-triggered reload only for that paired reply update.
+let suppress_next_round_reload : Ref[Bool] = Ref(false)
+
 ///|
 fn setup_sse(_port : Int) -> Unit {
   let url = location_origin() + "/sse"
@@ -1925,9 +1977,20 @@ fn setup_sse(_port : Int) -> Unit {
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
-    intentional_reload_in_progress.val = true
-    ls_set(reload_inflight_key(), "1")
-    location_reload()
+    if suppress_next_round_reload.val {
+      suppress_next_round_reload.val = false
+    } else {
+      intentional_reload_in_progress.val = true
+      ls_set(reload_inflight_key(), "1")
+      location_reload()
+    }
+  })
+  sse_on(es, "reply", fn(e) {
+    suppress_next_round_reload.val = true
+    apply_comment_reply_event(get_yunomi_filename(), sse_event_data(e))
+  })
+  sse_on(es, "send-now", fn(e) {
+    mark_send_now_event(sse_event_data(e))
   })
   sse_on(es, "hello", fn(e) {
     let id = sse_event_data(e)

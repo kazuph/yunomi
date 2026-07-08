@@ -1912,19 +1912,27 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "POST" && url == "/reply-comment" {
     read_body(req, fn(body) {
+      let id = json_parse_string("id", body)
+      let text = json_parse_string("text", body)
+      let author_raw = json_parse_string("author", body)
+      let author = if author_raw.length() > 0 { author_raw } else { "agent" }
       if ctx.file_path != "<stdin>" {
-        let author = json_parse_string("author", body)
         reply_review_comment(
           ctx.file_path,
-          json_parse_string("id", body),
-          json_parse_string("text", body),
-          if author.length() > 0 { author } else { "agent" },
+          id,
+          text,
+          author,
         )
       }
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
       if ctx.file_path != "<stdin>" {
+        let round = current_review_round(ctx.file_path)
+        let reply_event = "{\"id\":" + json_encode_value(id) + ",\"text\":" +
+          json_encode_value(text) + ",\"author\":" + json_encode_value(author) +
+          ",\"round\":" + round.to_string() + "}"
         for client in ctx.sse_clients {
+          sse_send(client, "reply", reply_event)
           sse_send(client, "round", review_state_response(ctx.file_path, ctx.is_loop))
         }
       }
@@ -2350,20 +2358,26 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   }
   buf.write_string("}")
   append_live_log(buf.to_string())
+  if text.length() > 0 && event_type == "send-now" && ctx.file_path != "<stdin>" {
+    let line = json_parse_int_field("row", body) + 1
+    let id = if key.length() > 0 { key } else { "draft" }
+    update_review_on_send_now(ctx.file_path, id, line, text)
+  }
   if text.length() > 0 && event_type != "delete" {
     let line = json_parse_int_field("row", body) + 1
     let round = if ctx.file_path == "<stdin>" { 1 } else { current_review_round(ctx.file_path) }
     let id = if key.length() > 0 { key } else { "draft" }
+    let label = if event_type == "send-now" { "send-now" } else { "comment" }
     notify_reviewer(
       ctx,
-      "[yunomi] comment " + ctx.filename + ":" + line.to_string() +
+      "[yunomi] " + label + " " + ctx.filename + ":" + line.to_string() +
       " id=" + id + " round=" + round.to_string() + " " +
       json_encode_value(text) + " url=" + review_url(ctx),
     )
   }
   // Notify SSE clients about the comment event
   for client in ctx.sse_clients {
-    sse_send(client, "comment", buf.to_string())
+    sse_send(client, if event_type == "send-now" { "send-now" } else { "comment" }, buf.to_string())
   }
 }
 

@@ -1377,6 +1377,80 @@ fn update_review_on_submit(file_path : String, body : String, source_lines : Arr
 }
 
 ///|
+extern "js" fn js_review_send_now_update(
+  json : String,
+  file : String,
+  id : String,
+  line : Int,
+  text : String,
+  snippet : String,
+  round : Int,
+) -> String =
+  #|(json, file, id, line, text, snippet, round) => {
+  #|  const review = JSON.parse(json || "{}");
+  #|  review.version = review.version || 1;
+  #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
+  #|  if (!review.files.includes(file)) review.files.push(file);
+  #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  if (review.rounds.length === 0) review.rounds.push({ round: 1, started_at: new Date().toISOString(), submitted_at: null, decision: null, summary: "" });
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  const commentId = String(id || `send-now-${Date.now()}`);
+  #|  const existing = review.comments.find(c => c.id === commentId);
+  #|  const anchor = { snippet: String(snippet || ""), context_before: "", context_after: "" };
+  #|  if (existing) {
+  #|    existing.file = existing.file || file;
+  #|    existing.line = Number(line || existing.line || 1);
+  #|    existing.round = Number(existing.round || round || 1);
+  #|    existing.text = String(text || existing.text || "");
+  #|    existing.author = existing.author || "human";
+  #|    existing.status = existing.status || "unresolved";
+  #|    existing.replies = Array.isArray(existing.replies) ? existing.replies : [];
+  #|    existing.anchor = existing.anchor || anchor;
+  #|    existing.send_now = true;
+  #|    existing.sent_at = existing.sent_at || new Date().toISOString();
+  #|  } else {
+  #|    review.comments.push({
+  #|      id: commentId,
+  #|      file,
+  #|      line: Number(line || 1),
+  #|      round: Number(round || 1),
+  #|      text: String(text || ""),
+  #|      author: "human",
+  #|      status: "unresolved",
+  #|      replies: [],
+  #|      anchor,
+  #|      send_now: true,
+  #|      sent_at: new Date().toISOString()
+  #|    });
+  #|  }
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn update_review_on_send_now(file_path : String, id : String, line : Int, text : String) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  let source_lines = @core.split_to_lines(read_file_safe(file_path))
+  let snippet = if line > 0 && line <= source_lines.length() {
+    source_lines[line - 1]
+  } else {
+    ""
+  }
+  write_file_secure(
+    review_path,
+    js_review_send_now_update(
+      read_file_safe(review_path),
+      review_display_file(file_path),
+      id,
+      line,
+      text,
+      snippet,
+      current_review_round(file_path),
+    ),
+  )
+}
+
+///|
 extern "js" fn js_review_current_round(json : String) -> Int =
   #|(json) => { try { const r = JSON.parse(json).rounds || []; return Number((r[r.length - 1] || {}).round || 1); } catch(e) { return 1; } }
 
