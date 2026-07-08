@@ -44,9 +44,13 @@ function startYunomi(args: string[], expectedUrls: string[]): Promise<ServerHand
     });
     let output = "";
     let resolved = false;
+    const startupTimer = setTimeout(() => {
+      if (!resolved) reject(new Error(`server did not start:\n${output}`));
+    }, 15000);
     const check = () => {
       if (!resolved && expectedUrls.every((url) => output.includes(url))) {
         resolved = true;
+        clearTimeout(startupTimer);
         resolve({ proc, output: () => output });
       }
     };
@@ -59,22 +63,32 @@ function startYunomi(args: string[], expectedUrls: string[]): Promise<ServerHand
       check();
     });
     proc.on("exit", (code) => {
-      if (!resolved) reject(new Error(`server exited early with ${code}:\n${output}`));
+      if (!resolved) {
+        clearTimeout(startupTimer);
+        reject(new Error(`server exited early with ${code}:\n${output}`));
+      }
     });
-    setTimeout(() => {
-      if (!resolved) reject(new Error(`server did not start:\n${output}`));
-    }, 15000);
   });
 }
 
 async function stopServer(handle: ServerHandle): Promise<void> {
   await new Promise<void>((resolve) => {
-    handle.proc.once("exit", () => resolve());
-    handle.proc.kill("SIGINT");
-    setTimeout(() => {
-      handle.proc.kill("SIGKILL");
-      resolve();
+    let resolved = false;
+    const forceTimer = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        handle.proc.kill("SIGKILL");
+        resolve();
+      }
     }, 3000);
+    handle.proc.once("exit", () => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(forceTimer);
+        resolve();
+      }
+    });
+    handle.proc.kill("SIGINT");
   });
 }
 

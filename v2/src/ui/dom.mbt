@@ -1592,7 +1592,8 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|  };
   #|  const mediaSidebarActive = () => {
   #|    const active = document.activeElement;
-  #|    return !!document.querySelector(".media-sidebar-thumb.active") || active?.classList?.contains("media-sidebar-thumb");
+  #|    const thumbs = Array.from(document.querySelectorAll(".media-sidebar-thumb")).filter(visible);
+  #|    return thumbs.length > 0 || active?.classList?.contains("media-sidebar-thumb");
   #|  };
   #|  const targets = () => {
   #|    const selectors = [
