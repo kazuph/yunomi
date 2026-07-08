@@ -32,6 +32,20 @@ pub fn review_to_yaml(result : ReviewResult) -> String {
       buf.write_string(yaml_escape_string(comment.value))
       buf.write_char('\n')
     }
+    if comment.context_before.length() > 0 || comment.context_after.length() > 0 {
+      buf.write_string("    context:\n")
+      buf.write_string("      before: ")
+      buf.write_string(yaml_escape_string(comment.context_before))
+      buf.write_char('\n')
+      buf.write_string("      after: ")
+      buf.write_string(yaml_escape_string(comment.context_after))
+      buf.write_char('\n')
+    }
+    if comment.image_path.length() > 0 {
+      buf.write_string("    image_path: ")
+      buf.write_string(yaml_escape_string(comment.image_path))
+      buf.write_char('\n')
+    }
   }
   buf.write_string("summary: ")
   buf.write_string(yaml_escape_string(result.summary))
@@ -98,6 +112,25 @@ pub fn reviews_to_yaml(results : Array[ReviewResult]) -> String {
         buf.write_string("        text: ")
         buf.write_string(yaml_escape_string(comment.text))
         buf.write_char('\n')
+        if comment.value.length() > 0 {
+          buf.write_string("        value: ")
+          buf.write_string(yaml_escape_string(comment.value))
+          buf.write_char('\n')
+        }
+        if comment.context_before.length() > 0 || comment.context_after.length() > 0 {
+          buf.write_string("        context:\n")
+          buf.write_string("          before: ")
+          buf.write_string(yaml_escape_string(comment.context_before))
+          buf.write_char('\n')
+          buf.write_string("          after: ")
+          buf.write_string(yaml_escape_string(comment.context_after))
+          buf.write_char('\n')
+        }
+        if comment.image_path.length() > 0 {
+          buf.write_string("        image_path: ")
+          buf.write_string(yaml_escape_string(comment.image_path))
+          buf.write_char('\n')
+        }
       }
       buf.write_string("    summary: ")
       buf.write_string(yaml_escape_string(result.summary))

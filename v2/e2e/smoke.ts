@@ -552,6 +552,7 @@ console.log("\n--- Submit Data Persistence ---");
         { row: 3, col: 0, text: "line 3 comment with {braces} in text", image: "" },
         // row 2 of TEST_MD is "Test content" -- server must quote it as `value:`
         { row: 2, col: 0, text: "comment with quoted line", image: "" },
+        { row: 7, col: 0, text: "comment with structured context", image: "" },
       ],
       summaryImages: [],
       yunomiAnswers: { "q1": "answer to question 1" },
@@ -574,6 +575,8 @@ console.log("\n--- Submit Data Persistence ---");
     assert(sStdout.includes("answer to question 1"), "Submit: answers object serialized as JSON, not coerced");
     assert(!sStdout.includes("[object Object]"), "Submit: no '[object Object]' coercion in YAML output");
     assert(sStdout.includes("value: Test content"), "Submit: comment quotes the source line it refers to");
+    assert(sStdout.includes("context:"), "Submit: comment YAML includes structured context block");
+    assert(sStdout.includes("before: - item 1"), "Submit: context includes the previous source line");
   } catch (err: unknown) {
     failed++;
     console.error(`  FAIL: Submit test: ${(err as Error).message}`);
@@ -999,6 +1002,8 @@ if (playwrightAvailable) {
     // Verify server output contains submitted data
     assert(bStdout.includes("Browser E2E test summary") || bStdout.includes("comment with image"),
       "Browser Submit: server output contains submitted data");
+    assert(bStdout.includes("image_path:") && bStdout.includes(".png"),
+      "Browser Submit: per-comment image is saved and referenced by image_path");
 
     // --- Close detection: reload must not terminate, final close must flush draft and exit ---
     const closeProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 51), TEST_MD], {
