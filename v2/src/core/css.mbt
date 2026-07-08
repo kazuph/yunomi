@@ -115,6 +115,40 @@ fn build_css() -> String {
     #|header h1 { display: flex; flex-direction: column; margin: 0; line-height: 1.3; }
     #|header h1 .title-path { font-size: 11px; font-weight: 500; color: var(--muted); letter-spacing: 0.02em; }
     #|header h1 .title-file { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+    #|.review-file-switcher {
+    #|  display: flex;
+    #|  gap: 6px;
+    #|  align-items: center;
+    #|  overflow-x: auto;
+    #|  padding: 8px 20px;
+    #|  background: var(--bg);
+    #|  border-bottom: 1px solid var(--border);
+    #|  scrollbar-width: thin;
+    #|}
+    #|.review-file-switcher a {
+    #|  flex: 0 0 auto;
+    #|  max-width: 260px;
+    #|  overflow: hidden;
+    #|  text-overflow: ellipsis;
+    #|  white-space: nowrap;
+    #|  padding: 5px 10px;
+    #|  color: var(--muted);
+    #|  text-decoration: none;
+    #|  border: 1px solid var(--border);
+    #|  border-radius: var(--radius-sm);
+    #|  background: var(--panel);
+    #|  font-size: 12px;
+    #|  line-height: 1.4;
+    #|}
+    #|.review-file-switcher a:hover {
+    #|  color: var(--text);
+    #|  background: var(--hover-bg);
+    #|}
+    #|.review-file-switcher a.active {
+    #|  color: var(--accent);
+    #|  background: var(--selected-bg);
+    #|  border-color: var(--accent);
+    #|}
     #|/* Default header icon buttons (ghost) */
     #|header button {
     #|  background: transparent;
