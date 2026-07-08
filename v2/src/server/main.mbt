@@ -67,6 +67,9 @@ let notify_pane_arg : Ref[String] = Ref("")
 ///|
 let review_mux_mode : Ref[Bool] = Ref(false)
 
+///| Read-only sharing mode. Explicitly enabled only by `yunomi share`.
+let share_mode : Ref[Bool] = Ref(false)
+
 ///|
 fn resolve_notify_pane() -> String {
   if notify_pane_arg.val.length() > 0 {
@@ -343,6 +346,9 @@ fn main {
       exit_process("comment command", 0)
     } else if args[0] == "mcp" {
       run_mcp_server()
+      return
+    } else if args[0] == "share" {
+      handle_share_command(args)
       return
     } else if args[0] == "install" {
       handle_install_command(args)
@@ -646,6 +652,7 @@ fn print_usage() -> Unit {
     #|       yunomi live <http://localhost:port> [options]
     #|       yunomi comment <file:line> <text> [--author <name>]
     #|       yunomi mcp
+    #|       yunomi share <file...> [--host <addr>] [--port <n>] [--no-open]
     #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:
@@ -666,6 +673,7 @@ fn print_usage() -> Unit {
     #|Continue a loop: yunomi go
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
     #|MCP bridge: yunomi mcp
+    #|Read-only share URL: yunomi share REPORT.md --host 0.0.0.0
     #|Live review accepts only http://localhost or http://127.0.0.1 targets.
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
@@ -1412,7 +1420,19 @@ fn load_and_build_html(ctx : ServerContext) -> String {
       )
     }
   }
-  inject_review_file_switcher(ctx, html)
+  let with_switcher = inject_review_file_switcher(ctx, html)
+  if share_mode.val {
+    inject_share_readonly_ui(with_switcher)
+  } else {
+    with_switcher
+  }
+}
+
+///|
+fn inject_share_readonly_ui(html : String) -> String {
+  let fragment =
+    "<style>.share-readonly-banner{display:block;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:700}.share-readonly-banner span{color:var(--muted);font-weight:500;margin-left:8px}.submit-exit-btn,#pill-comments,#comment-card,.comment-list,#submit-modal,#recovery-modal{display:none!important}.has-comment{cursor:default!important}</style><div class=\"share-readonly-banner\">Read-only share<span>Comments and submit actions are disabled.</span></div><script>window.__YUNOMI_SHARE_READONLY__=true;</script>"
+  js_inject_before_body_end(html, fragment)
 }
 
 ///|
@@ -1539,6 +1559,78 @@ fn refresh_review_mux_html() -> Unit {
   for ctx in active_servers {
     ctx.html_cache = load_and_build_html(ctx)
   }
+}
+
+///|
+fn watch_share_file(ctx : ServerContext) -> Unit {
+  if ctx.file_path != "<stdin>" {
+    let clients = ctx.sse_clients
+    ignore(
+      watch_file(ctx.file_path, fn(_curr, _prev) {
+        ctx.html_cache = load_and_build_html(ctx)
+        for client in clients {
+          sse_send(client, "reload", "")
+        }
+      }),
+    )
+  }
+}
+
+///|
+fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit {
+  if files.is_empty() {
+    console_error("yunomi share: file path is required")
+    print_usage()
+    exit_process("share file missing", 1)
+  }
+  share_mode.val = true
+  review_mux_mode.val = files.length() > 1
+  expected_count.val = files.length()
+  ensure_lock_dir()
+  let actual_port = find_available_port(port)
+  for file_path in files {
+    let ctx = create_file_context(file_path, actual_port)
+    active_servers.push(ctx)
+  }
+  refresh_review_mux_html()
+  for ctx in active_servers {
+    watch_share_file(ctx)
+  }
+  start_http_server(active_servers[0], no_open)
+}
+
+///|
+fn handle_share_command(args : Array[String]) -> Unit {
+  let mut port = 4989
+  let mut no_open = false
+  let files : Array[String] = []
+  let mut i = 1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--port" {
+      i = i + 1
+      if i < args.length() {
+        port = parse_port(args[i])
+      }
+    } else if arg == "--no-open" {
+      no_open = true
+    } else if arg == "--host" {
+      i = i + 1
+      if i < args.length() {
+        bind_host.val = args[i]
+      }
+    } else if arg == "--encoding" || arg == "-e" {
+      i = i + 1
+      if i < args.length() {
+        encoding_override.val = args[i]
+      }
+    } else if !arg.has_prefix("-") {
+      files.push(arg)
+    }
+    i = i + 1
+  }
+  server_instance_id.val = gen_instance_id()
+  start_share_server(files, port, no_open)
 }
 
 ///|
@@ -1809,12 +1901,16 @@ fn try_listen(
   server_listen(server, port, host, fn() {
     ctx.port = port
     write_lock(port, ctx.file_path)
-    if ctx.file_path != "<stdin>" {
+    if ctx.file_path != "<stdin>" && !share_mode.val {
       write_review_server(ctx.file_path, port, ctx.notify_pane)
     }
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
     let url = "http://\{display_host}:\{port}"
-    console_log("yunomi serving \{ctx.filename} at \{url}")
+    if share_mode.val {
+      console_log("yunomi sharing \{ctx.filename} read-only at \{url}")
+    } else {
+      console_log("yunomi serving \{ctx.filename} at \{url}")
+    }
     if !no_open {
       open_browser(url)
     }
@@ -1878,6 +1974,9 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     res_end(res, state_json)
   } else if http_method == "GET" && url.has_prefix("/video-timeline?") {
     handle_video_timeline(ctx, url, res)
+  } else if share_mode.val && http_method == "POST" {
+    res_write_head(res, 405, "application/json")
+    res_end(res, "{\"ok\":false,\"error\":\"read_only_share\"}")
   } else if http_method == "POST" && url == "/session/open" {
     read_body(req, fn(body) {
       handle_session_open(ctx, body)
