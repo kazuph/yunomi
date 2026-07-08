@@ -350,6 +350,12 @@ fn main {
     } else if args[0] == "share" {
       handle_share_command(args)
       return
+    } else if args[0] == "pull" {
+      handle_pr_sync_command("pull", args)
+      return
+    } else if args[0] == "push" {
+      handle_pr_sync_command("push", args)
+      return
     } else if args[0] == "install" {
       handle_install_command(args)
       exit_process("install command", 0)
@@ -653,6 +659,8 @@ fn print_usage() -> Unit {
     #|       yunomi comment <file:line> <text> [--author <name>]
     #|       yunomi mcp
     #|       yunomi share <file...> [--host <addr>] [--port <n>] [--no-open]
+    #|       yunomi pull [pr-number|url]
+    #|       yunomi push [pr-number|url]
     #|       yunomi install <agent> [--global|--project] [--list]
     #|
     #|Options:
@@ -674,9 +682,25 @@ fn print_usage() -> Unit {
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
     #|MCP bridge: yunomi mcp
     #|Read-only share URL: yunomi share REPORT.md --host 0.0.0.0
+    #|GitHub PR sync: yunomi pull 123 && yunomi push 123
     #|Live review accepts only http://localhost or http://127.0.0.1 targets.
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
+}
+
+///|
+fn handle_pr_sync_command(mode : String, args : Array[String]) -> Unit {
+  let pr = if args.length() > 1 { args[1] } else { "" }
+  let review_path = review_json_path_for_cwd()
+  let result = js_github_pr_sync(mode, review_path, process_cwd(), pr, iso_now())
+  if json_parse_string("ok", result) != "true" {
+    let error = json_parse_string("error", result)
+    let detail = if error.length() > 0 { error } else { result }
+    console_error("yunomi " + mode + ": " + detail)
+    exit_process("github pr sync failed", 1)
+  }
+  console_log("yunomi " + mode + ": " + result)
+  exit_process("github pr sync complete", 0)
 }
 
 ///|

@@ -1612,6 +1612,170 @@ fn review_prior_unresolved_count(file_path : String) -> Int {
 }
 
 ///|
+extern "js" fn js_github_pr_sync(
+  mode : String,
+  review_path : String,
+  cwd : String,
+  pr_arg : String,
+  now : String,
+) -> String =
+  #|(mode, reviewPath, cwd, prArg, now) => {
+  #|  const cp = process.getBuiltinModule("node:child_process");
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const run = (args) => {
+  #|    const r = cp.spawnSync("gh", args, { cwd, encoding: "utf8" });
+  #|    if (r.error) return { ok: false, error: r.error.message, stdout: "", stderr: "" };
+  #|    return { ok: r.status === 0, status: r.status || 0, stdout: r.stdout || "", stderr: r.stderr || "" };
+  #|  };
+  #|  const parseJson = (text, fallback) => {
+  #|    try { return JSON.parse(text || ""); } catch { return fallback; }
+  #|  };
+  #|  const fail = (error, extra = {}) => JSON.stringify({ ok: false, error, ...extra });
+  #|  const ghRepo = run(["repo", "view", "--json", "owner,name"]);
+  #|  if (!ghRepo.ok) return fail("gh repo view failed", { stderr: ghRepo.stderr || ghRepo.error || "" });
+  #|  const repo = parseJson(ghRepo.stdout, null);
+  #|  const owner = String(repo?.owner?.login || repo?.owner?.name || "");
+  #|  const name = String(repo?.name || "");
+  #|  if (!owner || !name) return fail("gh repo view did not return owner/name", { stdout: ghRepo.stdout });
+  #|  const prArgs = prArg ? ["pr", "view", String(prArg), "--json", "number,headRefOid,url"] : ["pr", "view", "--json", "number,headRefOid,url"];
+  #|  const ghPr = run(prArgs);
+  #|  if (!ghPr.ok) return fail("gh pr view failed", { stderr: ghPr.stderr || ghPr.error || "" });
+  #|  const pr = parseJson(ghPr.stdout, null);
+  #|  const prNumber = Number(pr?.number || 0);
+  #|  const headSha = String(pr?.headRefOid || "");
+  #|  if (!prNumber) return fail("gh pr view did not return a PR number", { stdout: ghPr.stdout });
+  #|  const apiPath = `repos/${owner}/${name}/pulls/${prNumber}/comments`;
+  #|  const loadReview = () => {
+  #|    let review = null;
+  #|    try { review = fs.existsSync(reviewPath) ? JSON.parse(fs.readFileSync(reviewPath, "utf8")) : null; } catch { review = null; }
+  #|    if (!review || typeof review !== "object") review = { version: 1, branch: "github-pr-" + prNumber, files: [], rounds: [], comments: [] };
+  #|    review.version = 1;
+  #|    review.files = Array.isArray(review.files) ? review.files : [];
+  #|    review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|    review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|    if (review.rounds.length === 0) review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
+  #|    return review;
+  #|  };
+  #|  const saveReview = (review) => {
+  #|    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
+  #|    fs.writeFileSync(reviewPath, JSON.stringify(review, null, 2) + "\n");
+  #|  };
+  #|  const currentRound = (review) => Number((review.rounds.at(-1) || {}).round || 1) || 1;
+  #|  const real = (value) => {
+  #|    try { return fs.realpathSync(value); } catch { return value; }
+  #|  };
+  #|  const repoRoot = (() => {
+  #|    const r = cp.spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+  #|    return real(r.status === 0 ? String(r.stdout || "").trim() : cwd);
+  #|  })();
+  #|  const displayPath = (file) => {
+  #|    const s = real(String(file || ""));
+  #|    if (!path.isAbsolute(s)) return s;
+  #|    const rel = path.relative(repoRoot, s);
+  #|    return rel && !rel.startsWith("..") ? rel : path.basename(s);
+  #|  };
+  #|  if (mode === "pull") {
+  #|    const ghComments = run(["api", apiPath, "--paginate"]);
+  #|    if (!ghComments.ok) return fail("gh api pull comments failed", { stderr: ghComments.stderr || ghComments.error || "" });
+  #|    const incomingRaw = parseJson(ghComments.stdout, []);
+  #|    const incoming = Array.isArray(incomingRaw) ? incomingRaw : [];
+  #|    const review = loadReview();
+  #|    const byGithubId = new Map();
+  #|    for (const c of review.comments) {
+  #|      const id = c?.github?.comment_id;
+  #|      if (id != null) byGithubId.set(String(id), c);
+  #|    }
+  #|    let imported = 0;
+  #|    let replied = 0;
+  #|    for (const item of incoming) {
+  #|      const gid = String(item?.id || "");
+  #|      if (!gid || byGithubId.has(gid)) continue;
+  #|      const parentId = item?.in_reply_to_id == null ? "" : String(item.in_reply_to_id);
+  #|      if (parentId && byGithubId.has(parentId)) {
+  #|        const parent = byGithubId.get(parentId);
+  #|        parent.replies = Array.isArray(parent.replies) ? parent.replies : [];
+  #|        parent.replies.push({
+  #|          author: "github:" + String(item?.user?.login || "unknown"),
+  #|          round: currentRound(review),
+  #|          text: String(item?.body || ""),
+  #|          github: { comment_id: gid, html_url: String(item?.html_url || ""), synced_at: now }
+  #|        });
+  #|        byGithubId.set(gid, parent);
+  #|        replied += 1;
+  #|        continue;
+  #|      }
+  #|      const file = String(item?.path || "");
+  #|      const line = Number(item?.line || item?.original_line || 1) || 1;
+  #|      if (!file) continue;
+  #|      if (!review.files.includes(file)) review.files.push(file);
+  #|      const comment = {
+  #|        id: "gh-" + gid,
+  #|        file,
+  #|        line,
+  #|        round: currentRound(review),
+  #|        text: String(item?.body || ""),
+  #|        author: "github:" + String(item?.user?.login || "unknown"),
+  #|        status: "unresolved",
+  #|        replies: [],
+  #|        anchor: { snippet: String(item?.diff_hunk || ""), context_before: "", context_after: "" },
+  #|        github: {
+  #|          comment_id: gid,
+  #|          html_url: String(item?.html_url || ""),
+  #|          pull_request_review_id: item?.pull_request_review_id == null ? "" : String(item.pull_request_review_id),
+  #|          synced_at: now,
+  #|          source: "github"
+  #|        }
+  #|      };
+  #|      review.comments.push(comment);
+  #|      byGithubId.set(gid, comment);
+  #|      imported += 1;
+  #|    }
+  #|    saveReview(review);
+  #|    return JSON.stringify({ ok: true, mode, pr: prNumber, imported, replies: replied, path: reviewPath });
+  #|  }
+  #|  if (mode === "push") {
+  #|    if (!headSha) return fail("gh pr view did not return headRefOid");
+  #|    const review = loadReview();
+  #|    let pushed = 0;
+  #|    const errors = [];
+  #|    for (const c of review.comments) {
+  #|      if (c?.github?.comment_id) continue;
+  #|      const text = String(c?.text || "").trim();
+  #|      const file = displayPath(c?.file || "");
+  #|      const line = Number(c?.line || 0);
+  #|      if (!text || !file || line <= 0) continue;
+  #|      const created = run([
+  #|        "api",
+  #|        apiPath,
+  #|        "-f", "body=" + text,
+  #|        "-f", "commit_id=" + headSha,
+  #|        "-f", "path=" + file,
+  #|        "-F", "line=" + line,
+  #|        "-f", "side=RIGHT"
+  #|      ]);
+  #|      if (!created.ok) {
+  #|        errors.push(created.stderr || created.error || "gh api failed");
+  #|        break;
+  #|      }
+  #|      const json = parseJson(created.stdout, {});
+  #|      c.github = {
+  #|        comment_id: json?.id == null ? "" : String(json.id),
+  #|        html_url: String(json?.html_url || ""),
+  #|        pull_request: String(prNumber),
+  #|        pushed_at: now,
+  #|        source: "yunomi"
+  #|      };
+  #|      pushed += 1;
+  #|    }
+  #|    saveReview(review);
+  #|    if (errors.length) return fail("gh api push comment failed", { errors, pushed, path: reviewPath });
+  #|    return JSON.stringify({ ok: true, mode, pr: prNumber, pushed, path: reviewPath });
+  #|  }
+  #|  return fail("unknown mode: " + mode);
+  #|}
+
+///|
 fn json_parse_int_field(key : String, json_str : String) -> Int {
   @core.parse_int_safe(json_parse_string(key, json_str))
 }
