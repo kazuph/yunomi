@@ -758,7 +758,26 @@ pub fn build_diff_html(
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
-  buf.write_string("<div class=\"diff-view\">")
+  buf.write_string("<div class=\"diff-review-shell\"><aside class=\"diff-file-tree\" id=\"diff-file-tree\"><div class=\"diff-file-tree-title\">Files</div>")
+  for file in data.files {
+    let display_path = if file.new_path.length() > 0 {
+      file.new_path
+    } else {
+      file.old_path
+    }
+    buf.write_string("<label class=\"diff-file-tree-item\" data-file=\"")
+    buf.write_string(escape_html(display_path))
+    buf.write_string("\"><input type=\"checkbox\" class=\"diff-viewed-checkbox\" data-file=\"")
+    buf.write_string(escape_html(display_path))
+    buf.write_string("\" aria-label=\"Mark ")
+    buf.write_string(escape_html(display_path))
+    buf.write_string(" viewed\"><button type=\"button\" class=\"diff-file-link\" data-file=\"")
+    buf.write_string(escape_html(display_path))
+    buf.write_string("\">")
+    buf.write_string(escape_html(display_path))
+    buf.write_string("</button></label>")
+  }
+  buf.write_string("</aside><main class=\"diff-review-main\"><div class=\"diff-toolbar\" role=\"toolbar\" aria-label=\"Diff view\"><div class=\"diff-view-mode\" role=\"group\" aria-label=\"View mode\"><button type=\"button\" id=\"diff-unified-toggle\" data-mode=\"unified\">Unified</button><button type=\"button\" id=\"diff-split-toggle\" data-mode=\"split\">Split</button></div></div><div class=\"diff-view\">")
   for file in data.files {
     let display_path = if file.new_path.length() > 0 {
       file.new_path
@@ -770,6 +789,9 @@ pub fn build_diff_html(
       diff_line_count = diff_line_count + hunk.lines.length()
     }
     let is_large = !file.is_binary && diff_line_count > 500
+    buf.write_string("<section class=\"diff-file-block\" data-file=\"")
+    buf.write_string(escape_html(display_path))
+    buf.write_string("\">")
     if is_large {
       buf.write_string(
         "<details class=\"diff-file diff-file-large\"><summary class=\"diff-file-header\">",
@@ -824,33 +846,38 @@ pub fn build_diff_html(
           buf.write_string("\" data-file=\"")
           buf.write_string(escape_html(display_path))
           buf.write_string("\">")
+          let mut old_num = ""
+          let mut new_num = ""
           match line.kind {
             Deletion => {
-              buf.write_string("<span class=\"line-num\">")
-              buf.write_string(old_line.to_string())
-              buf.write_string("</span><span class=\"line-num\"></span>")
+              old_num = old_line.to_string()
               old_line = old_line + 1
             }
             Addition => {
-              buf.write_string(
-                "<span class=\"line-num\"></span><span class=\"line-num\">",
-              )
-              buf.write_string(new_line.to_string())
-              buf.write_string("</span>")
+              new_num = new_line.to_string()
               new_line = new_line + 1
             }
             Context => {
-              buf.write_string("<span class=\"line-num\">")
-              buf.write_string(old_line.to_string())
-              buf.write_string("</span><span class=\"line-num\">")
-              buf.write_string(new_line.to_string())
-              buf.write_string("</span>")
+              old_num = old_line.to_string()
+              new_num = new_line.to_string()
               old_line = old_line + 1
               new_line = new_line + 1
             }
           }
-          buf.write_string("<span class=\"line-content\">")
+          buf.write_string("<span class=\"line-num old-num\">")
+          buf.write_string(old_num)
+          buf.write_string("</span><span class=\"line-num new-num\">")
+          buf.write_string(new_num)
+          buf.write_string("</span><span class=\"line-content unified-content\">")
           buf.write_string(escape_html(line.content))
+          buf.write_string("</span><span class=\"split-content old-content\">")
+          if line.kind != Addition {
+            buf.write_string(escape_html(line.content))
+          }
+          buf.write_string("</span><span class=\"split-content new-content\">")
+          if line.kind != Deletion {
+            buf.write_string(escape_html(line.content))
+          }
           buf.write_string("</span></div>")
         }
       }
@@ -858,8 +885,9 @@ pub fn build_diff_html(
     if is_large {
       buf.write_string("</details>")
     }
+    buf.write_string("</section>")
   }
-  buf.write_string("</div>")
+  buf.write_string("</div></main></div>")
   build_comment_card(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
