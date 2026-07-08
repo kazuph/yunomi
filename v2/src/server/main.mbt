@@ -1386,6 +1386,16 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         server_instance_id=server_instance_id.val,
       )
     }
+    @core.FileMode::Html => {
+      let lines = @core.split_to_lines(content)
+      @core.build_text_html(
+        lines,
+        ctx.filename,
+        ctx.port,
+        tab_title~,
+        server_instance_id=server_instance_id.val,
+      )
+    }
     @core.FileMode::Text => {
       let lines = @core.split_to_lines(content)
       @core.build_text_html(
@@ -1463,6 +1473,11 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
 ///|
 fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
   let ctx = create_file_context(file_path, port)
+  if ctx.mode == @core.FileMode::Html {
+    active_servers.push(ctx)
+    start_html_preview_server(ctx.file_path, ctx.port, bind_host.val, no_open, server_instance_id.val)
+    return
+  }
   ctx.html_cache = load_and_build_html(ctx)
   ensure_review_state(ctx.file_path)
   active_servers.push(ctx)
