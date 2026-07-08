@@ -1554,6 +1554,174 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|}
 
 ///|
+extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
+  #|(filename) => {
+  #|  if (window.__YUNOMI_VIM_KEYS_READY__) return;
+  #|  window.__YUNOMI_VIM_KEYS_READY__ = true;
+  #|  if (window.__YUNOMI_VIM_KEYS_DISABLED__) return;
+  #|  const storageKey = `yunomi:vim-keys:${filename || "current"}`;
+  #|  const state = { index: -1, enabled: localStorage.getItem(storageKey) !== "off" };
+  #|  const style = document.createElement("style");
+  #|  style.textContent = `
+  #|    .vim-key-selected{outline:2px solid var(--accent)!important;outline-offset:2px!important;background:var(--accent-soft)!important}
+  #|    .vim-key-help{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.28)}
+  #|    .vim-key-help.hidden{display:none}
+  #|    .vim-key-help-dialog{width:min(420px,calc(100vw - 32px));background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);padding:18px}
+  #|    .vim-key-help-dialog h2{font-size:16px;margin:0 0 12px}
+  #|    .vim-key-help-dialog p{margin:8px 0;color:var(--muted);font-size:13px}
+  #|    .vim-key-help-dialog kbd{display:inline-block;min-width:24px;text-align:center;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);font-size:12px}
+  #|    .vim-key-help-dialog button{margin-top:12px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;background:var(--button-bg);color:var(--text);cursor:pointer}
+  #|  `;
+  #|  document.head.appendChild(style);
+  #|  const isTyping = () => {
+  #|    const active = document.activeElement;
+  #|    const tag = active?.tagName || "";
+  #|    const typingEl = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || active?.isContentEditable;
+  #|    return !!typingEl && visible(active);
+  #|  };
+  #|  const visible = (el) => {
+  #|    if (!el) return false;
+  #|    if (el.closest("details:not([open])")) return false;
+  #|    const cs = getComputedStyle(el);
+  #|    const rect = el.getBoundingClientRect();
+  #|    return cs.display !== "none" && cs.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  #|  };
+  #|  const dialogVisible = () => {
+  #|    if (visible(document.querySelector("#comment-card"))) return true;
+  #|    return !!document.querySelector("#submit-modal.visible,#recovery-modal.visible,#yunomi-questions-overlay.visible,.image-fullscreen.visible,.video-fullscreen.visible");
+  #|  };
+  #|  const mediaSidebarActive = () => {
+  #|    const active = document.activeElement;
+  #|    return !!document.querySelector(".media-sidebar-thumb.active") || active?.classList?.contains("media-sidebar-thumb");
+  #|  };
+  #|  const targets = () => {
+  #|    const selectors = [
+  #|      ".text-line[data-row]",
+  #|      "td[data-row]",
+  #|      ".diff-line",
+  #|      "#md-preview .mermaid-container",
+  #|      "#md-preview h1,#md-preview h2,#md-preview h3,#md-preview h4,#md-preview h5,#md-preview h6",
+  #|      "#md-preview p,#md-preview li,#md-preview blockquote,#md-preview pre",
+  #|      "#md-preview img:not(.timeline-thumb),#md-preview video.video-preview,#md-preview .timeline-thumb-wrapper"
+  #|    ].join(",");
+  #|    const seen = new Set();
+  #|    const out = [];
+  #|    for (const raw of document.querySelectorAll(selectors)) {
+  #|      const el = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|      if (el.closest?.("#review-loop-panel,.comment-list,.modal-overlay,#comment-card")) continue;
+  #|      if (el.matches?.("td[data-row]") && el.closest?.("#md-preview")) continue;
+  #|      if (seen.has(el) || !visible(el)) continue;
+  #|      seen.add(el);
+  #|      out.push(el);
+  #|    }
+  #|    return out;
+  #|  };
+  #|  const clear = () => document.querySelectorAll(".vim-key-selected").forEach((el) => el.classList.remove("vim-key-selected"));
+  #|  const select = (next) => {
+  #|    const list = targets();
+  #|    if (!list.length) return null;
+  #|    state.index = Math.max(0, Math.min(list.length - 1, next));
+  #|    clear();
+  #|    const el = list[state.index];
+  #|    el.classList.add("vim-key-selected");
+  #|    el.scrollIntoView({ block: "center", inline: "nearest" });
+  #|    return el;
+  #|  };
+  #|  const move = (delta) => {
+  #|    const list = targets();
+  #|    window.__YUNOMI_VIM_TARGET_COUNT__ = list.length;
+  #|    if (!list.length) return false;
+  #|    const current = list.indexOf(document.querySelector(".vim-key-selected"));
+  #|    const base = current >= 0 ? current : state.index;
+  #|    select(base < 0 ? (delta < 0 ? list.length - 1 : 0) : base + delta);
+  #|    return true;
+  #|  };
+  #|  const showHelp = () => {
+  #|    let overlay = document.querySelector(".vim-key-help");
+  #|    if (!overlay) {
+  #|      overlay = document.createElement("div");
+  #|      overlay.className = "vim-key-help hidden";
+  #|      overlay.innerHTML = `<div class="vim-key-help-dialog" role="dialog" aria-modal="true"><h2>Keyboard review</h2><p><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>c</kbd> comment · <kbd>n</kbd>/<kbd>N</kbd> comments · <kbd>r</kbd> resolve · <kbd>⌘↵</kbd> submit</p><p>Current: <strong data-vim-state></strong></p><button type="button" data-vim-toggle></button></div>`;
+  #|      document.body.appendChild(overlay);
+  #|      overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.classList.add("hidden"); });
+  #|      overlay.querySelector("[data-vim-toggle]").addEventListener("click", () => {
+  #|        state.enabled = !state.enabled;
+  #|        localStorage.setItem(storageKey, state.enabled ? "on" : "off");
+  #|        updateHelp();
+  #|      });
+  #|    }
+  #|    const updateHelp = () => {
+  #|      overlay.querySelector("[data-vim-state]").textContent = state.enabled ? "on" : "off";
+  #|      overlay.querySelector("[data-vim-toggle]").textContent = state.enabled ? "Turn off" : "Turn on";
+  #|    };
+  #|    updateHelp();
+  #|    overlay.classList.remove("hidden");
+  #|  };
+  #|  const clickCurrent = () => {
+  #|    const selected = document.querySelector(".vim-key-selected") || select(Math.max(0, state.index));
+  #|    if (!selected) return false;
+  #|    selected.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  #|    return true;
+  #|  };
+  #|  const jumpComment = (delta) => {
+  #|    const entries = Array.from(document.querySelectorAll(".comment-list-entry")).filter(visible);
+  #|    if (!entries.length) {
+  #|      document.querySelector("#pill-comments")?.click();
+  #|      return false;
+  #|    }
+  #|    const current = entries.findIndex((el) => el.closest("li")?.classList.contains("vim-key-selected"));
+  #|    const next = Math.max(0, Math.min(entries.length - 1, (current < 0 ? (delta > 0 ? -1 : entries.length) : current) + delta));
+  #|    clear();
+  #|    const entry = entries[next];
+  #|    entry.closest("li")?.classList.add("vim-key-selected");
+  #|    entry.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  #|    return true;
+  #|  };
+  #|  document.addEventListener("keydown", (event) => {
+  #|    window.__YUNOMI_VIM_LAST_KEY__ = event.key;
+  #|    if (event.key === "?") {
+  #|      event.preventDefault();
+  #|      showHelp();
+  #|      return;
+  #|    }
+  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !isTyping()) {
+  #|      const modal = document.querySelector("#submit-modal.visible");
+  #|      if (!modal) {
+  #|        const submit = document.querySelector("#send-and-exit");
+  #|        if (submit && visible(submit)) {
+  #|          submit.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  #|          event.preventDefault();
+  #|          event.stopPropagation();
+  #|        }
+  #|      }
+  #|      return;
+  #|    }
+  #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
+  #|    if (!state.enabled || (!navKey && isTyping()) || event.metaKey || event.ctrlKey || event.altKey) return;
+  #|    if (dialogVisible() && event.key !== "n" && event.key !== "N" && event.key !== "r") return;
+  #|    if ((event.key === "j" || event.key === "k") && mediaSidebarActive()) return;
+  #|    let handled = false;
+  #|    if (event.key === "j") handled = move(1);
+  #|    else if (event.key === "k") handled = move(-1);
+  #|    else if (event.key === "c") handled = clickCurrent();
+  #|    else if (event.key === "n") handled = jumpComment(1);
+  #|    else if (event.key === "N") handled = jumpComment(-1);
+  #|    else if (event.key === "r") {
+  #|      const resolve = document.querySelector(".review-loop-resolve");
+  #|      if (resolve) {
+  #|        resolve.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  #|        handled = true;
+  #|      }
+  #|    }
+  #|    if (handled) {
+  #|      window.__YUNOMI_VIM_HANDLED__ = event.key;
+  #|      event.preventDefault();
+  #|      event.stopPropagation();
+  #|    }
+  #|  }, true);
+  #|}
+
+///|
 /// Video element control
 extern "js" fn video_pause(el : Element) -> Unit =
   #|(el) => { if (el) el.pause(); }

@@ -824,9 +824,12 @@ pub fn init_app() -> Unit {
   on_doc("keydown", fn(e) {
     if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
       prevent_default(e)
-      // If comment card is open, save comment
+      // If the comment input is focused, save the current comment.
       let card = query("#comment-card")
-      if !is_null(card) && !is_element_hidden(card) {
+      let active = get_active_element()
+      if !is_null(card) &&
+        !is_element_hidden(card) &&
+        get_attr(active, "id") == "comment-input" {
         save_comment()
         return
       }
@@ -878,6 +881,7 @@ pub fn init_app() -> Unit {
     _ => setup_text_clicks()
   }
   setup_diff_enhancements_dom(get_yunomi_filename())
+  setup_vim_review_keyboard(get_yunomi_filename())
   // Setup scroll sync and preview click for markdown mode
   if mode == "markdown" {
     setup_scroll_sync()
