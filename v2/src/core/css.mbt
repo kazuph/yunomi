@@ -2016,6 +2016,88 @@ fn build_css() -> String {
     #|body.dragging .diff-line { cursor: crosshair; }
     #|
     #|/* === Diff viewer === */
+    #|.diff-review-shell {
+    #|  display: grid;
+    #|  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+    #|  min-height: calc(100vh - 64px);
+    #|}
+    #|.diff-file-tree {
+    #|  position: sticky;
+    #|  top: 64px;
+    #|  align-self: start;
+    #|  max-height: calc(100vh - 64px);
+    #|  overflow: auto;
+    #|  padding: 14px 10px;
+    #|  border-right: 1px solid var(--border);
+    #|  background: var(--panel);
+    #|}
+    #|.diff-file-tree-title {
+    #|  padding: 0 8px 8px;
+    #|  color: var(--muted);
+    #|  font-size: 11px;
+    #|  font-weight: 700;
+    #|  text-transform: uppercase;
+    #|  letter-spacing: 0.04em;
+    #|}
+    #|.diff-file-tree-item {
+    #|  display: grid;
+    #|  grid-template-columns: 22px minmax(0, 1fr);
+    #|  align-items: center;
+    #|  gap: 4px;
+    #|  padding: 4px 6px;
+    #|  border-radius: var(--radius-sm);
+    #|  color: var(--text);
+    #|  cursor: pointer;
+    #|}
+    #|.diff-file-tree-item:hover { background: var(--hover-bg); }
+    #|.diff-file-tree-item.viewed { color: var(--muted); }
+    #|.diff-viewed-checkbox { accent-color: var(--accent); }
+    #|.diff-file-link {
+    #|  min-width: 0;
+    #|  overflow: hidden;
+    #|  text-overflow: ellipsis;
+    #|  white-space: nowrap;
+    #|  padding: 4px 2px;
+    #|  border: 0;
+    #|  background: transparent;
+    #|  color: inherit;
+    #|  text-align: left;
+    #|  font: inherit;
+    #|  cursor: pointer;
+    #|}
+    #|.diff-review-main { min-width: 0; }
+    #|.diff-toolbar {
+    #|  position: sticky;
+    #|  top: 64px;
+    #|  z-index: 4;
+    #|  display: flex;
+    #|  justify-content: flex-end;
+    #|  padding: 10px 20px 0;
+    #|}
+    #|.diff-view-mode {
+    #|  display: inline-flex;
+    #|  border: 1px solid var(--border);
+    #|  border-radius: var(--radius-sm);
+    #|  overflow: hidden;
+    #|  background: var(--panel);
+    #|  box-shadow: var(--shadow-soft);
+    #|}
+    #|.diff-view-mode button {
+    #|  min-height: 32px;
+    #|  padding: 5px 12px;
+    #|  border: 0;
+    #|  border-right: 1px solid var(--border);
+    #|  background: transparent;
+    #|  color: var(--muted);
+    #|  font-size: 12px;
+    #|  font-weight: 700;
+    #|  cursor: pointer;
+    #|}
+    #|.diff-view-mode button:last-child { border-right: 0; }
+    #|.diff-view-mode button.active {
+    #|  background: var(--selected-bg);
+    #|  color: var(--accent);
+    #|}
     #|.diff-view {
     #|  margin: 20px;
     #|  background: var(--panel);
@@ -2028,6 +2110,7 @@ fn build_css() -> String {
     #|  font-size: 13px;
     #|  line-height: 1.55;
     #|}
+    #|.diff-file-block.viewed { opacity: 0.62; }
     #|.diff-file-header {
     #|  padding: 12px 20px;
     #|  background: var(--accent-soft);
@@ -2095,10 +2178,39 @@ fn build_css() -> String {
     #|  flex: 1;
     #|  padding-left: 4px;
     #|}
+    #|.diff-line .split-content { display: none; }
     #|.diff-line.addition .line-content::before { content: "+ "; color: var(--success); font-weight: 700; }
     #|.diff-line.deletion .line-content::before { content: "- "; color: var(--error); font-weight: 700; }
     #|.diff-line:not(.addition):not(.deletion) .line-content::before { content: "  "; }
+    #|body.diff-split .diff-line {
+    #|  display: grid;
+    #|  grid-template-columns: 56px minmax(0, 1fr) 56px minmax(0, 1fr);
+    #|  gap: 0;
+    #|  padding: 0;
+    #|}
+    #|body.diff-split .diff-line .old-num,
+    #|body.diff-split .diff-line .new-num {
+    #|  width: auto;
+    #|  min-width: 0;
+    #|  padding: 0 8px;
+    #|  border-right: 1px solid var(--border);
+    #|}
+    #|body.diff-split .diff-line .unified-content { display: none; }
+    #|body.diff-split .diff-line .split-content {
+    #|  display: block;
+    #|  min-width: 0;
+    #|  overflow-x: auto;
+    #|  padding: 0 12px;
+    #|  border-right: 1px solid var(--border);
+    #|}
+    #|body.diff-split .diff-line .new-content { border-right: 0; }
     #|.diff-line.has-comment { outline: 2px dashed var(--accent); outline-offset: -2px; }
+    #|
+    #|@media (max-width: 860px) {
+    #|  .diff-review-shell { grid-template-columns: 1fr; }
+    #|  .diff-file-tree { position: static; max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }
+    #|  .diff-toolbar { top: 0; }
+    #|}
     #|
     #|/* === Plain text viewer === */
     #|.text-view {

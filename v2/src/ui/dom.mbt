@@ -1438,6 +1438,61 @@ extern "js" fn local_storage_set(key : String, value : String) -> Unit =
   #|(key, value) => { try { localStorage.setItem(key, value); } catch(e) {} }
 
 ///|
+extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
+  #|(filename) => {
+  #|  const shell = document.querySelector(".diff-review-shell");
+  #|  if (!shell) return;
+  #|  const viewKey = `yunomi:diff-view:${filename}`;
+  #|  const viewedKey = `yunomi:diff-viewed:${filename}`;
+  #|  const getViewed = () => {
+  #|    try { return JSON.parse(localStorage.getItem(viewedKey) || "{}") || {}; } catch (_) { return {}; }
+  #|  };
+  #|  const setMode = (mode) => {
+  #|    const split = mode === "split";
+  #|    document.body.classList.toggle("diff-split", split);
+  #|    document.body.classList.toggle("diff-unified", !split);
+  #|    document.querySelectorAll(".diff-view-mode button").forEach((button) => {
+  #|      const active = button.getAttribute("data-mode") === mode;
+  #|      button.classList.toggle("active", active);
+  #|      button.setAttribute("aria-pressed", String(active));
+  #|    });
+  #|    try { localStorage.setItem(viewKey, mode); } catch (_) {}
+  #|  };
+  #|  setMode(localStorage.getItem(viewKey) || "unified");
+  #|  document.querySelectorAll(".diff-view-mode button").forEach((button) => {
+  #|    button.addEventListener("click", () => setMode(button.getAttribute("data-mode") || "unified"));
+  #|  });
+  #|  const applyViewed = () => {
+  #|    const viewed = getViewed();
+  #|    document.querySelectorAll(".diff-viewed-checkbox").forEach((box) => {
+  #|      const file = box.getAttribute("data-file") || "";
+  #|      box.checked = !!viewed[file];
+  #|      box.closest(".diff-file-tree-item")?.classList.toggle("viewed", !!viewed[file]);
+  #|    });
+  #|    document.querySelectorAll(".diff-file-block").forEach((block) => {
+  #|      const file = block.getAttribute("data-file") || "";
+  #|      block.classList.toggle("viewed", !!viewed[file]);
+  #|    });
+  #|  };
+  #|  applyViewed();
+  #|  document.querySelectorAll(".diff-viewed-checkbox").forEach((box) => {
+  #|    box.addEventListener("change", () => {
+  #|      const viewed = getViewed();
+  #|      viewed[box.getAttribute("data-file") || ""] = !!box.checked;
+  #|      try { localStorage.setItem(viewedKey, JSON.stringify(viewed)); } catch (_) {}
+  #|      applyViewed();
+  #|    });
+  #|  });
+  #|  document.querySelectorAll(".diff-file-link").forEach((button) => {
+  #|    button.addEventListener("click", () => {
+  #|      const file = button.getAttribute("data-file") || "";
+  #|      const target = Array.from(document.querySelectorAll(".diff-file-block")).find((block) => block.getAttribute("data-file") === file);
+  #|      target?.scrollIntoView({ block: "start", behavior: "smooth" });
+  #|    });
+  #|  });
+  #|}
+
+///|
 /// Video element control
 extern "js" fn video_pause(el : Element) -> Unit =
   #|(el) => { if (el) el.pause(); }

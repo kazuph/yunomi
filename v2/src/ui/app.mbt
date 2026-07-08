@@ -873,6 +873,7 @@ pub fn init_app() -> Unit {
     "markdown" => setup_csv_clicks()
     _ => setup_text_clicks()
   }
+  setup_diff_enhancements_dom(get_yunomi_filename())
   // Setup scroll sync and preview click for markdown mode
   if mode == "markdown" {
     setup_scroll_sync()
