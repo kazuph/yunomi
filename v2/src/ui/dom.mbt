@@ -227,6 +227,67 @@ extern "js" fn sse_event_data(e : Event) -> String =
   #|(e) => String((e && e.data) || "")
 
 ///|
+extern "js" fn apply_comment_reply_event(filename : String, data : String) -> Unit =
+  #|(filename, data) => {
+  #|  let event;
+  #|  try { event = JSON.parse(data || "{}"); } catch (_) { return; }
+  #|  const id = String(event.id || "");
+  #|  if (!id) return;
+  #|  const esc = (s) => String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
+  #|  const key = `yunomi:comment-replies:${filename || "current"}`;
+  #|  let store = {};
+  #|  try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch (_) { store = {}; }
+  #|  const list = Array.isArray(store[id]) ? store[id] : [];
+  #|  list.push({
+  #|    author: String(event.author || "agent"),
+  #|    round: Number(event.round || 1),
+  #|    text: String(event.text || "")
+  #|  });
+  #|  store[id] = list;
+  #|  localStorage.setItem(key, JSON.stringify(store));
+  #|  for (const item of document.querySelectorAll("#comment-list li[data-key]")) {
+  #|    if ((item.getAttribute("data-key") || "") !== id) continue;
+  #|    let replies = item.querySelector(".comment-inline-replies");
+  #|    if (!replies) {
+  #|      item.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies"></ul>`);
+  #|      replies = item.querySelector(".comment-inline-replies");
+  #|    }
+  #|    replies?.insertAdjacentHTML("beforeend", `<li><strong>${esc(event.author || "agent")}</strong> R${esc(event.round || 1)}: ${esc(event.text || "")}</li>`);
+  #|  }
+  #|}
+
+///|
+extern "js" fn render_comment_replies_for_file(filename : String) -> Unit =
+  #|(filename) => {
+  #|  const key = `yunomi:comment-replies:${filename || "current"}`;
+  #|  let store = {};
+  #|  try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch (_) { store = {}; }
+  #|  const esc = (s) => String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
+  #|  for (const item of document.querySelectorAll("#comment-list li[data-key]")) {
+  #|    const id = item.getAttribute("data-key") || "";
+  #|    item.querySelector(".comment-inline-replies")?.remove();
+  #|    const replies = Array.isArray(store[id]) ? store[id] : [];
+  #|    if (replies.length === 0) continue;
+  #|    const html = replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("");
+  #|    item.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies">${html}</ul>`);
+  #|  }
+  #|}
+
+///|
+extern "js" fn mark_send_now_event(data : String) -> Unit =
+  #|(data) => {
+  #|  let event;
+  #|  try { event = JSON.parse(data || "{}"); } catch (_) { return; }
+  #|  const id = String(event.key || "");
+  #|  if (!id) return;
+  #|  for (const item of document.querySelectorAll("#comment-list li[data-key]")) {
+  #|    if ((item.getAttribute("data-key") || "") !== id) continue;
+  #|    item.querySelector(".comment-sent-badge")?.remove();
+  #|    item.insertAdjacentHTML("beforeend", `<span class="comment-sent-badge sent">sent</span>`);
+  #|  }
+  #|}
+
+///|
 /// Replace current location without adding a history entry
 extern "js" fn location_replace(url : String) -> Unit =
   #|(url) => location.replace(url)

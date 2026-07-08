@@ -511,6 +511,23 @@ fn build_css() -> String {
     #|  align-items: center;
     #|  margin-top: 8px;
     #|}
+    #|.card-actions-right {
+    #|  display: inline-flex;
+    #|  align-items: center;
+    #|  gap: 8px;
+    #|}
+    #|.send-now-btn {
+    #|  border: 1px solid var(--border);
+    #|  background: var(--button-bg);
+    #|  color: var(--text);
+    #|  padding: 8px 12px;
+    #|  font-weight: 700;
+    #|  cursor: pointer;
+    #|}
+    #|.send-now-btn:hover {
+    #|  background: var(--hover-bg);
+    #|  border-color: var(--border-strong);
+    #|}
     #|.danger-text {
     #|  background: transparent !important;
     #|  border: none !important;
@@ -581,6 +598,23 @@ fn build_css() -> String {
     #|  line-height: 1.45;
     #|}
     #|.comment-list li { margin-bottom: 6px; }
+    #|.comment-inline-replies {
+    #|  margin: 6px 0 0;
+    #|  padding-left: 0;
+    #|  display: grid;
+    #|  gap: 4px;
+    #|  list-style: none;
+    #|  color: var(--muted);
+    #|  font-size: 12px;
+    #|}
+    #|.comment-inline-replies li {
+    #|  margin: 0;
+    #|  padding: 5px 7px;
+    #|  border: 1px solid var(--border);
+    #|  border-radius: var(--radius-sm);
+    #|  background: var(--panel);
+    #|}
+    #|.comment-inline-replies strong { color: var(--accent-strong); }
     #|.comment-list .hint { color: var(--muted); font-size: 12px; }
     #|.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: var(--radius-pill); background: var(--accent-soft); border: 1px solid transparent; font-size: 12px; font-weight: 500; color: var(--accent-strong); cursor: pointer; transition: background 160ms ease, border-color 160ms ease, transform 120ms ease; }
     #|.pill:hover { background: var(--hover-bg); border-color: var(--border-strong); transform: translateY(-1px); }
