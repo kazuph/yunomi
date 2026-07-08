@@ -54,6 +54,7 @@ One cup is never the whole conversation. The next major evolution of yunomi turn
 - **Talk back mid-review** — send a single comment to the agent *while you keep reading*, and watch the reply land in the thread
 - **Read-only sharing** — `yunomi share REPORT.md` serves a review URL with comment and submit actions disabled; binding stays local unless you explicitly pass `--host`
 - **GitHub PR sync** — `yunomi pull 123` imports PR review comments into `review.json`; `yunomi push 123` sends unsynced yunomi comments back through the GitHub CLI
+- **Keyboard review** — `j/k` moves through review targets, `c` comments, `n/N` jumps comments, `r` resolves threads, and `?` opens the key help
 - **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and a stdio MCP server exposing review state, comment creation, and next-round control
 
 The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi will keep reviewing **the work, not just the diff**.

@@ -71,6 +71,9 @@ let review_mux_mode : Ref[Bool] = Ref(false)
 let share_mode : Ref[Bool] = Ref(false)
 
 ///|
+let vim_keys_enabled : Ref[Bool] = Ref(true)
+
+///|
 fn resolve_notify_pane() -> String {
   if notify_pane_arg.val.length() > 0 {
     notify_pane_arg.val
@@ -328,6 +331,8 @@ fn main {
         }
       } else if arg == "--no-open" {
         no_open = true
+      } else if arg == "--no-vim" {
+        vim_keys_enabled.val = false
       } else if arg == "--host" {
         i = i + 1
         if i < args.length() {
@@ -408,6 +413,8 @@ fn main {
       }
     } else if arg == "--no-open" {
       no_open = true
+    } else if arg == "--no-vim" {
+      vim_keys_enabled.val = false
     } else if arg == "--host" {
       i = i + 1
       if i < args.length() {
@@ -629,6 +636,8 @@ fn handle_review_command(args : Array[String]) -> Unit {
       }
     } else if arg == "--no-open" {
       no_open = true
+    } else if arg == "--no-vim" {
+      vim_keys_enabled.val = false
     } else if arg == "--host" {
       i = i + 1
       if i < args.length() {
@@ -667,6 +676,7 @@ fn print_usage() -> Unit {
     #|  --port <n>        Base port (default: 4989)
     #|  --host <addr>     Bind address (default: 127.0.0.1, use 0.0.0.0 for remote)
     #|  --no-open         Don't open browser
+    #|  --no-vim          Disable Vim-style review keybindings
     #|  --loop            Keep serving after request_changes; exit only on approve
     #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
@@ -1445,10 +1455,23 @@ fn load_and_build_html(ctx : ServerContext) -> String {
     }
   }
   let with_switcher = inject_review_file_switcher(ctx, html)
+  let with_vim_config = inject_vim_key_config(with_switcher)
   if share_mode.val {
-    inject_share_readonly_ui(with_switcher)
+    inject_share_readonly_ui(with_vim_config)
   } else {
-    with_switcher
+    with_vim_config
+  }
+}
+
+///|
+fn inject_vim_key_config(html : String) -> String {
+  if vim_keys_enabled.val {
+    html
+  } else {
+    js_inject_before_body_end(
+      html,
+      "<script>window.__YUNOMI_VIM_KEYS_DISABLED__=true;</script>",
+    )
   }
 }
 
@@ -1638,6 +1661,8 @@ fn handle_share_command(args : Array[String]) -> Unit {
       }
     } else if arg == "--no-open" {
       no_open = true
+    } else if arg == "--no-vim" {
+      vim_keys_enabled.val = false
     } else if arg == "--host" {
       i = i + 1
       if i < args.length() {
