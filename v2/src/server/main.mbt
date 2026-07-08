@@ -65,6 +65,9 @@ let loop_mode : Ref[Bool] = Ref(false)
 let notify_pane_arg : Ref[String] = Ref("")
 
 ///|
+let review_mux_mode : Ref[Bool] = Ref(false)
+
+///|
 fn resolve_notify_pane() -> String {
   if notify_pane_arg.val.length() > 0 {
     notify_pane_arg.val
@@ -341,6 +344,9 @@ fn main {
     } else if args[0] == "install" {
       handle_install_command(args)
       exit_process("install command", 0)
+    } else if args[0] == "review" {
+      handle_review_command(args)
+      return
     }
   }
   let mut port = 4989
@@ -499,9 +505,141 @@ fn enforce_media_discipline(files : Array[String]) -> Unit {
 }
 
 ///|
+fn git_result(args : Array[String]) -> (Int, String, String) {
+  let git = resolve_command("git")
+  if git.length() == 0 {
+    (1, "", "git command not found")
+  } else {
+    spawn_sync_result_args(git, args)
+  }
+}
+
+///|
+fn split_nonempty_lines(text : String) -> Array[String] {
+  let out : Array[String] = []
+  for line in @core.split_to_lines(text) {
+    let trimmed = line.trim().to_owned()
+    if trimmed.length() > 0 {
+      out.push(trimmed)
+    }
+  }
+  out
+}
+
+///|
+fn push_unique(values : Array[String], value : String) -> Unit {
+  for existing in values {
+    if existing == value {
+      return
+    }
+  }
+  values.push(value)
+}
+
+///|
+fn git_stdout_or_empty(args : Array[String]) -> String {
+  let result = git_result(args)
+  if result.0 == 0 {
+    result.1.trim().to_owned()
+  } else {
+    ""
+  }
+}
+
+///|
+fn default_review_base() -> String {
+  let upstream = git_stdout_or_empty([
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}",
+  ])
+  if upstream.length() > 0 { upstream } else { "main" }
+}
+
+///|
+fn review_changed_files(base_ref : String) -> Array[String] {
+  let root_result = git_result(["rev-parse", "--show-toplevel"])
+  if root_result.0 != 0 {
+    console_error("yunomi review: not a git repository")
+    exit_process("review not git", 1)
+  }
+  let root = root_result.1.trim().to_owned()
+  let files : Array[String] = []
+  let base = if base_ref.length() > 0 { base_ref } else { default_review_base() }
+  let committed = git_result([
+    "diff",
+    "--name-only",
+    "--diff-filter=ACMR",
+    base + "...HEAD",
+  ])
+  if committed.0 != 0 {
+    let detail = committed.2.trim().to_owned()
+    let detail_suffix = if detail.length() > 0 { ": " + detail } else { "" }
+    console_error(
+      "yunomi review: git diff failed for base '" + base + "'" + detail_suffix,
+    )
+    exit_process("review diff failed", 1)
+  }
+  for file in split_nonempty_lines(committed.1) {
+    push_unique(files, path_join(root, file))
+  }
+  let working = git_result(["diff", "--name-only", "--diff-filter=ACMR"])
+  if working.0 == 0 {
+    for file in split_nonempty_lines(working.1) {
+      push_unique(files, path_join(root, file))
+    }
+  }
+  let staged = git_result(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+  if staged.0 == 0 {
+    for file in split_nonempty_lines(staged.1) {
+      push_unique(files, path_join(root, file))
+    }
+  }
+  files
+}
+
+///|
+fn handle_review_command(args : Array[String]) -> Unit {
+  let mut port = 4989
+  let mut no_open = false
+  let mut base_ref = ""
+  let mut i = 1
+  while i < args.length() {
+    let arg = args[i]
+    if arg == "--port" {
+      i = i + 1
+      if i < args.length() {
+        port = parse_port(args[i])
+      }
+    } else if arg == "--no-open" {
+      no_open = true
+    } else if arg == "--host" {
+      i = i + 1
+      if i < args.length() {
+        bind_host.val = args[i]
+      }
+    } else if !arg.has_prefix("-") && base_ref.length() == 0 {
+      base_ref = arg
+    }
+    i = i + 1
+  }
+  let files = review_changed_files(base_ref)
+  if files.is_empty() {
+    console_error("yunomi review: no changed files")
+    exit_process("review no files", 1)
+  }
+  enforce_media_discipline(files)
+  server_instance_id.val = gen_instance_id()
+  init_live_log()
+  start_review_mux_server(files, port, no_open)
+}
+
+///|
 fn print_usage() -> Unit {
   let usage =
     #|Usage: yunomi <file...> [options]
+    #|       yunomi review [base-ref] [options]
     #|       yunomi live <http://localhost:port> [options]
     #|       yunomi comment <file:line> <text> [--author <name>]
     #|       yunomi install <agent> [--global|--project] [--list]
@@ -520,6 +658,7 @@ fn print_usage() -> Unit {
     #|Supported formats: CSV, TSV, Markdown, Diff, Plain text
     #|Agents: claude, codex, cursor, opencode, cline, gemini
     #|Pipe stdin for diff: git diff | yunomi
+    #|Review changed files: yunomi review main
     #|Continue a loop: yunomi go
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
     #|Live review accepts only http://localhost or http://127.0.0.1 targets.
@@ -1212,7 +1351,7 @@ fn compute_tab_title(file_path : String, filename : String) -> String {
 fn load_and_build_html(ctx : ServerContext) -> String {
   let content = decode_file(ctx.file_path, encoding_override.val)
   let tab_title = compute_tab_title(ctx.file_path, ctx.filename)
-  match ctx.mode {
+  let html = match ctx.mode {
     @core.FileMode::Csv | @core.FileMode::Tsv => {
       let delimiter = if ctx.mode == @core.FileMode::Tsv { '\t' } else { ',' }
       let flat = @core.parse_csv(content, delimiter)
@@ -1258,6 +1397,41 @@ fn load_and_build_html(ctx : ServerContext) -> String {
       )
     }
   }
+  inject_review_file_switcher(ctx, html)
+}
+
+///|
+fn context_index(ctx : ServerContext) -> Int {
+  for i, candidate in active_servers {
+    if candidate.file_path == ctx.file_path {
+      return i
+    }
+  }
+  0
+}
+
+///|
+fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
+  if !review_mux_mode.val || active_servers.length() <= 1 {
+    return html
+  }
+  let active_idx = context_index(ctx)
+  let nav = StringBuilder::new()
+  nav.write_string("<nav id=\"review-file-switcher\" class=\"review-file-switcher\" aria-label=\"Review files\">")
+  for i, candidate in active_servers {
+    let cls = if i == active_idx { " class=\"active\"" } else { "" }
+    nav.write_string("<a")
+    nav.write_string(cls)
+    nav.write_string(" href=\"/?f=")
+    nav.write_string(i.to_string())
+    nav.write_string("\">")
+    nav.write_string((i + 1).to_string())
+    nav.write_string(". ")
+    nav.write_string(@core.escape_html(candidate.filename))
+    nav.write_string("</a>")
+  }
+  nav.write_string("</nav>")
+  js_inject_before_body_end(html, nav.to_string())
 }
 
 ///|
@@ -1288,13 +1462,21 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
 
 ///|
 fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
+  let ctx = create_file_context(file_path, port)
+  ctx.html_cache = load_and_build_html(ctx)
+  ensure_review_state(ctx.file_path)
+  active_servers.push(ctx)
+  watch_review_file(ctx)
+  start_http_server(ctx, no_open)
+}
+
+///|
+fn create_file_context(file_path : String, port : Int) -> ServerContext {
   let resolved = path_resolve(file_path)
-  let filename = path_basename(resolved)
-  let mode = detect_mode(resolved)
-  let ctx : ServerContext = {
+  {
     file_path: resolved,
-    filename,
-    mode,
+    filename: path_basename(resolved),
+    mode: detect_mode(resolved),
     source_text: "",
     port,
     html_cache: "",
@@ -1308,21 +1490,21 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
     last_close_signal_ms: 0.0,
     notify_pane: resolve_notify_pane(),
   }
-  ctx.html_cache = load_and_build_html(ctx)
-  ensure_review_state(resolved)
-  active_servers.push(ctx)
-  // Watch for file changes
+}
+
+///|
+fn watch_review_file(ctx : ServerContext) -> Unit {
   if ctx.file_path != "<stdin>" {
     let clients = ctx.sse_clients
     ignore(
-      watch_file(resolved, fn(_curr, _prev) {
+      watch_file(ctx.file_path, fn(_curr, _prev) {
         ctx.html_cache = load_and_build_html(ctx)
         for client in clients {
           sse_send(client, "reload", "")
         }
       }),
     )
-    let signal_path = review_signal_path_for_file(resolved)
+    let signal_path = review_signal_path_for_file(ctx.file_path)
     write_file_secure(signal_path, "")
     ignore(
       watch_file(signal_path, fn(_curr, _prev) {
@@ -1330,7 +1512,31 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
       }),
     )
   }
-  start_http_server(ctx, no_open)
+}
+
+///|
+fn refresh_review_mux_html() -> Unit {
+  for ctx in active_servers {
+    ctx.html_cache = load_and_build_html(ctx)
+  }
+}
+
+///|
+fn start_review_mux_server(files : Array[String], port : Int, no_open : Bool) -> Unit {
+  review_mux_mode.val = true
+  expected_count.val = files.length()
+  ensure_lock_dir()
+  let actual_port = find_available_port(port)
+  for file_path in files {
+    let ctx = create_file_context(file_path, actual_port)
+    ensure_review_state(ctx.file_path)
+    active_servers.push(ctx)
+  }
+  refresh_review_mux_html()
+  for ctx in active_servers {
+    watch_review_file(ctx)
+  }
+  start_http_server(active_servers[0], no_open)
 }
 
 ///|
@@ -1534,6 +1740,29 @@ fn start_http_server(ctx : ServerContext, no_open : Bool) -> Unit {
 }
 
 ///|
+fn is_index_url(url : String) -> Bool {
+  url == "/" || url == "/index.html" || url.has_prefix("/?") ||
+  url.has_prefix("/index.html?")
+}
+
+///|
+fn selected_context(ctx : ServerContext, url : String) -> ServerContext {
+  if !review_mux_mode.val {
+    return ctx
+  }
+  let idx_s = parse_query_param(url, "f")
+  if idx_s.length() == 0 {
+    return ctx
+  }
+  let idx = @core.parse_int_safe(idx_s)
+  if idx >= 0 && idx < active_servers.length() {
+    active_servers[idx]
+  } else {
+    ctx
+  }
+}
+
+///|
 fn try_listen(
   ctx : ServerContext,
   port : Int,
@@ -1587,19 +1816,20 @@ fn try_listen(
 fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   let http_method = req_method(req)
   let url = req_url(req)
+  let request_ctx = selected_context(ctx, url)
   if
     (http_method == "GET" || http_method == "HEAD") &&
-    (url == "/" || url == "/index.html") {
+    is_index_url(url) {
     // The browser is fetching the page document itself — the very first
     // thing a reload does, well before any client JS can run. Recording
     // this lets the close-abandonment timer tell "tab is reloading" apart
     // from "tab genuinely gone" even when the reload's own JS boot (and
     // therefore its /session/open re-registration) is slow to follow.
-    ctx.last_index_get_ms = now_ms()
+    request_ctx.last_index_get_ms = now_ms()
   }
-  if http_method == "GET" && (url == "/" || url == "/index.html") {
+  if http_method == "GET" && is_index_url(url) {
     res_write_head(res, 200, "text/html; charset=utf-8")
-    res_end(res, ctx.html_cache)
+    res_end(res, request_ctx.html_cache)
   } else if http_method == "GET" && url == "/ui.js" {
     res_set_header(res, "Cache-Control", "no-store, no-cache, must-revalidate")
     res_write_head(res, 200, "application/javascript; charset=utf-8")
@@ -1726,7 +1956,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "HEAD" {
     // HEAD: same as GET but no body
-    if url == "/" || url == "/index.html" {
+    if is_index_url(url) {
       res_write_head(res, 200, "text/html; charset=utf-8")
       res_end(res, "")
     } else if url == "/healthz" {

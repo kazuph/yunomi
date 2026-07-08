@@ -744,6 +744,19 @@ extern "js" fn js_obj_error_message(obj : JsValue) -> String =
   #|(obj) => obj?.error?.message || ""
 
 ///|
+extern "js" fn js_inject_before_body_end(html : String, fragment : String) -> String =
+  #|(html, fragment) => {
+  #|  const text = String(html);
+  #|  const header = text.indexOf("</header>");
+  #|  if (header >= 0) {
+  #|    const idx = header + "</header>".length;
+  #|    return text.slice(0, idx) + fragment + text.slice(idx);
+  #|  }
+  #|  const body = text.lastIndexOf("</body>");
+  #|  return body >= 0 ? text.slice(0, body) + fragment + text.slice(body) : text + fragment;
+  #|}
+
+///|
 extern "js" fn js_spawn_opts_pipe() -> JsValue =
   #|() => ({ stdio: ["pipe", "pipe", "pipe"] })
 
@@ -1481,6 +1494,12 @@ fn send_notify_message(notify_pane : String, msg : String) -> String {
 fn spawn_sync_status_args(cmd : String, args : Array[String]) -> (Int, String) {
   let result = child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe())
   (js_obj_status(result), js_obj_stderr(result))
+}
+
+///|
+fn spawn_sync_result_args(cmd : String, args : Array[String]) -> (Int, String, String) {
+  let result = child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe())
+  (js_obj_status(result), js_obj_stdout(result), js_obj_stderr(result))
 }
 
 ///|
