@@ -52,7 +52,7 @@ One cup is never the whole conversation. The next major evolution of yunomi turn
 - **Review files** — verdicts persist to `.yunomi/reviews/` per branch, so any agent (Claude Code, Codex, Cursor, OpenCode, …) can pick the loop back up tomorrow, even after the terminal is gone
 - **Live app review** — `yunomi live http://localhost:3000` proxies your dev server so you can pin comments **directly on DOM elements** of the running app
 - **Talk back mid-review** — send a single comment to the agent *while you keep reading*, and watch the reply land in the thread
-- **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and an MCP server mode for every agent runtime
+- **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and a stdio MCP server exposing review state, comment creation, and next-round control
 
 The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi will keep reviewing **the work, not just the diff**.
 

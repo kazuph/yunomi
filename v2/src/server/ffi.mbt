@@ -1600,6 +1600,172 @@ fn json_parse_int_field(key : String, json_str : String) -> Int {
 }
 
 ///|
+extern "js" fn run_mcp_server() -> Unit =
+  #|() => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const childProcess = process.getBuiltinModule("node:child_process");
+  #|  const iso = () => new Date().toISOString();
+  #|  const escBranch = (s) => String(s || "no-branch").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "no-branch";
+  #|  const git = (cwd, args) => {
+  #|    const result = childProcess.spawnSync("git", args, { cwd, encoding: "utf8" });
+  #|    return result.status === 0 ? String(result.stdout || "").trim() : "";
+  #|  };
+  #|  const repoRoot = (cwd) => git(cwd, ["rev-parse", "--show-toplevel"]) || path.resolve(cwd || ".");
+  #|  const branchName = (root) => git(root, ["branch", "--show-current"]) || "no-branch";
+  #|  const reviewDir = (cwd) => {
+  #|    if (process.env.YUNOMI_REVIEW_DIR) return process.env.YUNOMI_REVIEW_DIR;
+  #|    const root = repoRoot(cwd);
+  #|    return path.join(root, ".yunomi", "reviews", escBranch(branchName(root)));
+  #|  };
+  #|  const reviewPath = (cwd) => path.join(reviewDir(cwd), "review.json");
+  #|  const serverPath = (cwd) => path.join(reviewDir(cwd), "server.json");
+  #|  const signalPath = (cwd) => path.join(reviewDir(cwd), "go.signal");
+  #|  const ensureDir = (dir) => fs.mkdirSync(dir, { recursive: true });
+  #|  const displayFile = (cwd, file) => {
+  #|    const abs = path.resolve(cwd || ".", file || "");
+  #|    const root = repoRoot(path.dirname(abs));
+  #|    const rel = path.relative(root, abs);
+  #|    return rel && !rel.startsWith("..") ? rel : path.basename(abs);
+  #|  };
+  #|  const readReview = (cwd) => {
+  #|    const p = reviewPath(cwd);
+  #|    if (!fs.existsSync(p)) return { version: 1, branch: branchName(repoRoot(cwd || ".")), files: [], rounds: [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }], comments: [] };
+  #|    return JSON.parse(fs.readFileSync(p, "utf8") || "{}");
+  #|  };
+  #|  const writeReview = (cwd, review) => {
+  #|    const dir = reviewDir(cwd);
+  #|    ensureDir(dir);
+  #|    fs.writeFileSync(path.join(dir, "review.json"), JSON.stringify(review, null, 2));
+  #|    return path.join(dir, "review.json");
+  #|  };
+  #|  const lineContext = (file, line) => {
+  #|    try {
+  #|      const lines = fs.readFileSync(path.resolve(file), "utf8").split(/\r?\n/);
+  #|      const idx = Math.max(0, Number(line || 1) - 1);
+  #|      return {
+  #|        snippet: String(lines[idx] || ""),
+  #|        context_before: idx > 0 ? String(lines[idx - 1] || "") : "",
+  #|        context_after: idx + 1 < lines.length ? String(lines[idx + 1] || "") : ""
+  #|      };
+  #|    } catch (_) {
+  #|      return { snippet: "", context_before: "", context_after: "" };
+  #|    }
+  #|  };
+  #|  const addComment = (args) => {
+  #|    const cwd = path.resolve(args.cwd || process.cwd());
+  #|    const file = String(args.file || "");
+  #|    const line = Number(args.line || 1);
+  #|    const text = String(args.text || "");
+  #|    if (!file || !text) throw new Error("file and text are required");
+  #|    const review = readReview(cwd);
+  #|    review.version = review.version || 1;
+  #|    review.files = Array.isArray(review.files) ? review.files : [];
+  #|    const display = displayFile(cwd, file);
+  #|    if (!review.files.includes(display)) review.files.push(display);
+  #|    review.rounds = Array.isArray(review.rounds) && review.rounds.length ? review.rounds : [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }];
+  #|    review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|    const currentRound = Number((review.rounds[review.rounds.length - 1] || {}).round || 1);
+  #|    const id = String(args.id || `mcp-${currentRound}-${review.comments.length + 1}`);
+  #|    const abs = path.resolve(cwd, file);
+  #|    review.comments.push({
+  #|      id,
+  #|      file: display,
+  #|      line,
+  #|      round: currentRound,
+  #|      text,
+  #|      author: String(args.author || "mcp"),
+  #|      status: "unresolved",
+  #|      replies: [],
+  #|      anchor: lineContext(abs, line)
+  #|    });
+  #|    const p = writeReview(cwd, review);
+  #|    return { id, path: p, comment_count: review.comments.length };
+  #|  };
+  #|  const goRound = (args) => {
+  #|    const cwd = path.resolve(args.cwd || process.cwd());
+  #|    const dir = reviewDir(cwd);
+  #|    const sp = serverPath(cwd);
+  #|    if (fs.existsSync(sp)) {
+  #|      try {
+  #|        const server = JSON.parse(fs.readFileSync(sp, "utf8") || "{}");
+  #|        if (Number(server.pid) > 0) {
+  #|          try {
+  #|            process.kill(Number(server.pid), 0);
+  #|            ensureDir(dir);
+  #|            fs.writeFileSync(signalPath(cwd), iso());
+  #|            return { notified: true, path: signalPath(cwd) };
+  #|          } catch (_) {}
+  #|        }
+  #|      } catch (_) {}
+  #|    }
+  #|    const review = readReview(cwd);
+  #|    review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|    const last = review.rounds[review.rounds.length - 1];
+  #|    const next = last ? Number(last.round || review.rounds.length) + 1 : 1;
+  #|    if (!last || last.submitted_at) review.rounds.push({ round: next, started_at: iso(), submitted_at: null, decision: null, summary: "" });
+  #|    const p = writeReview(cwd, review);
+  #|    return { notified: false, path: p, round: Number((review.rounds[review.rounds.length - 1] || {}).round || 1) };
+  #|  };
+  #|  const tools = [
+  #|    { name: "yunomi_review_state", description: "Read the current yunomi review.json state for a repository branch.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
+  #|    { name: "yunomi_add_comment", description: "Add a structured review comment to yunomi review.json.", inputSchema: { type: "object", required: ["file", "line", "text"], properties: { cwd: { type: "string" }, file: { type: "string" }, line: { type: "number" }, text: { type: "string" }, author: { type: "string" }, id: { type: "string" } } } },
+  #|    { name: "yunomi_go", description: "Advance or notify the next yunomi review round.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } }
+  #|  ];
+  #|  const resultContent = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] });
+  #|  const callTool = (name, args) => {
+  #|    if (name === "yunomi_review_state") return resultContent(readReview(path.resolve((args && args.cwd) || process.cwd())));
+  #|    if (name === "yunomi_add_comment") return resultContent(addComment(args || {}));
+  #|    if (name === "yunomi_go") return resultContent(goRound(args || {}));
+  #|    throw new Error(`unknown tool: ${name}`);
+  #|  };
+  #|  const send = (msg) => {
+  #|    const body = JSON.stringify(msg);
+  #|    process.stdout.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
+  #|  };
+  #|  const handle = (msg) => {
+  #|    if (!msg || !msg.method) return;
+  #|    try {
+  #|      if (msg.method === "initialize") {
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "3.0.0-alpha.1" } } });
+  #|      } else if (msg.method === "tools/list") {
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { tools } });
+  #|      } else if (msg.method === "tools/call") {
+  #|        const params = msg.params || {};
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: callTool(String(params.name || ""), params.arguments || {}) });
+  #|      } else if (msg.id != null) {
+  #|        send({ jsonrpc: "2.0", id: msg.id, error: { code: -32601, message: `method not found: ${msg.method}` } });
+  #|      }
+  #|    } catch (e) {
+  #|      if (msg.id != null) send({ jsonrpc: "2.0", id: msg.id, error: { code: -32000, message: e && e.message ? e.message : String(e) } });
+  #|    }
+  #|  };
+  #|  let buffer = Buffer.alloc(0);
+  #|  const pump = () => {
+  #|    while (true) {
+  #|      const sep = buffer.indexOf("\r\n\r\n");
+  #|      if (sep < 0) return;
+  #|      const header = buffer.slice(0, sep).toString("utf8");
+  #|      const match = header.match(/Content-Length:\s*(\d+)/i);
+  #|      if (!match) {
+  #|        buffer = buffer.slice(sep + 4);
+  #|        continue;
+  #|      }
+  #|      const length = Number(match[1]);
+  #|      const total = sep + 4 + length;
+  #|      if (buffer.length < total) return;
+  #|      const body = buffer.slice(sep + 4, total).toString("utf8");
+  #|      buffer = buffer.slice(total);
+  #|      try { handle(JSON.parse(body)); } catch (e) { process.stderr.write(`yunomi mcp: invalid json ${e.message}\n`); }
+  #|    }
+  #|  };
+  #|  process.stdin.on("data", chunk => { buffer = Buffer.concat([buffer, chunk]); pump(); });
+  #|  process.stdin.on("end", () => process.exit(0));
+  #|  process.stdin.resume();
+  #|}
+
+///|
+///|
 /// Save base64 image to file, returns filepath or ""
 fn base64_to_file(data : String, dir : String, index : Int) -> String {
   let ext = extract_base64_ext(data)
