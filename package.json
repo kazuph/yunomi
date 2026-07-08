@@ -1,6 +1,6 @@
 {
   "name": "yunomi",
-  "version": "2.3.0",
+  "version": "3.0.0-alpha.1",
   "description": "yunomi 🍵 — Human-in-the-loop approval gate for AI coding workflows. The AI serves its report; you review and approve. (formerly reviw)",
   "type": "module",
   "bin": {
