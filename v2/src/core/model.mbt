@@ -4,6 +4,7 @@ pub(all) enum FileMode {
   Csv
   Tsv
   Markdown
+  Html
   Diff
   Text
 } derive(Debug, Eq)
@@ -14,6 +15,7 @@ pub fn FileMode::to_string(self : FileMode) -> String {
     Csv => "csv"
     Tsv => "tsv"
     Markdown => "markdown"
+    Html => "html"
     Diff => "diff"
     Text => "text"
   }
@@ -25,6 +27,7 @@ pub fn FileMode::from_extension(ext : String) -> FileMode {
     "csv" => Csv
     "tsv" | "tab" => Tsv
     "md" | "markdown" => Markdown
+    "html" | "htm" => Html
     "diff" | "patch" => Diff
     _ => Text
   }

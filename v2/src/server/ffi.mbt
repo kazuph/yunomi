@@ -511,6 +511,254 @@ extern "js" fn start_live_proxy(
   #|}
 
 ///|
+/// Start a static HTML preview server. The top page is a yunomi chrome with a
+/// sandboxed iframe; the iframe target receives the same selector/bounds
+/// commenting overlay as live review, but assets are served from the HTML
+/// file's own directory.
+extern "js" fn start_html_preview_server(
+  file_path : String,
+  port : Int,
+  host : String,
+  no_open : Bool,
+  instance_id : String,
+) -> Unit =
+  #|(filePath, port, host, noOpen, instanceId) => {
+  #|  const yamlEscape = (value) => {
+  #|    const s = String(value ?? "");
+  #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
+  #|    return "'" + s.replace(/'/g, "''") + "'";
+  #|  };
+  #|  const toYaml = (payload) => {
+  #|    const comments = Array.isArray(payload.comments) ? payload.comments : [];
+  #|    const lines = [];
+  #|    lines.push(`action: ${payload.action || "final_request_changes"}`);
+  #|    lines.push(`file: ${yamlEscape(filePath)}`);
+  #|    lines.push("mode: html");
+  #|    lines.push("comments:");
+  #|    for (const comment of comments) {
+  #|      lines.push(`  - row: ${Number(comment.row || 0)}`);
+  #|      lines.push(`    col: ${Number(comment.col || 0)}`);
+  #|      lines.push(`    text: ${yamlEscape(comment.text || "")}`);
+  #|      lines.push(`    selector: ${yamlEscape(comment.selector || "")}`);
+  #|      if (comment.value) lines.push(`    value: ${yamlEscape(comment.value)}`);
+  #|      if (comment.bounds) lines.push(`    bounds: ${yamlEscape(JSON.stringify(comment.bounds))}`);
+  #|    }
+  #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
+  #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
+  #|    return lines.join("\n") + "\n";
+  #|  };
+  #|  Promise.all([
+  #|    import("node:http"),
+  #|    import("node:fs"),
+  #|    import("node:path"),
+  #|    import("node:child_process")
+  #|  ]).then(([http, fs, path, childProcess]) => {
+  #|    const resolvedFile = path.resolve(filePath);
+  #|    const baseDir = path.dirname(resolvedFile);
+  #|    const filename = path.basename(resolvedFile);
+  #|    const htmlEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|    const mime = (ext) => ({
+  #|      ".html": "text/html; charset=utf-8",
+  #|      ".htm": "text/html; charset=utf-8",
+  #|      ".css": "text/css; charset=utf-8",
+  #|      ".js": "application/javascript; charset=utf-8",
+  #|      ".json": "application/json",
+  #|      ".png": "image/png",
+  #|      ".jpg": "image/jpeg",
+  #|      ".jpeg": "image/jpeg",
+  #|      ".gif": "image/gif",
+  #|      ".webp": "image/webp",
+  #|      ".svg": "image/svg+xml",
+  #|      ".ico": "image/x-icon"
+  #|    }[ext.toLowerCase()] || "application/octet-stream");
+  #|    const underBase = (candidate) => {
+  #|      const rel = path.relative(baseDir, candidate);
+  #|      return rel === "" || (!!rel && !rel.startsWith("..") && !path.isAbsolute(rel));
+  #|    };
+  #|    const overlayScript = `(() => {
+  #|      if (window.__yunomiHtmlInstalled) return;
+  #|      window.__yunomiHtmlInstalled = true;
+  #|      const comments = [];
+  #|      let enabled = true;
+  #|      let active = null;
+  #|      const style = document.createElement("style");
+  #|      style.textContent = [
+  #|        ":root{--yunomi-html-panel:rgba(246,250,240,.92);--yunomi-html-card-bg:rgba(248,251,243,.98);--yunomi-html-input-bg:#e9f0dc;--yunomi-html-border:#d7e2c4;--yunomi-html-accent:#5c8a42;--yunomi-html-accent-strong:#466b30;--yunomi-html-accent-2:#9fc47c;--yunomi-html-accent-soft:rgba(92,138,66,.12);--yunomi-html-selected-bg:rgba(92,138,66,.20);--yunomi-html-hover-bg:rgba(92,138,66,.12);--yunomi-html-text:#3b2d20;--yunomi-html-text-inverse:#fffaf0;--yunomi-html-muted:#87735b;--yunomi-html-shadow:0 18px 36px rgba(60,40,20,.12);--yunomi-html-font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}",
+  #|        ".yunomi-html-hover{outline:2px solid var(--yunomi-html-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-html-accent-soft)!important;border-radius:4px!important}",
+  #|        ".yunomi-html-pin{outline:2px solid var(--yunomi-html-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-html-selected-bg)!important;border-radius:4px!important}",
+  #|        "#yunomi-html-bar{position:fixed;z-index:2147483647;right:16px;top:16px;display:flex;gap:6px;align-items:center;background:var(--yunomi-html-panel);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:8px 10px;font:13px var(--yunomi-html-font);box-shadow:0 6px 18px rgba(60,40,20,.08);letter-spacing:0}",
+  #|        "#yunomi-html-count{display:inline-flex;min-width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:var(--yunomi-html-accent-soft);color:var(--yunomi-html-accent-strong);font-weight:700}",
+  #|        "#yunomi-html-bar button,#yunomi-html-card button{font:inherit;border:1px solid transparent;background:transparent;color:var(--yunomi-html-text);border-radius:8px;padding:6px 10px;min-height:32px;cursor:pointer}",
+  #|        "#yunomi-html-submit,#yunomi-html-card [data-yunomi-save]{background:linear-gradient(135deg,var(--yunomi-html-accent) 0%,var(--yunomi-html-accent-2) 100%)!important;color:var(--yunomi-html-text-inverse)!important;font-weight:700}",
+  #|        "#yunomi-html-card{position:fixed;z-index:2147483647;min-width:280px;max-width:360px;background:var(--yunomi-html-card-bg);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:12px;box-shadow:var(--yunomi-html-shadow);font:13px var(--yunomi-html-font);letter-spacing:0}",
+  #|        "#yunomi-html-card textarea{width:100%;height:88px;box-sizing:border-box;border-radius:8px;border:1px solid var(--yunomi-html-border);background:var(--yunomi-html-input-bg);color:var(--yunomi-html-text);padding:9px 10px;font:13px var(--yunomi-html-font);resize:vertical;outline:none}",
+  #|        "#yunomi-html-card .meta{font-size:11px;color:var(--yunomi-html-muted);margin:0 0 8px 0;word-break:break-all}"
+  #|      ].join("\\n");
+  #|      document.documentElement.appendChild(style);
+  #|      const bar = document.createElement("div");
+  #|      bar.id = "yunomi-html-bar";
+  #|      bar.innerHTML = '<strong>yunomi html</strong><span id="yunomi-html-count">0</span><button id="yunomi-html-toggle">Comment mode</button><button id="yunomi-html-submit">Submit & Exit</button>';
+  #|      document.documentElement.appendChild(bar);
+  #|      const isUi = (el) => !!el.closest?.("#yunomi-html-bar,#yunomi-html-card");
+  #|      const cssEscape = (value) => (window.CSS && CSS.escape) ? CSS.escape(value) : String(value).replace(/[^a-zA-Z0-9_-]/g, "\\\\$&");
+  #|      const selectorFor = (el) => {
+  #|        if (el.id && document.querySelectorAll("#" + cssEscape(el.id)).length === 1) return "#" + cssEscape(el.id);
+  #|        const parts = [];
+  #|        let node = el;
+  #|        while (node && node.nodeType === 1 && node !== document.documentElement) {
+  #|          let part = node.localName.toLowerCase();
+  #|          const classes = [...node.classList].filter(c => !c.startsWith("yunomi-html-")).slice(0, 2);
+  #|          if (classes.length) part += "." + classes.map(cssEscape).join(".");
+  #|          const parent = node.parentElement;
+  #|          if (parent) {
+  #|            const same = [...parent.children].filter(c => c.localName === node.localName);
+  #|            if (same.length > 1) part += ":nth-of-type(" + (same.indexOf(node) + 1) + ")";
+  #|          }
+  #|          parts.unshift(part);
+  #|          const candidate = parts.join(" > ");
+  #|          if (document.querySelectorAll(candidate).length === 1) return candidate;
+  #|          node = parent;
+  #|        }
+  #|        return parts.join(" > ");
+  #|      };
+  #|      const elementText = (el) => (el.innerText || el.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 500);
+  #|      const boundsFor = (el) => {
+  #|        const r = el.getBoundingClientRect();
+  #|        return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), viewportWidth: innerWidth, viewportHeight: innerHeight };
+  #|      };
+  #|      const updateCount = () => { document.getElementById("yunomi-html-count").textContent = String(comments.length); };
+  #|      const closeCard = () => document.getElementById("yunomi-html-card")?.remove();
+  #|      document.addEventListener("mouseover", (event) => {
+  #|        if (!enabled || isUi(event.target)) return;
+  #|        active?.classList.remove("yunomi-html-hover");
+  #|        active = event.target;
+  #|        active.classList.add("yunomi-html-hover");
+  #|      }, true);
+  #|      document.addEventListener("mouseout", (event) => {
+  #|        if (event.target === active) active.classList.remove("yunomi-html-hover");
+  #|      }, true);
+  #|      document.addEventListener("click", (event) => {
+  #|        if (!enabled || isUi(event.target)) return;
+  #|        event.preventDefault();
+  #|        event.stopPropagation();
+  #|        const el = event.target;
+  #|        const selector = selectorFor(el);
+  #|        const rect = el.getBoundingClientRect();
+  #|        closeCard();
+  #|        const card = document.createElement("div");
+  #|        card.id = "yunomi-html-card";
+  #|        card.style.left = Math.min(Math.max(12, rect.left), innerWidth - 380) + "px";
+  #|        card.style.top = Math.min(Math.max(12, rect.bottom + 8), innerHeight - 190) + "px";
+  #|        card.innerHTML = '<p class="meta"></p><textarea placeholder="Comment for this element"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-save>Save</button></div>';
+  #|        card.querySelector(".meta").textContent = selector;
+  #|        document.documentElement.appendChild(card);
+  #|        card.querySelector("textarea").focus();
+  #|        card.querySelector("[data-yunomi-cancel]").onclick = closeCard;
+  #|        card.querySelector("[data-yunomi-save]").onclick = () => {
+  #|          const text = card.querySelector("textarea").value.trim();
+  #|          if (!text) return;
+  #|          comments.push({ row: 0, col: 0, text, selector, value: elementText(el), bounds: boundsFor(el) });
+  #|          el.classList.add("yunomi-html-pin");
+  #|          updateCount();
+  #|          closeCard();
+  #|        };
+  #|      }, true);
+  #|      document.getElementById("yunomi-html-toggle").onclick = () => {
+  #|        enabled = !enabled;
+  #|        document.getElementById("yunomi-html-toggle").textContent = enabled ? "Comment mode" : "Browsing mode";
+  #|        active?.classList.remove("yunomi-html-hover");
+  #|      };
+  #|      document.getElementById("yunomi-html-submit").onclick = async () => {
+  #|        const summary = window.prompt("Overall comment", "") || "";
+  #|        await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "final_request_changes", decision: "request_changes", summary, comments }) });
+  #|        document.body.innerHTML = "<main style=\\"font:16px system-ui,sans-serif;padding:40px\\"><h1>Review submitted</h1><p>yunomi html preview can be closed.</p></main>";
+  #|      };
+  #|    })();`;
+  #|    const inject = (html) => {
+  #|      const tag = `<script data-yunomi-html="${instanceId}">${overlayScript.replaceAll("</script", "<\\\\/script")}</script>`;
+  #|      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, tag + "</body>") : html + tag;
+  #|    };
+  #|    const shell = () => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yunomi html - ${htmlEscape(filename)}</title><style>html,body{margin:0;height:100%;font:13px system-ui,-apple-system,sans-serif;background:#f6faf0;color:#3b2d20}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #d7e2c4;background:rgba(246,250,240,.94)}strong{font-size:14px}span{color:#87735b}iframe{display:block;width:100%;height:calc(100vh - 44px);border:0;background:white}</style></head><body><header><strong>${htmlEscape(filename)}</strong><span>HTML preview</span></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin" src="/__yunomi_html_target"></iframe></body></html>`;
+  #|    const sendFile = (res, target) => {
+  #|      const ext = path.extname(target);
+  #|      res.writeHead(200, { "Content-Type": mime(ext), "Cache-Control": "no-store" });
+  #|      fs.createReadStream(target).pipe(res);
+  #|    };
+  #|    const server = http.createServer((req, res) => {
+  #|      const reqUrl = new URL(req.url || "/", "http://127.0.0.1");
+  #|      if (req.method === "GET" && reqUrl.pathname === "/healthz") {
+  #|        res.writeHead(200, { "Content-Type": "application/json" });
+  #|        res.end('{"ok":true,"mode":"html"}');
+  #|        return;
+  #|      }
+  #|      if (req.method === "GET" && (reqUrl.pathname === "/" || reqUrl.pathname === "/index.html")) {
+  #|        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  #|        res.end(shell());
+  #|        return;
+  #|      }
+  #|      if (req.method === "GET" && reqUrl.pathname === "/__yunomi_html_target") {
+  #|        const body = inject(fs.readFileSync(resolvedFile, "utf8"));
+  #|        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Content-Length": Buffer.byteLength(body), "Cache-Control": "no-store" });
+  #|        res.end(body);
+  #|        return;
+  #|      }
+  #|      if (req.method === "POST" && reqUrl.pathname === "/exit") {
+  #|        const chunks = [];
+  #|        req.on("data", chunk => chunks.push(chunk));
+  #|        req.on("end", () => {
+  #|          let payload = {};
+  #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
+  #|          process.stdout.write(toYaml(payload));
+  #|          res.writeHead(200, { "Content-Type": "application/json" });
+  #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
+  #|        });
+  #|        return;
+  #|      }
+  #|      if (req.method === "GET" || req.method === "HEAD") {
+  #|        let rel;
+  #|        try {
+  #|          rel = decodeURIComponent(reqUrl.pathname);
+  #|          while (rel.startsWith("/")) rel = rel.slice(1);
+  #|        } catch (e) { rel = ""; }
+  #|        const target = path.resolve(baseDir, rel);
+  #|        if (!rel || !underBase(target) || !fs.existsSync(target) || !fs.statSync(target).isFile()) {
+  #|          res.writeHead(rel && !underBase(target) ? 403 : 404, { "Content-Type": "text/plain" });
+  #|          res.end(rel && !underBase(target) ? "Forbidden" : "Not Found");
+  #|          return;
+  #|        }
+  #|        if (req.method === "HEAD") {
+  #|          const stat = fs.statSync(target);
+  #|          res.writeHead(200, { "Content-Type": mime(path.extname(target)), "Content-Length": stat.size, "Cache-Control": "no-store" });
+  #|          res.end();
+  #|        } else {
+  #|          sendFile(res, target);
+  #|        }
+  #|        return;
+  #|      }
+  #|      res.writeHead(404, { "Content-Type": "text/plain" });
+  #|      res.end("Not Found");
+  #|    });
+  #|    server.listen(port, host, () => {
+  #|      const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  #|      const url = `http://${displayHost}:${port}`;
+  #|      console.log(`yunomi html previewing ${resolvedFile} at ${url}`);
+  #|      if (!noOpen) {
+  #|        if (process.platform === "darwin") childProcess.spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
+  #|        else if (process.platform === "win32") childProcess.spawn("cmd", ["/c", "start", url], { detached: true, stdio: "ignore" }).unref();
+  #|        else childProcess.spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
+  #|      }
+  #|    });
+  #|    server.on("error", err => {
+  #|      console.error("yunomi html: " + err.message);
+  #|      process.exit(1);
+  #|    });
+  #|  }).catch(err => {
+  #|    console.error("yunomi html: " + err.message);
+  #|    process.exit(1);
+  #|  });
+  #|}
+
+///|
 /// JSON string encoding helper
 fn json_encode_value(s : String) -> String {
   let buf = StringBuilder::new()
