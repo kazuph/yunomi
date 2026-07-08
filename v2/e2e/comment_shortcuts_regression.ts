@@ -125,7 +125,7 @@ async function main(): Promise<void> {
     [SERVER_JS, "--no-open", "--port", String(BASE_PORT), FEATURES_MD],
     {
       cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

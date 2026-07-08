@@ -202,6 +202,9 @@ fn build_page_start(
     "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>",
   )
   buf.write_string("</div></header>")
+  buf.write_string(
+    "<section class=\"review-loop-panel\" id=\"review-loop-panel\" aria-live=\"polite\"></section>",
+  )
 }
 
 ///|
@@ -246,6 +249,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"submit-modal\">")
   buf.write_string("<div class=\"modal-dialog\">")
   buf.write_string("<h3>Submit Review</h3>")
+  buf.write_string(
+    "<div class=\"review-loop-submit-state\" id=\"review-loop-submit-state\"></div>",
+  )
   buf.write_string("<p class=\"modal-summary\" id=\"modal-summary\"></p>")
   buf.write_string(
     "<label for=\"global-comment\">Overall comment (optional)</label>",

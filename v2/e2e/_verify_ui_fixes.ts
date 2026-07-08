@@ -15,7 +15,10 @@ function check(cond: boolean, msg: string, detail?: unknown) {
   else { failed++; console.error(`FAIL: ${msg}`, detail ?? ""); }
 }
 
-const proc = spawn("node", [SERVER_JS, FEATURES_MD, "--port", "5397", "--no-open"], { stdio: ["ignore", "pipe", "pipe"] });
+const proc = spawn("node", [SERVER_JS, FEATURES_MD, "--port", "5397", "--no-open"], {
+  env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "" },
+  stdio: ["ignore", "pipe", "pipe"],
+});
 await new Promise<void>((res) => {
   proc.stdout!.on("data", (d: Buffer) => { if (String(d).includes("http://")) res(); });
 });

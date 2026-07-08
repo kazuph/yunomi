@@ -569,6 +569,92 @@ extern "js" fn fetch_get(url : String, callback : (String) -> Unit) -> Unit =
   #|(url, cb) => fetch(url).then(r => r.text()).then(cb).catch(() => cb("[]"))
 
 ///|
+extern "js" fn render_review_loop_panel_json(json : String) -> Int =
+  #|(json) => {
+  #|  const panel = document.querySelector("#review-loop-panel");
+  #|  if (!panel) return 0;
+  #|  const sidebar = document.querySelector("#review-loop-sidebar");
+  #|  if (sidebar && panel.parentElement !== sidebar) sidebar.appendChild(panel);
+  #|  let state;
+  #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
+  #|  const review = state.review || {};
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const round = rounds[rounds.length - 1] || {};
+  #|  const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  if (comments.length === 0 && rounds.length <= 1) {
+  #|    panel.innerHTML = "";
+  #|    if (sidebar) sidebar.style.display = "none";
+  #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
+  #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
+  #|    return 0;
+  #|  }
+  #|  if (sidebar) sidebar.style.display = "";
+  #|  const currentRound = Number(round.round || 1);
+  #|  const unresolved = comments.filter(c => c.status !== "resolved");
+  #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
+  #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
+  #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
+  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const lineText = (line) => String((line && line.text) || "");
+  #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
+  #|  const matchCommentDiff = (c) => {
+  #|    const anchor = c.anchor || {};
+  #|    const candidates = [anchor.snippet, anchor.context_before, anchor.context_after].map(v => String(v || "")).filter(Boolean);
+  #|    const line = Number(c.line || 0);
+  #|    const related = diffLines.filter(l => {
+  #|      const text = lineText(l);
+  #|      return Math.abs(Number(l.line || 0) - line) <= 2 || candidates.some(s => text === s || text.includes(s) || s.includes(text));
+  #|    });
+  #|    const before = related.find(l => l.kind === "deletion") || { text: anchor.snippet || "" };
+  #|    const after = related.find(l => l.kind === "addition") || null;
+  #|    return { before: lineText(before), after: after ? lineText(after) : "" };
+  #|  };
+  #|  const snippetHtml = (c) => {
+  #|    const s = matchCommentDiff(c);
+  #|    const before = s.before || "No previous snippet";
+  #|    const after = s.after || "No current changed line near this anchor";
+  #|    return `<div class="review-loop-snippet" aria-label="Comment anchor diff"><div class="review-loop-snippet-label">この課題の該当箇所</div><div class="review-loop-snip-row"><span>Before</span><code>${esc(before)}</code></div><div class="review-loop-snip-row"><span>After</span><code>${esc(after)}</code></div></div>`;
+  #|  };
+  #|  const commentHtml = comments.length
+  #|    ? comments.map(c => {
+  #|        const replies = Array.isArray(c.replies) && c.replies.length
+  #|          ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
+  #|          : "";
+  #|        const hasAgentReply = Array.isArray(c.replies) && c.replies.some(r => String(r.author || "") === "agent");
+  #|        const stateText = c.status === "resolved" ? "resolved" : (hasAgentReply ? "unresolved + replied" : "unresolved");
+  #|        const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">resolved</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}">Resolve</button>`;
+  #|        return `<li class="review-loop-comment"><div class="review-loop-comment-head"><strong>${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(stateText)}]</span></div><div class="review-loop-comment-text">${esc(c.text)}</div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
+  #|      }).join("")
+  #|    : `<li class="review-loop-comment">No review threads yet</li>`;
+  #|  const diffHtml = diffLines.length
+  #|    ? diffLines.slice(0, 120).map(l => {
+  #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
+  #|        const oldNo = l.kind === "deletion" ? esc(l.line) : "";
+  #|        const newNo = l.kind === "addition" ? esc(l.line) : "";
+  #|        return `<div class="${klass}"><span class="line-num">${oldNo}</span><span class="line-num">${newNo}</span><span class="line-content">${esc(l.text)}</span></div>`;
+  #|      }).join("")
+  #|    : `<div class="history-empty">No changes since previous submitted round</div>`;
+  #|  const fromRound = Math.max(1, Number(round.round || 1) - 1);
+  #|  const file = esc((review.files || [])[0] || "REPORT.md");
+  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">All resolved — Approveできます</div>` : "";
+  #|  panel.innerHTML = `<details class="review-loop-details" open><summary class="review-loop-header"><span>Round ${esc(round.round || 1)} review loop</span><span class="review-loop-badge">${unresolved.length}</span></summary><div class="review-loop-meta">${unresolved.length} unresolved</div>${status}<div class="review-loop-body"><ol class="review-loop-list">${commentHtml}</ol><div class="review-loop-diff-block"><div class="review-loop-diff-label">Round ${esc(fromRound)} 提出時 → 現在 の ${file} 差分</div><pre class="review-loop-diff">${diffHtml}</pre></div></div></details>`;
+  #|  panel.querySelectorAll(".review-loop-resolve").forEach(btn => {
+  #|    btn.addEventListener("click", () => {
+  #|      fetch("/resolve-comment", {
+  #|        method: "POST",
+  #|        headers: { "Content-Type": "application/json" },
+  #|        body: JSON.stringify({ id: btn.getAttribute("data-review-comment-id") || "" })
+  #|      }).catch(() => {});
+  #|    });
+  #|  });
+  #|  return gateUnresolved;
+  #|}
+
+///|
+extern "js" fn get_review_loop_status_text() -> String =
+  #|() => String(window.__YUNOMI_REVIEW_LOOP_STATUS__ || "")
+
+///|
 /// Paste event handler for images
 extern "js" fn on_paste_image(handler : (String) -> Unit) -> Unit =
   #|(handler) => {

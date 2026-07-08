@@ -66,7 +66,7 @@ interface ServerHandle {
 async function startServer(testFile: string, preferredPort: number): Promise<ServerHandle> {
   const proc = spawn("node", [SERVER_JS, testFile, "--no-open", "--port", String(preferredPort)], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },
   });
 
   let stdout = "";
