@@ -292,6 +292,36 @@ fn main {
   for i in 2..<argv.length() {
     args.push(argv[i])
   }
+  if args.length() > 0 && args[0] == "live" && args.length() < 2 {
+    console_error("yunomi live: target URL is required")
+    print_usage()
+    exit_process("live target missing", 1)
+  }
+  if args.length() >= 2 && args[0] == "live" {
+    let mut port = 4989
+    let mut no_open = false
+    let mut i = 2
+    while i < args.length() {
+      let arg = args[i]
+      if arg == "--port" {
+        i = i + 1
+        if i < args.length() {
+          port = parse_port(args[i])
+        }
+      } else if arg == "--no-open" {
+        no_open = true
+      } else if arg == "--host" {
+        i = i + 1
+        if i < args.length() {
+          bind_host.val = args[i]
+        }
+      }
+      i = i + 1
+    }
+    server_instance_id.val = gen_instance_id()
+    start_live_proxy(args[1], port, bind_host.val, no_open, server_instance_id.val)
+    return
+  }
   let mut port = 4989
   let mut no_open = false
   let mut go_mode = false
@@ -447,6 +477,7 @@ fn enforce_media_discipline(files : Array[String]) -> Unit {
 fn print_usage() -> Unit {
   let usage =
     #|Usage: yunomi <file...> [options]
+    #|       yunomi live <http://localhost:port> [options]
     #|
     #|Options:
     #|  --port <n>        Base port (default: 4989)
@@ -463,6 +494,7 @@ fn print_usage() -> Unit {
     #|Pipe stdin for diff: git diff | yunomi
     #|Continue a loop: yunomi go
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
+    #|Live review accepts only http://localhost or http://127.0.0.1 targets.
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
 }
