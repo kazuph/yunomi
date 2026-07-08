@@ -2433,6 +2433,24 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   // Parse comments from JSON body
   let raw_comments = json_parse_comments(body)
   let comments : Array[@core.Comment] = []
+  let output_dir = path_join(os_homedir(), ".yunomi/outputs")
+  // Save summary images
+  let images = json_parse_images(body)
+  for i, img in images {
+    if img.length() > 0 {
+      ignore(base64_to_file(img, output_dir, i))
+    }
+  }
+  let comment_image_paths : Array[String] = []
+  let mut comment_img_idx = images.length()
+  for c in raw_comments {
+    if c.length() >= 5 && c[4].length() > 0 {
+      comment_image_paths.push(base64_to_file(c[4], output_dir, comment_img_idx))
+      comment_img_idx = comment_img_idx + 1
+    } else {
+      comment_image_paths.push("")
+    }
+  }
   // Source lines for quoting: agents consuming the verdict YAML only get a
   // row number otherwise, and resolving it against the file themselves is
   // error-prone (the documented schema promises `value: the line content`).
@@ -2445,10 +2463,20 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   } else {
     []
   }
-  for c in raw_comments {
+  for i, c in raw_comments {
     if c.length() >= 3 {
       let row = @core.parse_int_safe(c[0])
       let sent_value = if c.length() > 3 { c[3] } else { "" }
+      let before = if row > 0 && row - 1 < source_lines.length() {
+        source_lines[row - 1]
+      } else {
+        ""
+      }
+      let after = if row + 1 < source_lines.length() {
+        source_lines[row + 1]
+      } else {
+        ""
+      }
       comments.push({
         row,
         col: @core.parse_int_safe(c[1]),
@@ -2458,6 +2486,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
         } else {
           @core.quote_source_line(source_lines, row)
         },
+        context_before: before,
+        context_after: after,
+        image_path: if i < comment_image_paths.length() { comment_image_paths[i] } else { "" },
       })
     }
   }
@@ -2493,7 +2524,12 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   }
   all_results.push(result)
   if ctx.file_path != "<stdin>" {
-    update_review_on_submit(ctx.file_path, body, source_lines, current_round)
+    update_review_on_submit(
+      ctx.file_path,
+      json_with_comment_image_paths(body, comment_image_paths),
+      source_lines,
+      current_round,
+    )
   }
   // Save to history (including decision-only submits)
   if comments.length() > 0 || summary.length() > 0 || decision is Some(_) {
@@ -2508,22 +2544,6 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     entry_buf.write_string(comments.length().to_string())
     entry_buf.write_string("}")
     save_history(ctx.file_path, entry_buf.to_string())
-  }
-  // Save summary images
-  let images = json_parse_images(body)
-  let output_dir = path_join(os_homedir(), ".yunomi/outputs")
-  for i, img in images {
-    if img.length() > 0 {
-      ignore(base64_to_file(img, output_dir, i))
-    }
-  }
-  // Save per-comment images
-  let mut comment_img_idx = images.length()
-  for c in raw_comments {
-    if c.length() >= 5 && c[4].length() > 0 {
-      ignore(base64_to_file(c[4], output_dir, comment_img_idx))
-      comment_img_idx = comment_img_idx + 1
-    }
   }
   console_log(
     "Received review for \{ctx.filename} (\{comments.length()} comments)",

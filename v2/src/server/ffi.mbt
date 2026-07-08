@@ -843,6 +843,22 @@ extern "js" fn json_parse_comments(json_str : String) -> Array[Array[String]] =
   #|}
 
 ///|
+extern "js" fn json_with_comment_image_paths(json_str : String, paths : Array[String]) -> String =
+  #|(s, paths) => {
+  #|  try {
+  #|    const obj = JSON.parse(s || "{}");
+  #|    obj.comments = Array.isArray(obj.comments) ? obj.comments : [];
+  #|    obj.comments.forEach((comment, index) => {
+  #|      const imagePath = Array.isArray(paths) ? String(paths[index] || "") : "";
+  #|      if (imagePath) comment.imagePath = imagePath;
+  #|    });
+  #|    return JSON.stringify(obj);
+  #|  } catch(e) {
+  #|    return s;
+  #|  }
+  #|}
+
+///|
 extern "js" fn json_parse_first_file(json_str : String) -> String =
   #|(s) => { try { const o = JSON.parse(s); return String((o.files || [])[0] || ""); } catch(e) { return ""; } }
 
@@ -1358,7 +1374,8 @@ extern "js" fn js_review_submit_update(
   #|      author: "human",
   #|      status: "unresolved",
   #|      replies: [],
-  #|      anchor: { snippet, context_before: before, context_after: after }
+  #|      anchor: { snippet, context_before: before, context_after: after },
+  #|      image_path: String(c.imagePath || "")
   #|    });
   #|  }
   #|  return JSON.stringify(review, null, 2);

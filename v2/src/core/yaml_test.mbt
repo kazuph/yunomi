@@ -3,7 +3,7 @@ test "review to yaml single file" {
   let result : ReviewResult = {
     file: "data.csv",
     mode: Csv,
-    comments: [{ row: 1, col: 2, text: "needs review", value: "150" }],
+    comments: [{ row: 1, col: 2, text: "needs review", value: "150", context_before: "", context_after: "", image_path: "" }],
     summary: "looks good",
     answers: "",
     mermaid_errors: [],
@@ -24,7 +24,7 @@ test "review to yaml escapes special chars" {
   let result : ReviewResult = {
     file: "test.csv",
     mode: Csv,
-    comments: [{ row: 0, col: 0, text: "has: colon and #hash", value: "" }],
+    comments: [{ row: 0, col: 0, text: "has: colon and #hash", value: "", context_before: "", context_after: "", image_path: "" }],
     summary: "it's fine",
     answers: "",
     mermaid_errors: [],
@@ -78,7 +78,7 @@ test "yaml escape empty value omitted" {
   let result : ReviewResult = {
     file: "f.csv",
     mode: Csv,
-    comments: [{ row: 0, col: 0, text: "note", value: "" }],
+    comments: [{ row: 0, col: 0, text: "note", value: "", context_before: "", context_after: "", image_path: "" }],
     summary: "done",
     answers: "",
     mermaid_errors: [],
@@ -91,6 +91,34 @@ test "yaml escape empty value omitted" {
     yaml.contains("value:"),
     content=(
       #|false
+    ),
+  )
+}
+
+///|
+test "review to yaml includes structured context and image path" {
+  let result : ReviewResult = {
+    file: "test.md",
+    mode: Markdown,
+    comments: [{
+      row: 2,
+      col: 1,
+      text: "needs context",
+      value: "target line",
+      context_before: "before line",
+      context_after: "after line",
+      image_path: "/tmp/yunomi/image_0.png",
+    }],
+    summary: "done",
+    answers: "",
+    mermaid_errors: [],
+    decision: None,
+    action: Some(FinalRequestChanges),
+  }
+  debug_inspect(
+    review_to_yaml(result),
+    content=(
+      #|"action: final_request_changes\nfile: test.md\nmode: markdown\ncomments:\n  - row: 2\n    col: 1\n    text: needs context\n    value: target line\n    context:\n      before: before line\n      after: after line\n    image_path: /tmp/yunomi/image_0.png\nsummary: done\n"
     ),
   )
 }

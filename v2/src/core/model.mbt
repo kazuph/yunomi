@@ -40,6 +40,9 @@ pub(all) struct Comment {
   col : Int
   text : String
   value : String
+  context_before : String
+  context_after : String
+  image_path : String
 } derive(Debug, Eq)
 
 ///|
