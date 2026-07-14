@@ -8,7 +8,9 @@ const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-pr-sync-"));
 const REVIEW_DIR = join(WORK_DIR, "reviews");
 const BIN_DIR = join(WORK_DIR, "bin");
 const GH_LOG = join(WORK_DIR, "gh-calls.jsonl");
-const REVIEW_JSON = join(REVIEW_DIR, "review.json");
+const PULL_REVIEW_JSON = join(REVIEW_DIR, "review.json");
+const REVIEW_ID = "feature-pr-sync";
+const PUSH_REVIEW_JSON = join(REVIEW_DIR, REVIEW_ID, "review.json");
 
 let passed = 0;
 let failed = 0;
@@ -22,6 +24,12 @@ function assert(condition: boolean, message: string, detail?: unknown): void {
     console.error(`FAIL: ${message}`);
     if (detail !== undefined) console.error(JSON.stringify(detail, null, 2));
   }
+}
+
+function hasStructuredCommentSchema(comment: any): boolean {
+  return ["file", "row", "col", "end_row", "end_col", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"]
+    .every((key) => Object.prototype.hasOwnProperty.call(comment || {}, key)) &&
+    Array.isArray(comment?.attachments);
 }
 
 mkdirSync(BIN_DIR, { recursive: true });
@@ -91,11 +99,37 @@ function runYunomi(args: string[]) {
 }
 
 try {
+  const missingGh = spawnSync(process.execPath, [SERVER_JS, "pull", "42"], {
+    cwd: WORK_DIR,
+    encoding: "utf8",
+    env: { ...process.env, PATH: "", YUNOMI_REVIEW_DIR: REVIEW_DIR },
+  });
+  assert(
+    missingGh.status === 1 && missingGh.stderr.includes("gh repo view failed"),
+    "GitHub sync explains that the gh command is unavailable",
+    missingGh,
+  );
+
   const pulled = runYunomi(["pull", "42"]);
   assert(pulled.status === 0 && pulled.stdout.includes('"imported":1'), "yunomi pull imports GitHub review comments", pulled);
-  const afterPull = JSON.parse(readFileSync(REVIEW_JSON, "utf8"));
+  const afterPull = JSON.parse(readFileSync(PULL_REVIEW_JSON, "utf8"));
   const imported = afterPull.comments.find((comment: { id?: string }) => comment.id === "gh-1001");
   assert(imported?.text === "GitHub review comment", "pulled GitHub comment is stored as a yunomi comment", imported);
+  assert(
+    hasStructuredCommentSchema(imported) &&
+      imported.row === 11 &&
+      imported.col === 0 &&
+      imported.end_row === 11 &&
+      imported.end_col === 0 &&
+      imported.snippet === "@@ line context" &&
+      imported.context_before === "" &&
+      imported.context_after === "" &&
+      imported.selector === "" &&
+      imported.bounds === "" &&
+      imported.element_text === "@@ line context",
+    "pulled GitHub comment has the common top-level structured schema",
+    imported,
+  );
   assert(imported?.github?.comment_id === "1001", "pulled comment records GitHub metadata", imported);
   assert(imported?.replies?.[0]?.text === "GitHub threaded reply", "pull maps GitHub threaded replies into yunomi replies", imported);
 
@@ -111,13 +145,27 @@ try {
     replies: [],
     anchor: { snippet: "target", context_before: "", context_after: "" },
   });
-  writeFileSync(REVIEW_JSON, JSON.stringify(afterPull, null, 2));
+  mkdirSync(join(REVIEW_DIR, REVIEW_ID), { recursive: true });
+  writeFileSync(PUSH_REVIEW_JSON, JSON.stringify(afterPull, null, 2));
 
-  const pushed = runYunomi(["push", "42"]);
+  const pushed = runYunomi(["push", REVIEW_ID, "42"]);
   assert(pushed.status === 0 && pushed.stdout.includes('"pushed":1'), "yunomi push sends unsynced yunomi comments to GitHub", pushed);
-  const afterPush = JSON.parse(readFileSync(REVIEW_JSON, "utf8"));
+  const afterPush = JSON.parse(readFileSync(PUSH_REVIEW_JSON, "utf8"));
   const local = afterPush.comments.find((comment: { id?: string }) => comment.id === "local-1");
   assert(local?.github?.comment_id === "9001", "push marks the local comment as GitHub-synced", local);
+  assert(
+    hasStructuredCommentSchema(local) &&
+      local.row === 6 &&
+      local.end_row === 6 &&
+      local.snippet === "target" &&
+      local.context_before === "" &&
+      local.context_after === "" &&
+      local.selector === "" &&
+      local.bounds === "" &&
+      local.element_text === "target",
+    "push normalizes old review.json comments that only had anchor context",
+    local,
+  );
 
   const ghCalls = readFileSync(GH_LOG, "utf8").trim().split("\n").map((line) => JSON.parse(line));
   const pushCall = ghCalls.find((args: string[]) => args[0] === "api" && args.includes("body=Push this yunomi comment"));
@@ -129,6 +177,20 @@ try {
       pushCall.includes("side=RIGHT"),
     "push uses GitHub PR review-comment API arguments",
     { pushCall, ghCalls },
+  );
+
+  const missingReviewId = runYunomi(["push", "42"]);
+  assert(
+    missingReviewId.status === 1 && missingReviewId.stderr.includes("review-id"),
+    "push rejects the old ambiguous form without an explicit review id",
+    missingReviewId,
+  );
+
+  const unknownReviewId = runYunomi(["push", "does-not-exist", "42"]);
+  assert(
+    unknownReviewId.status === 1 && unknownReviewId.stderr.includes("review-id not found"),
+    "push rejects an unknown review id instead of silently creating an empty review",
+    unknownReviewId,
   );
 } catch (error) {
   failed++;

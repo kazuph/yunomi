@@ -119,3 +119,36 @@ test "install_target_path: claude global skill path follows claude convention" {
     content="true",
   )
 }
+
+///|
+test "sapling_status_paths: extracts modified and added paths" {
+  debug_inspect(
+    sapling_status_paths("M src/review.mbt\nA docs/PLAN.md\n"),
+    content="[\"src/review.mbt\", \"docs/PLAN.md\"]",
+  )
+}
+
+///|
+test "sapling_status_paths: ignores blank status rows and deduplicates paths" {
+  debug_inspect(
+    sapling_status_paths("\nM src/review.mbt\nM src/review.mbt\n"),
+    content="[\"src/review.mbt\"]",
+  )
+}
+
+///|
+test "summary_image_filename: includes review identifier and image index" {
+  debug_inspect(
+    summary_image_filename("srv/abc:123", "submit/def:456", 2, "png"),
+    content="\"summary-srv-abc-123-submit-def-456-2.png\"",
+  )
+}
+
+///|
+test "summary_image_filename: avoids multi-file submit collisions at same index" {
+  debug_inspect(
+    summary_image_filename("srv-1", "submit-a", 0, "png") !=
+      summary_image_filename("srv-1", "submit-b", 0, "png"),
+    content="true",
+  )
+}

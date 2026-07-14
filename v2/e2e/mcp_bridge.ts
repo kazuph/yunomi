@@ -108,9 +108,23 @@ function textContent(response: unknown): string {
   return String(content[0]?.text || "");
 }
 
-writeFileSync(sampleFile, "alpha\nbeta target\ngamma\n");
+function assertStructuredComment(comment: any, message: string): void {
+  const keys = ["file", "row", "col", "end_row", "end_col", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"];
+  assert(keys.every((key) => Object.prototype.hasOwnProperty.call(comment || {}, key)), message, comment);
+  assert(Array.isArray(comment?.attachments), `${message}: attachments is an array`, comment);
+}
+
+writeFileSync(sampleFile, "alpha\nbeta target\ngamma\ndelta\nepsilon\n");
 
 try {
+  const projectMcp = JSON.parse(readFileSync(new URL("../../.mcp.json", import.meta.url), "utf8"));
+  assert(
+    projectMcp?.mcpServers?.yunomi?.command === "node" &&
+      projectMcp?.mcpServers?.yunomi?.args?.join(" ") === "./dist/server/server.js mcp",
+    "project .mcp.json registers the packaged yunomi stdio server",
+    projectMcp,
+  );
+
   const client = new McpClient();
   try {
     const init = await client.request("initialize", {
@@ -153,7 +167,23 @@ try {
     });
     const review = JSON.parse(textContent(state));
     const comment = review.comments?.[0];
-    assert(comment?.text === "MCP comment text" && comment?.anchor?.snippet === "beta target", "MCP review_state returns structured comment context", comment);
+    assertStructuredComment(comment, "MCP add_comment writes top-level structured comment schema");
+    assert(
+      comment?.text === "MCP comment text" &&
+        comment?.row === 1 &&
+        comment?.col === 0 &&
+        comment?.end_row === 1 &&
+        comment?.end_col === 0 &&
+        comment?.snippet.includes("beta target") &&
+        comment?.context_before === "alpha" &&
+        comment?.context_after.includes("gamma") &&
+        comment?.selector === "" &&
+        comment?.bounds === "" &&
+        comment?.element_text === comment?.snippet &&
+        comment?.anchor?.snippet === comment?.snippet,
+      "MCP review_state returns structured comment context",
+      comment,
+    );
 
     const go = await client.request("tools/call", {
       name: "yunomi_go",
@@ -162,6 +192,19 @@ try {
     const goResult = JSON.parse(textContent(go));
     const afterGo = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));
     assert(goResult.round === 1 && afterGo.rounds.length === 1, "MCP go is idempotent while the current round is still open", goResult);
+
+    afterGo.comments.push({
+      id: "legacy-1",
+      file: "legacy.txt",
+      line: 3,
+      round: 1,
+      text: "legacy anchor-only comment",
+      author: "legacy",
+      status: "unresolved",
+      replies: [],
+      anchor: { snippet: "legacy snippet", context_before: "legacy before", context_after: "legacy after" },
+    });
+    writeFileSync(join(REVIEW_DIR, "review.json"), JSON.stringify(afterGo, null, 2));
 
     const listedReviews = await client.request("tools/call", {
       name: "mcp__yunomi__list_reviews",
@@ -176,6 +219,22 @@ try {
     });
     const aliasReview = JSON.parse(textContent(aliasState));
     assert(aliasReview.comments?.[0]?.text === "MCP comment text", "MCP get_review alias returns review.json content", aliasReview.comments?.[0]);
+    const legacy = aliasReview.comments?.find((entry: any) => entry.id === "legacy-1");
+    assertStructuredComment(legacy, "MCP get_review alias normalizes legacy anchor-only review.json comments");
+    assert(
+      legacy?.row === 2 &&
+        legacy?.col === 0 &&
+        legacy?.end_row === 2 &&
+        legacy?.end_col === 0 &&
+        legacy?.snippet === "legacy snippet" &&
+        legacy?.context_before === "legacy before" &&
+        legacy?.context_after === "legacy after" &&
+        legacy?.selector === "" &&
+        legacy?.bounds === "" &&
+        legacy?.element_text === "legacy snippet",
+      "MCP legacy normalization preserves anchor context and fills common fields",
+      legacy,
+    );
 
     const aliasGo = await client.request("tools/call", {
       name: "mcp__yunomi__advance_round",

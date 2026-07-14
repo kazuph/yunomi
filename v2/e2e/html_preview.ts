@@ -1,8 +1,9 @@
 import http, { type IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { chromium } from "playwright";
 
 const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
@@ -41,28 +42,6 @@ function httpGet(path: string): Promise<{ status: number; body: Buffer; headers:
   });
 }
 
-function httpPost(path: string, payload: unknown): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload);
-    const req = http.request(`http://127.0.0.1:${PORT}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Content-Length": Buffer.byteLength(body),
-      },
-    }, (res: IncomingMessage) => {
-      const chunks: Buffer[] = [];
-      res.on("data", (chunk: Buffer) => chunks.push(chunk));
-      res.on("end", () => resolve({
-        status: res.statusCode ?? 0,
-        body: Buffer.concat(chunks).toString("utf8"),
-      }));
-    });
-    req.on("error", reject);
-    req.end(body);
-  });
-}
-
 async function waitForReady(): Promise<boolean> {
   for (let i = 0; i < 50; i++) {
     try {
@@ -84,7 +63,17 @@ function waitForExit(proc: ChildProcess, timeoutMs: number): Promise<number | "t
   });
 }
 
+function yamlCommentBlock(text: string): string {
+  const start = text.indexOf("comments:\n");
+  if (start < 0) return "";
+  const after = text.slice(start + "comments:\n".length);
+  const end = after.search(/\nsummary:/);
+  return end >= 0 ? after.slice(0, end) : after;
+}
+
 const dir = mkdtempSync(join(tmpdir(), "yunomi-html-preview-"));
+const reviewDir = join(dir, "reviews");
+mkdirSync(reviewDir, { recursive: true });
 const htmlFile = join(dir, "page.html");
 const logoFile = join(dir, "logo.png");
 writeFileSync(logoFile, Buffer.from(
@@ -111,7 +100,10 @@ const proc = spawn("node", [
   "127.0.0.1",
   "--port",
   String(PORT),
-], { stdio: ["ignore", "pipe", "pipe"] });
+], {
+  stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_REVIEW_DIR: reviewDir },
+});
 
 let output = "";
 proc.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
@@ -138,26 +130,53 @@ try {
   assert(String(logo.headers["content-type"]).includes("image/png"), "relative image asset keeps image/png content type");
   assert(logo.body.length > 0, "relative image asset has a body");
 
-  const submit = await httpPost("/exit", {
-    action: "final_request_changes",
-    decision: "request_changes",
-    summary: "html preview summary",
-    comments: [{
-      row: 0,
-      col: 0,
-      text: "CTA wording is too terse",
-      selector: "#cta",
-      value: "Buy",
-      bounds: { x: 10, y: 20, width: 80, height: 30 },
-    }],
-  });
-  assert(submit.status === 200, "HTML preview /exit accepts comment payload");
-  const exitCode = await waitForExit(proc, 5000);
-  assert(exitCode === 0, "HTML preview exits after submit");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+    const frame = page.frameLocator("#yunomi-html-frame");
+    const submitButton = frame.locator("#yunomi-html-submit");
+    assert(await submitButton.isVisible(), "HTML preview always shows Submit & Exit");
+    await frame.locator("#cta").click();
+    await frame.locator("#yunomi-html-card textarea").fill("CTA wording is too terse");
+    await frame.locator("#yunomi-html-card [data-yunomi-save]").click();
+    const exitPromise = waitForExit(proc, 5000);
+    await submitButton.click();
+    await frame.locator("#yunomi-html-submit-card textarea").fill("HTML needs a clearer CTA");
+    await frame.locator("#yunomi-html-submit-card input[value='request_changes']").check();
+    await frame.locator("#yunomi-html-submit-card [data-yunomi-submit]").click();
+    const exitCode = await exitPromise;
+    assert(exitCode === 0, "HTML preview Submit & Exit finishes the review");
+    await page.close();
+  } finally {
+    await browser.close();
+  }
+
+  assert(output.includes("CTA wording is too terse"), "HTML preview /exit accepts comment payload");
+  assert(output.includes("summary: HTML needs a clearer CTA"), "HTML preview submit preserves summary text");
+  assert(output.includes("decision: request_changes"), "HTML preview submit can request changes");
   assert(output.includes("mode: html"), "submitted YAML includes mode: html");
+  const commentBlock = yamlCommentBlock(output);
+  const requiredKeys = ["file", "row", "col", "end_row", "end_col", "text", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"];
+  assert(requiredKeys.every((key) => new RegExp(`(^|\\n)\\s{2,}(-\\s+)?${key}:`).test(commentBlock)), "HTML preview YAML comment block includes every common schema key");
+  assert(commentBlock.includes("file: page.html"), "HTML preview YAML uses basename when the file is outside the process cwd");
+  assert(!commentBlock.includes(htmlFile) && !commentBlock.includes(dir), "HTML preview YAML common file field does not expose absolute temp paths");
+  assert(commentBlock.includes("row: 0"), "HTML preview YAML includes row");
+  assert(commentBlock.includes("col: 0"), "HTML preview YAML includes col");
+  assert(commentBlock.includes("end_row: 0"), "HTML preview YAML includes end_row");
+  assert(commentBlock.includes("end_col: 0"), "HTML preview YAML includes end_col");
+  assert(commentBlock.includes("snippet: Buy"), "HTML preview YAML includes snippet");
+  assert(commentBlock.includes("context_before:"), "HTML preview YAML includes context_before");
+  assert(commentBlock.includes("context_after:"), "HTML preview YAML includes context_after");
   assert(output.includes("selector: '#cta'") || output.includes("selector: #cta"), "submitted YAML includes selector");
   assert(output.includes("value: Buy"), "submitted YAML includes element text");
   assert(output.includes("bounds:"), "submitted YAML includes bounds");
+  assert(commentBlock.includes("element_text: Buy"), "HTML preview YAML includes element_text");
+  assert(commentBlock.includes("attachments: []"), "HTML preview YAML includes attachments");
+  const review = JSON.parse(readFileSync(join(reviewDir, "review.json"), "utf8"));
+  const persisted = review.comments?.find((comment: any) => comment.text === "CTA wording is too terse");
+  assert(requiredKeys.every((key) => Object.prototype.hasOwnProperty.call(persisted || {}, key)), "HTML preview /exit persists every common schema key to review.json");
+  assert(persisted?.file === "page.html" && persisted?.selector === "#cta" && persisted?.element_text === "Buy", "HTML preview review.json preserves relative file and DOM context");
 } catch (err: unknown) {
   failed++;
   console.error(`FAIL: ${(err as Error).message}`);

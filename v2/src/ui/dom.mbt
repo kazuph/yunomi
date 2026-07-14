@@ -209,6 +209,41 @@ extern "js" fn set_theme(theme : String) -> Unit =
   #|(theme) => document.documentElement.setAttribute("data-theme", theme)
 
 ///|
+extern "js" fn init_color_scheme_menu() -> Unit =
+  #|() => {
+  #|  const root = document.documentElement;
+  #|  const picker = document.getElementById("theme-picker");
+  #|  const toggle = document.getElementById("theme-menu-toggle");
+  #|  const menu = document.getElementById("theme-menu");
+  #|  if (!picker || !toggle || !menu) return;
+  #|  const buttons = Array.from(menu.querySelectorAll("[data-color-scheme]"));
+  #|  const apply = (scheme) => {
+  #|    const safe = buttons.some((btn) => btn.getAttribute("data-color-scheme") === scheme) ? scheme : "primer";
+  #|    root.setAttribute("data-color-scheme", safe);
+  #|    try { localStorage.setItem("yunomi:color-scheme", safe); } catch (_) {}
+  #|    buttons.forEach((btn) => btn.classList.toggle("active", btn.getAttribute("data-color-scheme") === safe));
+  #|  };
+  #|  let saved = "";
+  #|  try { saved = localStorage.getItem("yunomi:color-scheme") || ""; } catch (_) {}
+  #|  apply(saved || root.getAttribute("data-color-scheme") || "primer");
+  #|  const close = () => { menu.hidden = true; toggle.setAttribute("aria-expanded", "false"); };
+  #|  toggle.addEventListener("click", (event) => {
+  #|    event.stopPropagation();
+  #|    const next = menu.hidden;
+  #|    menu.hidden = !next;
+  #|    toggle.setAttribute("aria-expanded", next ? "true" : "false");
+  #|  });
+  #|  buttons.forEach((btn) => btn.addEventListener("click", (event) => {
+  #|    event.stopPropagation();
+  #|    apply(btn.getAttribute("data-color-scheme") || "primer");
+  #|    close();
+  #|  }));
+  #|  document.addEventListener("click", (event) => {
+  #|    if (!picker.contains(event.target)) close();
+  #|  });
+  #|}
+
+///|
 /// SSE
 extern "js" fn new_event_source(url : String) -> EventSource =
   #|(url) => new EventSource(url)
@@ -474,6 +509,25 @@ extern "js" fn parse_stored_step(json : String) -> Int =
   #|}
 
 ///|
+/// Extract the active comment-card target saved immediately before a preview
+/// refresh. Older drafts return an empty array and simply restore comments.
+extern "js" fn parse_stored_active_comment(json : String) -> Array[String] =
+  #|(json) => {
+  #|  try {
+  #|    const ui = JSON.parse(json).ui || {};
+  #|    if (!ui.comment_open || !ui.active_key) return [];
+  #|    return [String(ui.active_key), String(ui.active_row || 0), String(ui.active_col || 0)];
+  #|  } catch (e) { return []; }
+  #|}
+
+///|
+/// Whether Submit Review was open when the preview refresh began.
+extern "js" fn parse_stored_submit_open(json : String) -> Bool =
+  #|(json) => {
+  #|  try { return JSON.parse(json).ui?.submit_open === true; } catch (e) { return false; }
+  #|}
+
+///|
 /// Check if stored comments JSON has expired (TTL: 3 hours)
 extern "js" fn is_storage_expired(json : String) -> Bool =
   #|(json) => {
@@ -642,8 +696,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|(json) => {
   #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (!panel) return 0;
-  #|  const sidebar = document.querySelector("#review-loop-sidebar");
-  #|  if (sidebar && panel.parentElement !== sidebar) sidebar.appendChild(panel);
   #|  let state;
   #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
   #|  const review = state.review || {};
@@ -652,49 +704,171 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
   #|  if (comments.length === 0 && rounds.length <= 1) {
   #|    panel.innerHTML = "";
-  #|    if (sidebar) sidebar.style.display = "none";
   #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
   #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
   #|    return 0;
   #|  }
-  #|  if (sidebar) sidebar.style.display = "";
   #|  const currentRound = Number(round.round || 1);
   #|  const unresolved = comments.filter(c => c.status !== "resolved");
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const ja = /^ja\b/i.test(navigator.language || "");
+  #|  const t = ja ? {
+  #|    noReply: "AIからの返信はまだありません",
+  #|    afterMissing: "この依頼に直接対応する変更は、まだ自動では確認できません",
+  #|    afterChanged: "現在の変更",
+  #|    checkState: "確認状況",
+  #|    target: "確認する対象",
+  #|    beforeTarget: "依頼時の対象",
+  #|    resolved: "解決済み",
+  #|    resolve: "確認して解決",
+  #|    resolveTitle: "依頼どおりの結果を確認してから解決にします",
+  #|    inlineLabel: "この箇所の確認項目",
+  #|    itemLabel: "確認項目",
+  #|    request: "レビューコメント",
+  #|    response: "AIからの返信",
+  #|    header: (_n) => "確認項目",
+  #|    meta: (n) => `未解決 ${n} 件`,
+  #|    reason: "今回の指摘",
+  #|    guide: "レビューの進め方",
+  #|    guideText: "依頼、現在の変更、AIからの返信を確認してから解決にします。",
+  #|    noSummary: "前回の総評はありません。各確認項目の依頼を確認してください。",
+  #|    diffLabel: (_n) => "前回提出時 → 現在の全体差分（補助情報）"
+  #|  } : {
+  #|    noReply: "No AI reply yet",
+  #|    afterMissing: "No direct matching change was detected yet",
+  #|    afterChanged: "Current change",
+  #|    checkState: "Check status",
+  #|    target: "Review target",
+  #|    beforeTarget: "Original target",
+  #|    resolved: "Resolved",
+  #|    resolve: "Resolve",
+  #|    resolveTitle: "Resolve only after verifying the requested result",
+  #|    inlineLabel: "Review target",
+  #|    itemLabel: "Review item",
+  #|    request: "Previous request",
+  #|    response: "AI reply",
+  #|    header: (_n) => "Review items",
+  #|    meta: (n) => `${n} unresolved`,
+  #|    reason: "Latest reviewer note",
+  #|    guide: "Review flow",
+  #|    guideText: "Verify the request, current changes, and AI reply before resolving.",
+  #|    noSummary: "No previous summary. Review each request.",
+  #|    diffLabel: (_n) => "Previous submission to current diff"
+  #|  };
+  #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
   #|  const lineText = (line) => String((line && line.text) || "");
   #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
   #|  const matchCommentDiff = (c) => {
   #|    const anchor = c.anchor || {};
-  #|    const candidates = [anchor.snippet, anchor.context_before, anchor.context_after].map(v => String(v || "")).filter(Boolean);
-  #|    const line = Number(c.line || 0);
-  #|    const related = diffLines.filter(l => {
-  #|      const text = lineText(l);
-  #|      return Math.abs(Number(l.line || 0) - line) <= 2 || candidates.some(s => text === s || text.includes(s) || s.includes(text));
-  #|    });
-  #|    const before = related.find(l => l.kind === "deletion") || { text: anchor.snippet || "" };
-  #|    const after = related.find(l => l.kind === "addition") || null;
-  #|    return { before: lineText(before), after: after ? lineText(after) : "" };
+  #|    const original = String(anchor.snippet || "").trim();
+  #|    // Line numbers drift after edits. Only call a changed line evidence
+  #|    // when the old source text itself matches the comment's anchor.
+  #|    // This avoids presenting an unrelated table header as the answer to
+  #|    // a review request.
+  #|    const deletionIndex = original
+  #|      ? diffLines.findIndex(l => l.kind === "deletion" && lineText(l).trim() === original)
+  #|      : -1;
+  #|    let after = "";
+  #|    if (deletionIndex >= 0) {
+  #|      for (let i = deletionIndex + 1; i < Math.min(diffLines.length, deletionIndex + 5); i += 1) {
+  #|        if (diffLines[i].kind === "addition") {
+  #|          after = lineText(diffLines[i]);
+  #|          break;
+  #|        }
+  #|      }
+  #|    }
+  #|    return { before: original || "No original source snippet was recorded", after };
+  #|  };
+  #|  const commentResponse = (c) => Array.isArray(c.replies)
+  #|    ? c.replies.filter(r => String(r.author || "") === "agent").at(-1)?.text || t.noReply
+  #|    : t.noReply;
+  #|  const commentStateText = (c) => {
+  #|    const hasAgentReply = Array.isArray(c.replies) && c.replies.some(r => String(r.author || "") === "agent");
+  #|    return c.status === "resolved" ? "resolved" : (hasAgentReply ? "unresolved + replied" : "unresolved");
   #|  };
   #|  const snippetHtml = (c) => {
   #|    const s = matchCommentDiff(c);
-  #|    const before = s.before || "No previous snippet";
-  #|    const after = s.after || "No current changed line near this anchor";
-  #|    return `<div class="review-loop-snippet" aria-label="Comment anchor diff"><div class="review-loop-snippet-label">この課題の該当箇所</div><div class="review-loop-snip-row"><span>Before</span><code>${esc(before)}</code></div><div class="review-loop-snip-row"><span>After</span><code>${esc(after)}</code></div></div>`;
+  #|    const after = s.after || t.afterMissing;
+  #|    const afterState = s.after ? t.afterChanged : t.checkState;
+  #|    return `<div class="review-loop-snippet" aria-label="Review item source evidence"><div class="review-loop-snippet-label">${esc(t.target)}</div><div class="review-loop-snip-row"><span>${esc(t.beforeTarget)}</span><code>${esc(s.before)}</code></div><div class="review-loop-snip-row"><span>${esc(afterState)}</span><code>${esc(after)}</code></div></div>`;
   #|  };
-  #|  const commentHtml = comments.length
-  #|    ? comments.map(c => {
-  #|        const replies = Array.isArray(c.replies) && c.replies.length
-  #|          ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
-  #|          : "";
-  #|        const hasAgentReply = Array.isArray(c.replies) && c.replies.some(r => String(r.author || "") === "agent");
-  #|        const stateText = c.status === "resolved" ? "resolved" : (hasAgentReply ? "unresolved + replied" : "unresolved");
-  #|        const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">resolved</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}">Resolve</button>`;
-  #|        return `<li class="review-loop-comment"><div class="review-loop-comment-head"><strong>${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(stateText)}]</span></div><div class="review-loop-comment-text">${esc(c.text)}</div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
-  #|      }).join("")
-  #|    : `<li class="review-loop-comment">No review threads yet</li>`;
+  #|  const inlineTargetFor = (c) => {
+  #|    const file = String(c.file || "");
+  #|    const snippet = norm(c.element_text || c.value || c.anchor?.snippet || "");
+  #|    const candidates = [];
+  #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
+  #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,#comment-card")) return false;
+  #|      const rect = el.getBoundingClientRect();
+  #|      const style = getComputedStyle(el);
+  #|      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+  #|    });
+  #|    if (file) candidates.push(...visibleCandidates(document.querySelectorAll(`.diff-line[data-file="${CSS.escape(file)}"]`)));
+  #|    candidates.push(...visibleCandidates(document.querySelectorAll(".diff-line")));
+  #|    if (snippet) {
+  #|      for (const el of candidates) {
+  #|        if (norm(el.textContent || "").includes(snippet)) return el;
+  #|      }
+  #|      const deletionIndex = diffLines.findIndex(l => l.kind === "deletion" && norm(lineText(l)) === snippet);
+  #|      if (deletionIndex >= 0) {
+  #|        const after = diffLines.slice(deletionIndex + 1, deletionIndex + 6).find(l => l.kind === "addition");
+  #|        if (after) {
+  #|          const afterText = norm(lineText(after));
+  #|          for (const el of visibleCandidates(document.querySelectorAll(".diff-line.addition"))) {
+  #|            if (norm(el.textContent || "").includes(afterText)) return el;
+  #|          }
+  #|          for (const el of visibleCandidates(document.querySelectorAll("[data-row],[data-source-line],[data-source-start-line]"))) {
+  #|            if (norm(el.textContent || "").includes(afterText)) return el;
+  #|          }
+  #|        }
+  #|      }
+  #|      for (const el of visibleCandidates(document.querySelectorAll("[data-row],[data-source-line],[data-source-start-line]"))) {
+  #|        if (norm(el.textContent || "").includes(snippet)) return el;
+  #|      }
+  #|    }
+  #|    const line = Number(c.line || 0);
+  #|    if (line > 0) {
+  #|      const selectors = [
+  #|        `[data-row="${line}"][data-col="${c.col || 0}"]`,
+  #|        `[data-row="${line}"]`,
+  #|        `[data-source-line="${line}"]`,
+  #|        `[data-source-start-line="${line}"]`,
+  #|      ];
+  #|      for (const selector of selectors) {
+  #|        const target = visibleCandidates(document.querySelectorAll(selector))[0];
+  #|        if (target) return target;
+  #|      }
+  #|    }
+  #|    return null;
+  #|  };
+  #|  const bindResolveButtons = (root) => {
+  #|    root.querySelectorAll(".review-loop-resolve").forEach(btn => {
+  #|      btn.addEventListener("click", () => {
+  #|        fetch("/resolve-comment", {
+  #|          method: "POST",
+  #|          headers: { "Content-Type": "application/json" },
+  #|          body: JSON.stringify({ id: btn.getAttribute("data-review-comment-id") || "" })
+  #|        }).catch(() => {});
+  #|      });
+  #|    });
+  #|  };
+  #|  const reviewLoopCard = (c, inline) => {
+  #|    const replies = Array.isArray(c.replies) && c.replies.length
+  #|      ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
+  #|      : "";
+  #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
+  #|    const klass = inline ? "review-loop-comment review-loop-inline-card" : "review-loop-comment";
+  #|    const label = inline ? t.inlineLabel : t.itemLabel;
+  #|    return `<li class="${klass}" data-review-comment-id="${esc(c.id)}"><div class="review-loop-comment-head"><strong>${esc(label)} ${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(commentStateText(c))}]</span></div><div class="review-loop-request"><span>${esc(t.request)}</span><p>${esc(c.text)}</p></div><div class="review-loop-response"><span>${esc(t.response)}</span><p>${esc(commentResponse(c))}</p></div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
+  #|  };
+  #|  document.querySelectorAll(".review-loop-inline").forEach(el => el.remove());
+  #|  if (comments.length === 0 && unresolved.length === 0) {
+  #|    panel.innerHTML = `<div class="review-loop-ready">All resolved — enjoy your tea</div>`;
+  #|    return gateUnresolved;
+  #|  }
+  #|  const commentHtml = comments.map(c => reviewLoopCard(c, false)).join("");
   #|  const diffHtml = diffLines.length
   #|    ? diffLines.slice(0, 120).map(l => {
   #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
@@ -705,18 +879,79 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    : `<div class="history-empty">No changes since previous submitted round</div>`;
   #|  const fromRound = Math.max(1, Number(round.round || 1) - 1);
   #|  const file = esc((review.files || [])[0] || "REPORT.md");
-  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">All resolved — Approveできます</div>` : "";
-  #|  panel.innerHTML = `<details class="review-loop-details" open><summary class="review-loop-header"><span>Round ${esc(round.round || 1)} review loop</span><span class="review-loop-badge">${unresolved.length}</span></summary><div class="review-loop-meta">${unresolved.length} unresolved</div>${status}<div class="review-loop-body"><ol class="review-loop-list">${commentHtml}</ol><div class="review-loop-diff-block"><div class="review-loop-diff-label">Round ${esc(fromRound)} 提出時 → 現在 の ${file} 差分</div><pre class="review-loop-diff">${diffHtml}</pre></div></div></details>`;
-  #|  panel.querySelectorAll(".review-loop-resolve").forEach(btn => {
-  #|    btn.addEventListener("click", () => {
-  #|      fetch("/resolve-comment", {
-  #|        method: "POST",
-  #|        headers: { "Content-Type": "application/json" },
-  #|        body: JSON.stringify({ id: btn.getAttribute("data-review-comment-id") || "" })
-  #|      }).catch(() => {});
-  #|    });
-  #|  });
+  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">All resolved — enjoy your tea</div>` : "";
+  #|  const previousSubmittedRound = rounds.slice(0, -1).reverse().find(r => String(r.summary || "").trim().length > 0);
+  #|  const roundSummary = String(round.summary || previousSubmittedRound?.summary || "").trim() || t.noSummary;
+  #|  panel.innerHTML = `<details class="review-loop-details" open><summary class="review-loop-header"><span class="review-loop-header-main"><span class="arrow">▸</span><span>${esc(t.header(round.round || 1))}</span></span><span class="review-loop-badge">${unresolved.length}</span></summary><div class="review-loop-meta">${esc(t.meta(unresolved.length))}</div><section class="review-loop-context"><div><span>${esc(t.reason)}</span><p>${esc(roundSummary)}</p></div><div><span>${esc(t.guide)}</span><p>${esc(t.guideText)}</p></div></section>${status}<div class="review-loop-body"><ol class="review-loop-list">${commentHtml}</ol><details class="review-loop-diff-block"><summary class="review-loop-diff-label">${esc(t.diffLabel(fromRound))}</summary><pre class="review-loop-diff">${diffHtml}</pre></details></div></details>`;
+  #|  bindResolveButtons(panel);
   #|  return gateUnresolved;
+  #|}
+
+///|
+extern "js" fn clear_inline_saved_comments() -> Unit =
+  #|() => document.querySelectorAll(".review-comment-inline").forEach(el => el.remove())
+
+///|
+extern "js" fn render_inline_saved_comment(
+  key : String,
+  row : Int,
+  col : Int,
+  text : String,
+  value : String,
+) -> Unit =
+  #|(key, row, col, text, value) => {
+  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const locale = /^ja\b/i.test(navigator.language || "");
+  #|  const labels = locale ? { comment: "コメント" } : { comment: "Comment" };
+  #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+  #|  const snippet = norm(value);
+  #|  const excluded = "#review-loop-panel,.comment-list,.modal-overlay,#comment-card,.review-loop-inline,.review-comment-inline";
+  #|  const visible = (el) => {
+  #|    if (!el || el.closest(excluded)) return false;
+  #|    const style = getComputedStyle(el);
+  #|    if (style.display === "none" || style.visibility === "hidden") return false;
+  #|    const rect = el.getBoundingClientRect();
+  #|    return rect.width > 0 && rect.height > 0;
+  #|  };
+  #|  const firstVisible = (selectors) => {
+  #|    for (const selector of selectors) {
+  #|      for (const el of document.querySelectorAll(selector)) {
+  #|        if (visible(el)) return el;
+  #|      }
+  #|    }
+  #|    return null;
+  #|  };
+  #|  let target = null;
+  #|  if (col > 0) target = firstVisible([`#md-preview [data-row="${row}"][data-col="${col}"]`, `[data-row="${row}"][data-col="${col}"]`]);
+  #|  if (!target && row > 0) {
+  #|    target = firstVisible([
+  #|      `#md-preview [data-source-line="${row}"]`,
+  #|      `#md-preview [data-source-start-line="${row}"]`,
+  #|      `.diff-line[data-new-line="${row}"]`,
+  #|      `.diff-line[data-old-line="${row}"]`,
+  #|      `.text-line[data-row="${row}"]`,
+  #|      `[data-source-line="${row}"]`,
+  #|      `[data-source-start-line="${row}"]`,
+  #|      `td[data-row="${row}"][data-col="1"]:not(#md-preview *)`,
+  #|      `[data-row="${row}"]`
+  #|    ]);
+  #|  }
+  #|  if (!target && snippet) {
+  #|    for (const el of document.querySelectorAll("#md-preview [data-source-line],#md-preview [data-source-start-line],.diff-line,.text-line,[data-row],[data-source-line],[data-source-start-line]")) {
+  #|      if (!visible(el)) continue;
+  #|      if (norm(el.textContent || "").includes(snippet)) {
+  #|        target = el;
+  #|        break;
+  #|      }
+  #|    }
+  #|  }
+  #|  if (!target || !target.parentElement) return;
+  #|  if (/^(TD|TH|TR|TBODY|THEAD|TABLE)$/.test(target.tagName || "")) return;
+  #|  const holder = document.createElement("div");
+  #|  holder.className = "review-comment-inline";
+  #|  holder.setAttribute("data-comment-key", String(key || ""));
+  #|  holder.innerHTML = `<div class="review-comment-inline-label">${labels.comment}</div><div class="review-comment-inline-text">${esc(text)}</div>`;
+  #|  target.insertAdjacentElement("afterend", holder);
   #|}
 
 ///|
@@ -1190,6 +1425,7 @@ extern "js" fn _children_count(el : Element) -> Int =
 extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|(el) => {
   #|  if (!el) return null;
+  #|  if (el.closest?.("#review-loop-panel")) return null;
   #|  if (el.classList?.contains("yunomi-comment-button")) {
   #|    el = el.__yunomiCommentTarget || el.parentElement;
   #|  }
@@ -1223,6 +1459,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|  };
   #|  for (const raw of preview.querySelectorAll(selector)) {
   #|    const el = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|    if (el.closest?.("#review-loop-panel")) continue;
   #|    if (el.matches?.("img.timeline-thumb")) continue;
   #|    if (el.closest?.(".yunomi-comment-button")) continue;
   #|    if (el.closest?.(".video-timeline") && !el.classList?.contains("timeline-thumb-wrapper")) continue;
@@ -1271,6 +1508,7 @@ extern "js" fn install_preview_comment_buttons(
   #|    const seen = new Set();
   #|    for (const raw of preview.querySelectorAll(selector)) {
   #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|      if (target.closest?.("#review-loop-panel")) continue;
   #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
   #|      const inTableCell = target.closest?.("td,th");
   #|      const isMediaTarget = target.matches?.("img:not(.timeline-thumb), video.video-preview, .timeline-thumb-wrapper");
@@ -1505,8 +1743,17 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|  if (!shell) return;
   #|  const viewKey = `yunomi:diff-view:${filename}`;
   #|  const viewedKey = `yunomi:diff-viewed:${filename}`;
+  #|  const ja = /^ja\b/i.test(navigator.language || "");
+  #|  const reviewedText = ja ? "確認済み" : "Reviewed";
+  #|  const unreviewedText = ja ? "未確認" : "Unreviewed";
+  #|  const reviewLabel = (file, isViewed) => ja
+  #|    ? `${file} を${isViewed ? "確認済み" : "未確認"}にする`
+  #|    : `Mark ${file} as ${isViewed ? "reviewed" : "unreviewed"}`;
   #|  const getViewed = () => {
   #|    try { return JSON.parse(localStorage.getItem(viewedKey) || "{}") || {}; } catch (_) { return {}; }
+  #|  };
+  #|  const setViewed = (viewed) => {
+  #|    try { localStorage.setItem(viewedKey, JSON.stringify(viewed)); } catch (_) {}
   #|  };
   #|  const setMode = (mode) => {
   #|    const split = mode === "split";
@@ -1527,8 +1774,12 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|    const viewed = getViewed();
   #|    document.querySelectorAll(".diff-viewed-checkbox").forEach((box) => {
   #|      const file = box.getAttribute("data-file") || "";
-  #|      box.checked = !!viewed[file];
-  #|      box.closest(".diff-file-tree-item")?.classList.toggle("viewed", !!viewed[file]);
+  #|      const isViewed = !!viewed[file];
+  #|      box.checked = isViewed;
+  #|      box.closest(".diff-file-tree-item")?.classList.toggle("viewed", isViewed);
+  #|      const state = box.closest(".diff-viewed-control")?.querySelector(".diff-viewed-state");
+  #|      if (state) state.textContent = isViewed ? reviewedText : unreviewedText;
+  #|      box.setAttribute("aria-label", reviewLabel(file, isViewed));
   #|    });
   #|    document.querySelectorAll(".diff-file-block").forEach((block) => {
   #|      const file = block.getAttribute("data-file") || "";
@@ -1536,11 +1787,26 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|    });
   #|  };
   #|  applyViewed();
+  #|  if (!window.__YUNOMI_SHARE_READONLY__) {
+  #|    fetch("/review-state").then((response) => response.json()).then((state) => {
+  #|      const persisted = state?.review?.viewed_files;
+  #|      if (!persisted || typeof persisted !== "object" || Array.isArray(persisted)) return;
+  #|      setViewed({ ...getViewed(), ...persisted });
+  #|      applyViewed();
+  #|    }).catch(() => {});
+  #|  }
   #|  document.querySelectorAll(".diff-viewed-checkbox").forEach((box) => {
   #|    box.addEventListener("change", () => {
   #|      const viewed = getViewed();
   #|      viewed[box.getAttribute("data-file") || ""] = !!box.checked;
-  #|      try { localStorage.setItem(viewedKey, JSON.stringify(viewed)); } catch (_) {}
+  #|      setViewed(viewed);
+  #|      if (!window.__YUNOMI_SHARE_READONLY__) {
+  #|        fetch("/review-viewed", {
+  #|          method: "POST",
+  #|          headers: { "Content-Type": "application/json" },
+  #|          body: JSON.stringify(viewed),
+  #|        }).catch(() => {});
+  #|      }
   #|      applyViewed();
   #|    });
   #|  });
@@ -1680,25 +1946,27 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|  };
   #|  document.addEventListener("keydown", (event) => {
   #|    window.__YUNOMI_VIM_LAST_KEY__ = event.key;
-  #|    if (event.key === "?") {
-  #|      event.preventDefault();
-  #|      showHelp();
-  #|      return;
-  #|    }
-  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !isTyping()) {
-  #|      const modal = document.querySelector("#submit-modal.visible");
+  #|    const composing = event.isComposing || event.keyCode === 229;
+  #|    const typing = isTyping();
+  #|    const modalOpen = dialogVisible();
+  #|    if ((event.key === "?" || event.key === "？") && !typing && !modalOpen && !composing) {
+      #|      event.preventDefault();
+      #|      showHelp();
+      #|      return;
+      #|    }
+  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !typing && !composing) {
+      #|      event.preventDefault();
+      #|      const modal = document.querySelector("#submit-modal.visible");
   #|      if (!modal) {
   #|        const submit = document.querySelector("#send-and-exit");
   #|        if (submit && visible(submit)) {
-  #|          submit.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
-  #|          event.preventDefault();
-  #|          event.stopPropagation();
+  #|          submit.click();
   #|        }
   #|      }
-  #|      return;
-  #|    }
-  #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
-  #|    if (!state.enabled || (!navKey && isTyping()) || event.metaKey || event.ctrlKey || event.altKey) return;
+      #|      return;
+      #|    }
+      #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
+  #|    if (!state.enabled || typing || composing || event.metaKey || event.ctrlKey || event.altKey) return;
   #|    if (dialogVisible() && event.key !== "n" && event.key !== "N" && event.key !== "r") return;
   #|    if ((event.key === "j" || event.key === "k") && mediaSidebarActive()) return;
   #|    let handled = false;

@@ -716,6 +716,7 @@ pub fn init_app() -> Unit {
     toggle_hljs_theme(saved_theme)
     update_theme_button(saved_theme)
   }
+  init_color_scheme_menu()
   // Setup theme toggle with localStorage persistence
   let theme_btn = query("#theme-toggle")
   if !is_null(theme_btn) {
@@ -764,6 +765,9 @@ pub fn init_app() -> Unit {
   }
   let comment_input = query("#comment-input")
   if !is_null(comment_input) {
+    // A source update may arrive while the reviewer is still composing. Keep
+    // this unsaved text in the draft on every keystroke, not only on Save.
+    on(comment_input, "input", fn(_e) { sync_active_comment_draft() })
     on(comment_input, "keydown", fn(e) {
       if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
         prevent_default(e)
@@ -794,6 +798,16 @@ pub fn init_app() -> Unit {
   let modal_cancel = query("#modal-cancel")
   if !is_null(modal_cancel) {
     on(modal_cancel, "click", fn(_e) { hide_submit_modal() })
+  }
+  let submit_modal = query("#submit-modal")
+  if !is_null(submit_modal) {
+    on(submit_modal, "click", fn(e) {
+      // The overlay is the part outside Submit Review. It is a normal
+      // dismissal path, while the draft remains available on reopen.
+      if elem_eq(event_target(e), submit_modal) {
+        hide_submit_modal()
+      }
+    })
   }
   let modal_approve = query("#modal-approve")
   if !is_null(modal_approve) {
@@ -839,6 +853,11 @@ pub fn init_app() -> Unit {
         pending_decision.val = decision_request_changes
         pending_action.val = action_final_request_changes
         submit_review(port)
+        return
+      }
+      let submit_btn = query("#send-and-exit")
+      if !is_null(submit_btn) {
+        _click_element(submit_btn)
         return
       }
     }
@@ -1154,6 +1173,25 @@ fn restore_comments() -> Unit {
     // #19 exists to fix, and the same class of bug task #21's mandatory
     // summary confirmation screen would otherwise reintroduce.
     update_questions_badge()
+    if parse_stored_submit_open(stored) {
+      show_submit_modal()
+    } else {
+      let active = parse_stored_active_comment(stored)
+      if active.length() >= 3 {
+        let key = active[0]
+        let row = str_to_int(active[1])
+        let col = str_to_int(active[2])
+        ignore(set_timeout(fn() {
+          let mut target = query("[data-row=\"\{row}\"][data-col=\"\{col}\"]")
+          if is_null(target) {
+            target = query("[data-row=\"\{row}\"]")
+          }
+          if !is_null(target) {
+            show_comment_card(target, key, row, col)
+          }
+        }, 0))
+      }
+    }
     // hide_recovery_modal() re-checks for unanswered questions once the
     // recovery modal is gone (see its doc comment) — that single re-check
     // point covers both this Restore path and the Discard path, so we don't
@@ -1530,14 +1568,22 @@ fn update_comment_indicators() -> Unit {
   for el in all_commented {
     remove_class(el, "has-comment")
   }
+  clear_inline_saved_comments()
   let mut count = 0
-  comments.each(fn(_key, comment) {
+  comments.each(fn(key, comment) {
     if comment_has_content(comment) {
       count = count + 1
       let el = resolve_comment_indicator_target(comment)
       if !is_null(el) {
         add_class(el, "has-comment")
       }
+      render_inline_saved_comment(
+        key,
+        comment.row,
+        comment.col,
+        comment.text,
+        comment.value,
+      )
     }
   })
   // Update comment count badge
@@ -1602,9 +1648,32 @@ fn show_submit_modal() -> Unit {
       }
       set_text_content(loop_state, status_text + suffix)
       set_style(loop_state, "display", "block")
+      if review_loop_unresolved_count.val == 0 {
+        add_class(loop_state, "ready")
+      } else {
+        remove_class(loop_state, "ready")
+      }
     } else {
       set_text_content(loop_state, "")
       set_style(loop_state, "display", "none")
+      remove_class(loop_state, "ready")
+    }
+  }
+  let header_badge = query("#review-loop-header-badge")
+  if !is_null(header_badge) {
+    let status_text = get_review_loop_status_text()
+    if status_text.length() > 0 {
+      set_text_content(header_badge, status_text)
+      set_style(header_badge, "display", "inline-flex")
+      if review_loop_unresolved_count.val == 0 {
+        add_class(header_badge, "ready")
+      } else {
+        remove_class(header_badge, "ready")
+      }
+    } else {
+      set_text_content(header_badge, "")
+      set_style(header_badge, "display", "none")
+      remove_class(header_badge, "ready")
     }
   }
   // Show mermaid errors if any
@@ -1644,6 +1713,7 @@ fn hide_submit_modal() -> Unit {
   if !is_null(modal) {
     remove_class(modal, "visible")
   }
+  persist_draft()
 }
 
 ///|
@@ -1794,7 +1864,6 @@ fn submit_review(_port : Int) -> Unit {
   submit_in_flight.val = true
   close_report_sent.val = true
   let url = location_origin() + "/exit"
-  let submitted_decision = pending_decision.val
   fetch_post(url, build_review_payload(), fn(response) {
     if response.contains("unresolved_comments") {
       submit_in_flight.val = false
@@ -1810,16 +1879,9 @@ fn submit_review(_port : Int) -> Unit {
     // the actual tab sees the dialog just sit there and reads it as
     // "Submit didn't work", even though the request succeeded server-side.
     hide_submit_modal()
-    if submitted_decision == decision_request_changes {
-      ls_remove(get_storage_key())
-      comments.clear()
-      update_comment_indicators()
-      load_review_loop_state()
-      submit_in_flight.val = false
-      close_report_sent.val = false
-      show_toast("Review submitted. Waiting for yunomi go.")
-      return
-    }
+    // A submitted request-for-changes is final for this browser tab too.
+    // Loop servers remain alive for `yunomi go`, but the human should not
+    // be left staring at a completed review or an inert dialog.
     ls_remove(get_storage_key())
     window_close()
     // Browsers refuse window.close() for tabs they consider
@@ -1845,6 +1907,17 @@ fn update_theme_button(theme : String) -> Unit {
         @core.icon_svg_sun
       } else {
         @core.icon_svg_moon
+      },
+    )
+  }
+  let label = query("#theme-label")
+  if !is_null(label) {
+    set_inner_html(
+      label,
+      if theme == "dark" {
+        "Dark"
+      } else {
+        "Light"
       },
     )
   }
@@ -1959,6 +2032,41 @@ let sse_server_instance : Ref[String] = Ref("")
 let suppress_next_round_reload : Ref[Bool] = Ref(false)
 
 ///|
+fn apply_live_comment_event(data : String) -> Unit {
+  let event_type = json_extract_field(data, "type")
+  let key_raw = json_extract_field(data, "key")
+  let row = str_to_int(json_extract_field(data, "row"))
+  let col = str_to_int(json_extract_field(data, "col"))
+  let text = json_extract_field(data, "text")
+  let key = if key_raw.length() > 0 {
+    key_raw
+  } else {
+    "live-" + row.to_string() + "-" + col.to_string()
+  }
+  if event_type == "delete" {
+    ignore(comments.remove(key))
+  } else if text.length() > 0 {
+    match comments.get(key) {
+      Some(existing) => {
+        comments.set(
+          key,
+          {
+            row: if row > 0 { row } else { existing.row },
+            col: if col > 0 { col } else { existing.col },
+            text,
+            image: existing.image,
+            value: existing.value,
+          },
+        )
+      }
+      None => comments.set(key, { row, col, text, image: "", value: "" })
+    }
+  }
+  update_comment_indicators()
+  persist_draft()
+}
+
+///|
 fn setup_sse(_port : Int) -> Unit {
   let url = location_origin() + "/sse"
   let es = new_event_source(url)
@@ -1992,6 +2100,9 @@ fn setup_sse(_port : Int) -> Unit {
   sse_on(es, "reply", fn(e) {
     suppress_next_round_reload.val = true
     apply_comment_reply_event(get_yunomi_filename(), sse_event_data(e))
+  })
+  sse_on(es, "comment", fn(e) {
+    apply_live_comment_event(sse_event_data(e))
   })
   sse_on(es, "send-now", fn(e) {
     mark_send_now_event(sse_event_data(e))
@@ -2060,6 +2171,33 @@ fn persist_draft() -> Unit {
   buf.write_string(collect_yunomi_draft_answers())
   buf.write_string(",\"step\":")
   buf.write_string(question_step_index.val.to_string())
+  let card = query("#comment-card")
+  // The floating card is position:fixed, whose offsetParent is null even
+  // while visible. Use its actual display state when deciding whether a
+  // preview refresh must reopen the reviewer surface.
+  let comment_open = !is_null(card) && get_computed_style(card, "display") != "none" && active_key.val.length() > 0
+  let active_comment = comments.get(active_key.val)
+  let active_row = match active_comment {
+    Some(comment) => comment.row
+    None => 0
+  }
+  let active_col = match active_comment {
+    Some(comment) => comment.col
+    None => 0
+  }
+  let submit = query("#submit-modal")
+  let submit_open = !is_null(submit) && has_class(submit, "visible")
+  buf.write_string(",\"ui\":{\"comment_open\":")
+  buf.write_string(if comment_open { "true" } else { "false" })
+  buf.write_string(",\"active_key\":")
+  buf.write_string(json_encode_string(active_key.val))
+  buf.write_string(",\"active_row\":")
+  buf.write_string(active_row.to_string())
+  buf.write_string(",\"active_col\":")
+  buf.write_string(active_col.to_string())
+  buf.write_string(",\"submit_open\":")
+  buf.write_string(if submit_open { "true" } else { "false" })
+  buf.write_char('}')
   buf.write_string(",\"timestamp\":")
   buf.write_string(date_now_string())
   buf.write_char('}')

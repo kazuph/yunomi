@@ -13,6 +13,7 @@ const REPORT = join(TMP_DIR, "REPORT.md");
 const NOTIFY_LOG = join(TMP_DIR, "notify.log");
 const NOTIFY_SCRIPT = join(TMP_DIR, "notify-capture.mjs");
 const PORT = 5173;
+let activeServer: ChildProcess | null = null;
 
 mkdirSync(REVIEW_DIR, { recursive: true });
 mkdirSync(LOCK_DIR, { recursive: true });
@@ -145,7 +146,7 @@ async function main(): Promise<void> {
     YUNOMI_NOTIFY_CMD: `${process.execPath} ${NOTIFY_SCRIPT} {msg}`,
     NOTIFY_LOG,
   };
-  const server = spawn(process.execPath, [SERVER_JS, "--no-open", "--loop", "--port", String(PORT), "--notify-pane", "p_test", REPORT], {
+  const server = activeServer = spawn(process.execPath, [SERVER_JS, "--no-open", "--loop", "--port", String(PORT), "--notify-pane", "p_test", REPORT], {
     cwd: TMP_DIR,
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -208,4 +209,10 @@ async function main(): Promise<void> {
   console.log("PASS: realtime relay e2e");
 }
 
-await main();
+try {
+  await main();
+} finally {
+  if (activeServer?.exitCode === null && activeServer.signalCode === null) {
+    activeServer.kill("SIGTERM");
+  }
+}

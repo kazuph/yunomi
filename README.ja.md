@@ -43,18 +43,25 @@ npx yunomi REPORT.md
 
 vibe codingの時代、人間はもうすべてのdiffを読みません。読むのは仕事そのもの——**意図・変更・証拠**です。yunomiは、AIの仕事と人間の判断のあいだの受け渡しの瞬間。毎回、礼儀正しく差し出されます。
 
-## ロードマップ: The Review Loop 🔁
+## Review Loop 🔁
 
-一杯で会話は終わりません。yunomiの次のメジャー進化は、1回のレビューを**多ラウンドのループ**へ変えること——AIネイティブレビューツールを定義するワークフローです：
+一杯で会話は終わりません。yunomi は、1回のレビューを**多ラウンドのループ**へ変えました——AIネイティブレビューツールを定義するワークフローです：
 
 - **ラウンド** — 修正依頼のあと、エージェントが直して `yunomi go` を実行すると、ブラウザに新しいラウンドが開き、**コメント以降に実際に何が変わったかのdiff**が表示される
 - **消えないスレッド** — コメントはラウンドを跨いで行に張り付き続け、**あなたが解決するまで未解決のまま**。「直したつもり」でフィードバックが闇に消えることはもうできない
 - **レビューファイル** — 判定は `.yunomi/reviews/` にブランチ単位で永続化。ターミナルが消えても、どのエージェント（Claude Code / Codex / Cursor / OpenCode…）でも翌日ループを再開できる
+- **変更ファイルレビュー** — `yunomi review [base-ref]` がGit・Jujutsu・Saplingの変更ファイルを検出し、Markdown・テキスト・表・diffを1つのレビューセッションで切り替えられる
 - **ライブアプリレビュー** — `yunomi live http://localhost:3000` がdevサーバーをプロキシし、動いているアプリの**DOM要素に直接ピンコメント**できる
+- **静的HTMLレビュー** — `yunomi page.html` が相対アセット付きのsandbox previewを開き、クリックした要素の文脈を記録する
+- **コードレビュー** — diffファイルにはファイルツリー、Unified/Split切替、ファイル単位のReviewed状態がある
 - **レビュー中に話しかける** — 読み進めながらコメント1件だけをエージェントへ即送信し、返信がスレッドに届くのを眺められる
+- **読み取り専用共有** — `yunomi share REPORT.md` はコメント・Submitを隠した共有URLを作る。外部公開は明示的な `--public` のときだけ
+- **GitHub PR同期** — `yunomi pull 123` でPRコメントを取り込み、`yunomi push <review-id> 123` で指定レビューの未同期コメントをGitHubへ送る
+- **Vimキーレビュー** — `j/k` で対象移動、`c` でコメント、`n/N` でコメント移動、`r` で解決、`?` でヘルプを開く
+- **レビュー管理** — `yunomi status` / `stats` / `cleanup` と `yunomi init --template` で進行状況、統計、掃除、REPORT雛形を扱う
 - **`yunomi install <agent>`** / **`yunomi mcp`** — 全エージェント環境へのワンコマンドskill配布と、MCPサーバーモード
 
-[crit](https://crit.md/) などとのギャップ分析を含む機能単位の完全な計画は [PLAN.md](./PLAN.md) にあります。中心にあるのは変わらずEvidence-firstの報告文化——yunomiはこれからも**diffではなく、仕事そのもの**をレビューします。
+[crit](https://crit.md/) などとのギャップ分析を含む機能単位の完全な計画は [PLAN.md](./PLAN.md) にあります。中心にあるのは変わらずEvidence-firstの報告文化——yunomiは**diffではなく、仕事そのもの**をレビューします。
 
 ## はじめかた（手順はこれだけ）
 
@@ -209,14 +216,23 @@ yunomi changes.diff
 ```yaml
 file: data.csv
 mode: csv
-reason: button
-at: '2025-11-26T12:00:00.000Z'
 comments:
-  - row: 2
+  - file: data.csv
+    row: 2
     col: 3
+    end_row: 2
+    end_col: 3
     text: This value needs review
     value: '150'
+    snippet: 'alpha,ready,150'
+    context_before: 'name,status,total'
+    context_after: ''
+    selector: ''
+    bounds: ''
+    element_text: ''
+    attachments: []
 summary: Overall the data looks good, minor issues noted above.
+decision: request_changes
 ```
 
 ## Claude Codeプラグイン

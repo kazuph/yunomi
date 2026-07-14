@@ -1586,13 +1586,12 @@ pub fn build_markdown_html(
   buf.write_string("<div class=\"wrap\">")
   // Side-by-side layout: media-sidebar (left) + md-left = preview + md-right = source table
   buf.write_string("<div class=\"md-layout\">")
-  buf.write_string("<aside class=\"review-loop-sidebar\" id=\"review-loop-sidebar\">")
-  buf.write_string("</aside>")
   // Media sidebar (left side, matching cli.cjs layout)
   build_media_sidebar(buf)
   // Left panel: rendered markdown preview
   buf.write_string("<div class=\"md-left\">")
   buf.write_string("<div class=\"md-preview\" id=\"md-preview\">")
+  build_review_loop_mount(buf)
   // Document Metadata table (frontmatter)
   if md.frontmatter.length() > 0 {
     buf.write_string(

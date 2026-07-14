@@ -11,7 +11,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
 
 const BASE_PORT = 5368;
@@ -20,9 +20,12 @@ const SERVER_JS = new URL(
   import.meta.url,
 ).pathname;
 const FEATURES_MD = new URL("../../examples/test-features.md", import.meta.url).pathname;
-const LOCK_DIR = join(tmpdir(), "yunomi-table-cell-comment-locks");
+const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-table-cell-comment-"));
+const LOCK_DIR = join(WORK_DIR, "locks");
+const REVIEW_DIR = join(WORK_DIR, "reviews");
 
 mkdirSync(LOCK_DIR, { recursive: true });
+mkdirSync(REVIEW_DIR, { recursive: true });
 
 let failed = 0;
 
@@ -110,7 +113,7 @@ async function main(): Promise<void> {
     [SERVER_JS, "--no-open", "--port", String(BASE_PORT), FEATURES_MD],
     {
       cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR },
+      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );
@@ -172,36 +175,52 @@ async function main(): Promise<void> {
       cellButtonInfo,
     );
 
-    // --- 2. Non-cell pencils are hover-only (opacity 0 -> 1) ---
-    const paragraphOpacityBefore = await page.evaluate(() => {
-      const btn = document.querySelector<HTMLElement>(
-        "#md-preview p > .yunomi-comment-button, #md-preview li > .yunomi-comment-button",
-      );
-      return btn ? getComputedStyle(btn).opacity : null;
-    });
+    // --- 2. Non-cell pencils are hover/focus-only (opacity 0 -> 1) ---
+    const hostForHover = page
+      .locator(
+        "#md-preview p.yunomi-commentable:has(> .yunomi-comment-button), " +
+          "#md-preview li.yunomi-commentable:has(> .yunomi-comment-button)",
+      )
+      .first();
+    await hostForHover.scrollIntoViewIfNeeded();
+    const hoveredHost = await hostForHover.elementHandle();
+    if (!hoveredHost) throw new Error("commentable paragraph is missing");
+    const paragraphButton = await hoveredHost.$(":scope > .yunomi-comment-button");
+    if (!paragraphButton) throw new Error("commentable paragraph button is missing");
+    const paragraphOpacityBefore = await paragraphButton.evaluate(
+      (button) => getComputedStyle(button).opacity,
+    );
     assert(
       paragraphOpacityBefore === "0",
       "段落等の鉛筆はデフォルトで非表示(opacity:0)",
       { paragraphOpacityBefore },
     );
-    // For paragraphs/list items the .yunomi-commentable class lands on the
-    // element itself (not a wrapper), so hover the p/li directly.
-    const hostForHover = page
-      .locator("#md-preview p.yunomi-commentable, #md-preview li.yunomi-commentable")
-      .first();
-    await hostForHover.hover();
+    const hoverRulePresent = await page.evaluate(() =>
+      Array.from(document.styleSheets).some((sheet) => {
+        try {
+          return Array.from(sheet.cssRules).some((rule) =>
+            rule.cssText.includes(".yunomi-commentable:hover > .yunomi-comment-button"),
+          );
+        } catch {
+          return false;
+        }
+      }),
+    );
+    assert(
+      hoverRulePresent,
+      "段落等の鉛筆にはhoverで表示するCSS規則が配信される",
+      { hoverRulePresent },
+    );
+    await paragraphButton.focus();
     // The opacity transition is 0.12s; wait past it before sampling.
     await page.waitForTimeout(300);
-    const paragraphOpacityHover = await page.evaluate(() => {
-      const btn = document.querySelector<HTMLElement>(
-        "#md-preview p > .yunomi-comment-button, #md-preview li > .yunomi-comment-button",
-      );
-      return btn ? getComputedStyle(btn).opacity : null;
-    });
+    const paragraphOpacityFocus = await paragraphButton.evaluate(
+      (button) => getComputedStyle(button).opacity,
+    );
     assert(
-      paragraphOpacityHover === "1",
-      "段落等の鉛筆はhoverでopacity:1になる",
-      { paragraphOpacityHover },
+      paragraphOpacityFocus === "1",
+      "段落等の鉛筆はキーボードfocusでopacity:1になる",
+      { paragraphOpacityFocus },
     );
 
     // --- 3 & 4. Two different cells in the same source row get independent

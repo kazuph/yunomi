@@ -1,0 +1,33 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  color: #17201a;
+  background: #f5f7f2;
+}
+
+.demo-page {
+  max-width: 720px;
+  margin: 48px auto;
+  padding: 0 24px;
+}
+
+.pricing {
+  margin-top: 28px;
+}
+
+.plan-card {
+  border: 1px solid #c7d6c1;
+  border-radius: 8px;
+  padding: 24px;
+  background: white;
+}
+
+button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 6px;
+  color: white;
+  background: #276749;
+  font-weight: 700;
+}

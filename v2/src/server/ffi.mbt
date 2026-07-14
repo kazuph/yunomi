@@ -66,6 +66,10 @@ extern "js" fn path_resolve(path : String) -> String = "resolve"
 extern "js" fn path_relative(from : String, to : String) -> String = "relative"
 
 ///|
+#module("node:fs")
+extern "js" fn fs_realpath_sync(path : String) -> String = "realpathSync"
+
+///|
 /// Node.js process
 extern "js" fn get_argv() -> Array[String] =
   #|() => process.argv
@@ -317,8 +321,9 @@ extern "js" fn start_live_proxy(
   host : String,
   no_open : Bool,
   instance_id : String,
+  persist_review : (String) -> Unit,
 ) -> Unit =
-  #|(targetUrl, port, host, noOpen, instanceId) => {
+  #|(targetUrl, port, host, noOpen, instanceId, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -332,13 +337,30 @@ extern "js" fn start_live_proxy(
   #|    lines.push("mode: live");
   #|    lines.push("comments:");
   #|    for (const comment of comments) {
-  #|      lines.push(`  - row: ${Number(comment.row || 0)}`);
+  #|      const elementText = String(comment.element_text || comment.value || "");
+  #|      const attachments = Array.isArray(comment.attachments) ? comment.attachments : [];
+  #|      if (comment.screenshot) attachments.push(String(comment.screenshot));
+  #|      const bounds = comment.bounds ? JSON.stringify(comment.bounds) : "";
+  #|      lines.push(`  - file: ${yamlEscape(targetUrl)}`);
+  #|      lines.push(`    row: ${Number(comment.row || 0)}`);
   #|      lines.push(`    col: ${Number(comment.col || 0)}`);
+  #|      lines.push(`    end_row: ${Number(comment.end_row ?? comment.row ?? 0)}`);
+  #|      lines.push(`    end_col: ${Number(comment.end_col ?? comment.col ?? 0)}`);
   #|      lines.push(`    text: ${yamlEscape(comment.text || "")}`);
+  #|      lines.push(`    snippet: ${yamlEscape(elementText)}`);
+  #|      lines.push(`    context_before: ${yamlEscape(comment.context_before || "")}`);
+  #|      lines.push(`    context_after: ${yamlEscape(comment.context_after || "")}`);
   #|      lines.push(`    selector: ${yamlEscape(comment.selector || "")}`);
   #|      if (comment.value) lines.push(`    value: ${yamlEscape(comment.value)}`);
   #|      if (comment.screenshot) lines.push(`    screenshot: ${yamlEscape(comment.screenshot)}`);
-  #|      if (comment.bounds) lines.push(`    bounds: ${yamlEscape(JSON.stringify(comment.bounds))}`);
+  #|      lines.push(`    bounds: ${yamlEscape(bounds)}`);
+  #|      lines.push(`    element_text: ${yamlEscape(elementText)}`);
+  #|      if (attachments.length) {
+  #|        lines.push("    attachments:");
+  #|        for (const attachment of attachments) lines.push(`      - ${yamlEscape(attachment)}`);
+  #|      } else {
+  #|        lines.push("    attachments: []");
+  #|      }
   #|    }
   #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
   #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
@@ -365,9 +387,9 @@ extern "js" fn start_live_proxy(
   #|      let active = null;
   #|      const style = document.createElement("style");
   #|      style.textContent = [
-  #|        "/* yunomi live overlay tokens copied from v2/src/core/css.mbt in .worktree/rebrand-sonnet (green tea theme). */",
-  #|        ":root{--yunomi-live-panel:rgba(246,250,240,.92);--yunomi-live-panel-solid:#f6faf0;--yunomi-live-card-bg:rgba(248,251,243,.98);--yunomi-live-input-bg:#e9f0dc;--yunomi-live-border:#d7e2c4;--yunomi-live-border-strong:#c2d1a5;--yunomi-live-accent:#5c8a42;--yunomi-live-accent-strong:#466b30;--yunomi-live-accent-2:#9fc47c;--yunomi-live-accent-soft:rgba(92,138,66,.12);--yunomi-live-selected-bg:rgba(92,138,66,.20);--yunomi-live-hover-bg:rgba(92,138,66,.12);--yunomi-live-text:#3b2d20;--yunomi-live-text-inverse:#fffaf0;--yunomi-live-muted:#87735b;--yunomi-live-shadow-soft:0 6px 18px rgba(60,40,20,.08);--yunomi-live-shadow-card:0 18px 36px rgba(60,40,20,.12);--yunomi-live-radius-sm:8px;--yunomi-live-radius-lg:16px;--yunomi-live-radius-pill:999px;--yunomi-live-font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}",
-  #|        "@media (prefers-color-scheme:dark){:root{--yunomi-live-panel:rgba(19,26,18,.82);--yunomi-live-panel-solid:#172014;--yunomi-live-card-bg:rgba(24,32,22,.96);--yunomi-live-input-bg:rgba(28,37,25,.75);--yunomi-live-border:#2a3524;--yunomi-live-border-strong:#37452e;--yunomi-live-accent:#9fc47c;--yunomi-live-accent-strong:#b9d99a;--yunomi-live-accent-2:#5c8a42;--yunomi-live-accent-soft:rgba(159,196,124,.14);--yunomi-live-selected-bg:rgba(159,196,124,.22);--yunomi-live-hover-bg:rgba(159,196,124,.14);--yunomi-live-text:#f1ebe1;--yunomi-live-text-inverse:#1a1612;--yunomi-live-muted:#9f9488;--yunomi-live-shadow-soft:0 10px 30px rgba(0,0,0,.35);--yunomi-live-shadow-card:0 20px 40px rgba(0,0,0,.4)}}",
+  #|        "/* yunomi live overlay tokens mirror the Primer-inspired app theme. */",
+  #|        ":root{--yunomi-live-panel:rgba(255,255,255,.92);--yunomi-live-panel-solid:#ffffff;--yunomi-live-card-bg:rgba(255,255,255,.98);--yunomi-live-input-bg:#f6f8fa;--yunomi-live-border:#d0d7de;--yunomi-live-border-strong:#8c959f;--yunomi-live-accent:#0969da;--yunomi-live-accent-strong:#0550ae;--yunomi-live-accent-2:#8250df;--yunomi-live-accent-soft:rgba(9,105,218,.10);--yunomi-live-selected-bg:rgba(9,105,218,.16);--yunomi-live-hover-bg:rgba(9,105,218,.08);--yunomi-live-text:#24292f;--yunomi-live-text-inverse:#ffffff;--yunomi-live-muted:#57606a;--yunomi-live-shadow-soft:0 6px 18px rgba(31,35,40,.08);--yunomi-live-shadow-card:0 18px 36px rgba(31,35,40,.12);--yunomi-live-radius-sm:8px;--yunomi-live-radius-lg:16px;--yunomi-live-radius-pill:999px;--yunomi-live-font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}",
+  #|        "@media (prefers-color-scheme:dark){:root{--yunomi-live-panel:rgba(22,27,34,.88);--yunomi-live-panel-solid:#161b22;--yunomi-live-card-bg:rgba(22,27,34,.96);--yunomi-live-input-bg:#0d1117;--yunomi-live-border:#30363d;--yunomi-live-border-strong:#8b949e;--yunomi-live-accent:#2f81f7;--yunomi-live-accent-strong:#58a6ff;--yunomi-live-accent-2:#a371f7;--yunomi-live-accent-soft:rgba(47,129,247,.16);--yunomi-live-selected-bg:rgba(47,129,247,.22);--yunomi-live-hover-bg:rgba(47,129,247,.12);--yunomi-live-text:#e6edf3;--yunomi-live-text-inverse:#0d1117;--yunomi-live-muted:#8b949e;--yunomi-live-shadow-soft:0 10px 30px rgba(0,0,0,.35);--yunomi-live-shadow-card:0 20px 40px rgba(0,0,0,.4)}}",
   #|        ".yunomi-live-hover{outline:2px solid var(--yunomi-live-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-live-accent-soft)!important;border-radius:4px!important}",
   #|        ".yunomi-live-pin{outline:2px solid var(--yunomi-live-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-live-selected-bg)!important;border-radius:4px!important}",
   #|        "#yunomi-live-bar{position:fixed;z-index:2147483647;right:16px;top:16px;display:flex;gap:6px;align-items:center;background:var(--yunomi-live-panel);color:var(--yunomi-live-text);border:1px solid var(--yunomi-live-border);border-radius:var(--yunomi-live-radius-lg);padding:8px 10px;font:13px var(--yunomi-live-font);box-shadow:var(--yunomi-live-shadow-soft);backdrop-filter:saturate(140%) blur(18px);-webkit-backdrop-filter:saturate(140%) blur(18px);letter-spacing:0}",
@@ -478,6 +500,7 @@ extern "js" fn start_live_proxy(
   #|        req.on("end", () => {
   #|          let payload = {};
   #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
+  #|          persistReview(JSON.stringify(payload));
   #|          process.stdout.write(toYaml(payload));
   #|          res.writeHead(200, { "Content-Type": "application/json" });
   #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
@@ -559,27 +582,45 @@ extern "js" fn start_html_preview_server(
   host : String,
   no_open : Bool,
   instance_id : String,
+  persist_review : (String) -> Unit,
 ) -> Unit =
-  #|(filePath, port, host, noOpen, instanceId) => {
+  #|(filePath, port, host, noOpen, instanceId, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
   #|    return "'" + s.replace(/'/g, "''") + "'";
   #|  };
+  #|  let displayFile = String(filePath || "");
   #|  const toYaml = (payload) => {
   #|    const comments = Array.isArray(payload.comments) ? payload.comments : [];
   #|    const lines = [];
   #|    lines.push(`action: ${payload.action || "final_request_changes"}`);
-  #|    lines.push(`file: ${yamlEscape(filePath)}`);
+  #|    lines.push(`file: ${yamlEscape(displayFile)}`);
   #|    lines.push("mode: html");
   #|    lines.push("comments:");
   #|    for (const comment of comments) {
-  #|      lines.push(`  - row: ${Number(comment.row || 0)}`);
+  #|      const elementText = String(comment.element_text || comment.value || "");
+  #|      const bounds = comment.bounds ? JSON.stringify(comment.bounds) : "";
+  #|      const attachments = Array.isArray(comment.attachments) ? comment.attachments : [];
+  #|      lines.push(`  - file: ${yamlEscape(displayFile)}`);
+  #|      lines.push(`    row: ${Number(comment.row || 0)}`);
   #|      lines.push(`    col: ${Number(comment.col || 0)}`);
+  #|      lines.push(`    end_row: ${Number(comment.end_row ?? comment.row ?? 0)}`);
+  #|      lines.push(`    end_col: ${Number(comment.end_col ?? comment.col ?? 0)}`);
   #|      lines.push(`    text: ${yamlEscape(comment.text || "")}`);
+  #|      lines.push(`    snippet: ${yamlEscape(elementText)}`);
+  #|      lines.push(`    context_before: ${yamlEscape(comment.context_before || "")}`);
+  #|      lines.push(`    context_after: ${yamlEscape(comment.context_after || "")}`);
   #|      lines.push(`    selector: ${yamlEscape(comment.selector || "")}`);
   #|      if (comment.value) lines.push(`    value: ${yamlEscape(comment.value)}`);
-  #|      if (comment.bounds) lines.push(`    bounds: ${yamlEscape(JSON.stringify(comment.bounds))}`);
+  #|      lines.push(`    bounds: ${yamlEscape(bounds)}`);
+  #|      lines.push(`    element_text: ${yamlEscape(elementText)}`);
+  #|      if (attachments.length) {
+  #|        lines.push("    attachments:");
+  #|        for (const attachment of attachments) lines.push(`      - ${yamlEscape(attachment)}`);
+  #|      } else {
+  #|        lines.push("    attachments: []");
+  #|      }
   #|    }
   #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
   #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
@@ -594,6 +635,8 @@ extern "js" fn start_html_preview_server(
   #|    const resolvedFile = path.resolve(filePath);
   #|    const baseDir = path.dirname(resolvedFile);
   #|    const filename = path.basename(resolvedFile);
+  #|    const relFromCwd = path.relative(process.cwd(), resolvedFile);
+  #|    displayFile = relFromCwd && !relFromCwd.startsWith("..") && !path.isAbsolute(relFromCwd) ? relFromCwd : filename;
   #|    const htmlEscape = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|    const mime = (ext) => ({
   #|      ".html": "text/html; charset=utf-8",
@@ -621,23 +664,29 @@ extern "js" fn start_html_preview_server(
   #|      let active = null;
   #|      const style = document.createElement("style");
   #|      style.textContent = [
-  #|        ":root{--yunomi-html-panel:rgba(246,250,240,.92);--yunomi-html-card-bg:rgba(248,251,243,.98);--yunomi-html-input-bg:#e9f0dc;--yunomi-html-border:#d7e2c4;--yunomi-html-accent:#5c8a42;--yunomi-html-accent-strong:#466b30;--yunomi-html-accent-2:#9fc47c;--yunomi-html-accent-soft:rgba(92,138,66,.12);--yunomi-html-selected-bg:rgba(92,138,66,.20);--yunomi-html-hover-bg:rgba(92,138,66,.12);--yunomi-html-text:#3b2d20;--yunomi-html-text-inverse:#fffaf0;--yunomi-html-muted:#87735b;--yunomi-html-shadow:0 18px 36px rgba(60,40,20,.12);--yunomi-html-font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}",
+  #|        ":root{--yunomi-html-panel:rgba(255,255,255,.92);--yunomi-html-card-bg:rgba(255,255,255,.98);--yunomi-html-input-bg:#f6f8fa;--yunomi-html-border:#d0d7de;--yunomi-html-accent:#0969da;--yunomi-html-accent-strong:#0550ae;--yunomi-html-accent-2:#8250df;--yunomi-html-accent-soft:rgba(9,105,218,.10);--yunomi-html-selected-bg:rgba(9,105,218,.16);--yunomi-html-hover-bg:rgba(9,105,218,.08);--yunomi-html-text:#24292f;--yunomi-html-text-inverse:#ffffff;--yunomi-html-muted:#57606a;--yunomi-html-shadow:0 18px 36px rgba(31,35,40,.12);--yunomi-html-font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}",
   #|        ".yunomi-html-hover{outline:2px solid var(--yunomi-html-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-html-accent-soft)!important;border-radius:4px!important}",
   #|        ".yunomi-html-pin{outline:2px solid var(--yunomi-html-accent)!important;outline-offset:2px!important;box-shadow:0 0 0 4px var(--yunomi-html-selected-bg)!important;border-radius:4px!important}",
-  #|        "#yunomi-html-bar{position:fixed;z-index:2147483647;right:16px;top:16px;display:flex;gap:6px;align-items:center;background:var(--yunomi-html-panel);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:8px 10px;font:13px var(--yunomi-html-font);box-shadow:0 6px 18px rgba(60,40,20,.08);letter-spacing:0}",
+  #|        "#yunomi-html-bar{position:fixed;z-index:2147483647;right:16px;top:16px;display:flex;gap:6px;align-items:center;background:var(--yunomi-html-panel);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:8px 10px;font:13px var(--yunomi-html-font);box-shadow:0 6px 18px rgba(31,35,40,.08);letter-spacing:0}",
   #|        "#yunomi-html-count{display:inline-flex;min-width:24px;height:24px;align-items:center;justify-content:center;border-radius:999px;background:var(--yunomi-html-accent-soft);color:var(--yunomi-html-accent-strong);font-weight:700}",
-  #|        "#yunomi-html-bar button,#yunomi-html-card button{font:inherit;border:1px solid transparent;background:transparent;color:var(--yunomi-html-text);border-radius:8px;padding:6px 10px;min-height:32px;cursor:pointer}",
-  #|        "#yunomi-html-submit,#yunomi-html-card [data-yunomi-save]{background:linear-gradient(135deg,var(--yunomi-html-accent) 0%,var(--yunomi-html-accent-2) 100%)!important;color:var(--yunomi-html-text-inverse)!important;font-weight:700}",
-  #|        "#yunomi-html-card{position:fixed;z-index:2147483647;min-width:280px;max-width:360px;background:var(--yunomi-html-card-bg);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:12px;box-shadow:var(--yunomi-html-shadow);font:13px var(--yunomi-html-font);letter-spacing:0}",
-  #|        "#yunomi-html-card textarea{width:100%;height:88px;box-sizing:border-box;border-radius:8px;border:1px solid var(--yunomi-html-border);background:var(--yunomi-html-input-bg);color:var(--yunomi-html-text);padding:9px 10px;font:13px var(--yunomi-html-font);resize:vertical;outline:none}",
+  #|        "#yunomi-html-bar button,#yunomi-html-card button,#yunomi-html-submit-card button{font:inherit;border:1px solid transparent;background:transparent;color:var(--yunomi-html-text);border-radius:8px;padding:6px 10px;min-height:32px;cursor:pointer}",
+  #|        "#yunomi-html-card [data-yunomi-save],#yunomi-html-submit,#yunomi-html-submit-card [data-yunomi-submit]{background:linear-gradient(135deg,var(--yunomi-html-accent) 0%,var(--yunomi-html-accent-2) 100%)!important;color:var(--yunomi-html-text-inverse)!important;font-weight:700}",
+  #|        "#yunomi-html-card,#yunomi-html-submit-card{position:fixed;z-index:2147483647;min-width:280px;max-width:360px;background:var(--yunomi-html-card-bg);color:var(--yunomi-html-text);border:1px solid var(--yunomi-html-border);border-radius:16px;padding:12px;box-shadow:var(--yunomi-html-shadow);font:13px var(--yunomi-html-font);letter-spacing:0}",
+  #|        "#yunomi-html-card textarea,#yunomi-html-submit-card textarea{width:100%;height:88px;box-sizing:border-box;border-radius:8px;border:1px solid var(--yunomi-html-border);background:var(--yunomi-html-input-bg);color:var(--yunomi-html-text);padding:9px 10px;font:13px var(--yunomi-html-font);resize:vertical;outline:none}",
+  #|        "#yunomi-html-submit-card{right:16px;top:64px}",
+  #|        "#yunomi-html-submit-card .choices{display:flex;gap:8px;margin:8px 0}",
+  #|        "#yunomi-html-submit-card label{display:inline-flex;align-items:center;gap:5px;color:var(--yunomi-html-muted)}",
   #|        "#yunomi-html-card .meta{font-size:11px;color:var(--yunomi-html-muted);margin:0 0 8px 0;word-break:break-all}"
   #|      ].join("\\n");
   #|      document.documentElement.appendChild(style);
   #|      const bar = document.createElement("div");
   #|      bar.id = "yunomi-html-bar";
-  #|      bar.innerHTML = '<strong>yunomi html</strong><span id="yunomi-html-count">0</span><button id="yunomi-html-toggle">Comment mode</button><button id="yunomi-html-submit">Submit & Exit</button>';
+  #|      bar.innerHTML = '<strong>🍵 yunomi html</strong><span id="yunomi-html-count">0</span><button id="yunomi-html-toggle">Comment mode</button><button id="yunomi-html-submit">Submit &amp; Exit</button>';
   #|      document.documentElement.appendChild(bar);
-  #|      const isUi = (el) => !!el.closest?.("#yunomi-html-bar,#yunomi-html-card");
+  #|      const publishComments = () => {
+  #|        if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-comments", comments }, location.origin);
+  #|      };
+  #|      const isUi = (el) => !!el.closest?.("#yunomi-html-bar,#yunomi-html-card,#yunomi-html-submit-card");
   #|      const cssEscape = (value) => (window.CSS && CSS.escape) ? CSS.escape(value) : String(value).replace(/[^a-zA-Z0-9_-]/g, "\\\\$&");
   #|      const selectorFor = (el) => {
   #|        if (el.id && document.querySelectorAll("#" + cssEscape(el.id)).length === 1) return "#" + cssEscape(el.id);
@@ -666,6 +715,25 @@ extern "js" fn start_html_preview_server(
   #|      };
   #|      const updateCount = () => { document.getElementById("yunomi-html-count").textContent = String(comments.length); };
   #|      const closeCard = () => document.getElementById("yunomi-html-card")?.remove();
+  #|      const closeSubmitCard = () => document.getElementById("yunomi-html-submit-card")?.remove();
+  #|      const openSubmitCard = () => {
+  #|        closeSubmitCard();
+  #|        const card = document.createElement("div");
+  #|        card.id = "yunomi-html-submit-card";
+  #|        const defaultDecision = comments.length > 0 ? "request_changes" : "approve";
+  #|        card.innerHTML = '<p class="meta">Submit HTML review</p><textarea placeholder="Overall comment"></textarea><div class="choices"><label><input type="radio" name="yunomi-html-decision" value="approve"> Approve</label><label><input type="radio" name="yunomi-html-decision" value="request_changes"> Request Changes</label></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-submit>Submit</button></div>';
+  #|        document.documentElement.appendChild(card);
+  #|        const radio = card.querySelector('input[value="' + defaultDecision + '"]');
+  #|        if (radio) radio.checked = true;
+  #|        card.querySelector("[data-yunomi-cancel]").onclick = closeSubmitCard;
+  #|        card.querySelector("[data-yunomi-submit]").onclick = () => {
+  #|          const decision = card.querySelector("input[name='yunomi-html-decision']:checked")?.value || defaultDecision;
+  #|          const summary = card.querySelector("textarea")?.value || "";
+  #|          const action = decision === "approve" ? "final_approve" : "final_request_changes";
+  #|          if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-submit", comments, summary, decision, action }, location.origin);
+  #|        };
+  #|        card.querySelector("textarea")?.focus();
+  #|      };
   #|      document.addEventListener("mouseover", (event) => {
   #|        if (!enabled || isUi(event.target)) return;
   #|        active?.classList.remove("yunomi-html-hover");
@@ -698,6 +766,7 @@ extern "js" fn start_html_preview_server(
   #|          comments.push({ row: 0, col: 0, text, selector, value: elementText(el), bounds: boundsFor(el) });
   #|          el.classList.add("yunomi-html-pin");
   #|          updateCount();
+  #|          publishComments();
   #|          closeCard();
   #|        };
   #|      }, true);
@@ -706,17 +775,16 @@ extern "js" fn start_html_preview_server(
   #|        document.getElementById("yunomi-html-toggle").textContent = enabled ? "Comment mode" : "Browsing mode";
   #|        active?.classList.remove("yunomi-html-hover");
   #|      };
-  #|      document.getElementById("yunomi-html-submit").onclick = async () => {
-  #|        const summary = window.prompt("Overall comment", "") || "";
-  #|        await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "final_request_changes", decision: "request_changes", summary, comments }) });
-  #|        document.body.innerHTML = "<main style=\\"font:16px system-ui,sans-serif;padding:40px\\"><h1>Review submitted</h1><p>yunomi html preview can be closed.</p></main>";
+  #|      publishComments();
+  #|      document.getElementById("yunomi-html-submit").onclick = () => {
+  #|        openSubmitCard();
   #|      };
   #|    })();`;
   #|    const inject = (html) => {
   #|      const tag = `<script data-yunomi-html="${instanceId}">${overlayScript.replaceAll("</script", "<\\\\/script")}</script>`;
   #|      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, tag + "</body>") : html + tag;
   #|    };
-  #|    const shell = () => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yunomi html - ${htmlEscape(filename)}</title><style>html,body{margin:0;height:100%;font:13px system-ui,-apple-system,sans-serif;background:#f6faf0;color:#3b2d20}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #d7e2c4;background:rgba(246,250,240,.94)}strong{font-size:14px}span{color:#87735b}iframe{display:block;width:100%;height:calc(100vh - 44px);border:0;background:white}</style></head><body><header><strong>${htmlEscape(filename)}</strong><span>HTML preview</span></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin" src="/__yunomi_html_target"></iframe></body></html>`;
+  #|    const shell = () => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yunomi html - ${htmlEscape(filename)}</title><style>html,body{margin:0;height:100%;font:13px system-ui,-apple-system,sans-serif;background:#f6faf0;color:#3b2d20}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #d7e2c4;background:rgba(246,250,240,.94)}strong{font-size:14px}span{color:#87735b}iframe{display:block;width:100%;height:calc(100vh - 44px);border:0;background:white}</style></head><body><header><strong>${htmlEscape(filename)}</strong><span>HTML preview</span></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin" src="/__yunomi_html_target"></iframe><script>window.addEventListener("message", event => { if (event.origin !== location.origin || event.data?.type !== "yunomi-html-submit") return; const comments = Array.isArray(event.data.comments) ? event.data.comments : []; const decision = event.data.decision || (comments.length > 0 ? "request_changes" : "approve"); const action = event.data.action || (decision === "approve" ? "final_approve" : "final_request_changes"); fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, decision, summary: event.data.summary || "", comments }) }).then(() => { window.close(); setTimeout(() => location.replace("about:blank"), 400); }); });</script></body></html>`;
   #|    const sendFile = (res, target) => {
   #|      const ext = path.extname(target);
   #|      res.writeHead(200, { "Content-Type": mime(ext), "Cache-Control": "no-store" });
@@ -746,6 +814,7 @@ extern "js" fn start_html_preview_server(
   #|        req.on("end", () => {
   #|          let payload = {};
   #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
+  #|          persistReview(JSON.stringify(payload));
   #|          process.stdout.write(toYaml(payload));
   #|          res.writeHead(200, { "Content-Type": "application/json" });
   #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
@@ -876,19 +945,36 @@ extern "js" fn json_parse_comments(json_str : String) -> Array[Array[String]] =
   #|(s) => {
   #|  try {
   #|    const obj = JSON.parse(s);
-  #|    return (obj.comments || []).map(c => [String(c.row), String(c.col), c.text || "", c.value || "", c.image || ""]);
+  #|    return (obj.comments || []).map(c => [
+  #|      String(c.row ?? 0),
+  #|      String(c.col ?? 0),
+  #|      c.text || "",
+  #|      c.value || c.element_text || "",
+  #|      c.image || "",
+  #|      String(c.end_row ?? c.row ?? 0),
+  #|      String(c.end_col ?? c.col ?? 0),
+  #|      c.selector || "",
+  #|      c.bounds ? JSON.stringify(c.bounds) : "",
+  #|      c.element_text || c.value || "",
+  #|    ]);
   #|  } catch(e) { return []; }
   #|}
 
 ///|
-extern "js" fn json_with_comment_image_paths(json_str : String, paths : Array[String]) -> String =
-  #|(s, paths) => {
+extern "js" fn json_with_comment_image_paths(
+  json_str : String,
+  paths : Array[String],
+  attachment_refs : Array[String],
+) -> String =
+  #|(s, paths, attachmentRefs) => {
   #|  try {
   #|    const obj = JSON.parse(s || "{}");
   #|    obj.comments = Array.isArray(obj.comments) ? obj.comments : [];
   #|    obj.comments.forEach((comment, index) => {
   #|      const imagePath = Array.isArray(paths) ? String(paths[index] || "") : "";
   #|      if (imagePath) comment.imagePath = imagePath;
+  #|      const attachment = Array.isArray(attachmentRefs) ? String(attachmentRefs[index] || "") : "";
+  #|      if (attachment) comment.attachments = [attachment];
   #|    });
   #|    return JSON.stringify(obj);
   #|  } catch(e) {
@@ -1246,6 +1332,11 @@ fn trim_ascii(s : String) -> String {
 }
 
 ///|
+fn realpath_or_resolve(path : String) -> String {
+  try_call_string(fn() { fs_realpath_sync(path) }, path_resolve(path))
+}
+
+///|
 fn git_root_for(path : String) -> String {
   let dir = if exists_sync(path) && is_file_sync(path) {
     path_dirname(path)
@@ -1254,7 +1345,7 @@ fn git_root_for(path : String) -> String {
   }
   let out = git_stdout(dir, "[\"rev-parse\",\"--show-toplevel\"]")
   let root = trim_ascii(out)
-  if root.length() > 0 { root } else { path_resolve(dir) }
+  if root.length() > 0 { realpath_or_resolve(root) } else { realpath_or_resolve(dir) }
 }
 
 ///|
@@ -1308,6 +1399,101 @@ fn review_json_path_for_cwd() -> String {
 }
 
 ///|
+extern "js" fn js_external_review_submit(
+  existing_json : String,
+  body : String,
+  file : String,
+  branch : String,
+  now : String,
+) -> String =
+  #|(existingJson, body, file, branch, now) => {
+  #|  let review;
+  #|  let submit;
+  #|  try { review = JSON.parse(existingJson || "{}"); } catch (_) { review = {}; }
+  #|  try { submit = JSON.parse(body || "{}"); } catch (_) { submit = {}; }
+  #|  review.version = 1;
+  #|  review.branch = String(review.branch || branch || "no-branch");
+  #|  review.files = Array.isArray(review.files) ? review.files : [];
+  #|  if (!review.files.includes(file)) review.files.push(file);
+  #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  if (review.rounds.length === 0) {
+  #|    review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
+  #|  }
+  #|  const current = review.rounds[review.rounds.length - 1];
+  #|  current.submitted_at = now;
+  #|  current.decision = submit.decision || null;
+  #|  current.summary = String(submit.summary || "");
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  const round = Number(current.round || review.rounds.length || 1);
+  #|  let seq = review.comments.filter(comment => Number(comment?.round || 0) === round).length + 1;
+  #|  for (const raw of Array.isArray(submit.comments) ? submit.comments : []) {
+  #|    const row = Math.max(0, Number(raw?.row || 0));
+  #|    const col = Math.max(0, Number(raw?.col || 0));
+  #|    const elementText = String(raw?.element_text || raw?.value || "");
+  #|    const snippet = String(raw?.snippet || elementText);
+  #|    const before = String(raw?.context_before || "");
+  #|    const after = String(raw?.context_after || "");
+  #|    const bounds = raw?.bounds == null ? "" : (typeof raw.bounds === "string" ? raw.bounds : JSON.stringify(raw.bounds));
+  #|    const attachments = Array.isArray(raw?.attachments) ? raw.attachments.map(String) : [];
+  #|    review.comments.push({
+  #|      id: `c-${round}-${seq++}`,
+  #|      file,
+  #|      row,
+  #|      col,
+  #|      end_row: Math.max(0, Number(raw?.end_row ?? row)),
+  #|      end_col: Math.max(0, Number(raw?.end_col ?? col)),
+  #|      line: row + 1,
+  #|      round,
+  #|      text: String(raw?.text || ""),
+  #|      author: "human",
+  #|      status: "unresolved",
+  #|      replies: [],
+  #|      snippet,
+  #|      context_before: before,
+  #|      context_after: after,
+  #|      selector: String(raw?.selector || ""),
+  #|      bounds,
+  #|      element_text: elementText,
+  #|      attachments,
+  #|      anchor: { snippet, context_before: before, context_after: after }
+  #|    });
+  #|  }
+  #|  return JSON.stringify(review, null, 2) + "\n";
+  #|}
+
+///|
+fn persist_external_review(review_path : String, file : String, body : String) -> Unit {
+  let parent = path_dirname(review_path)
+  if !exists_sync(parent) {
+    mkdir_sync(parent, mkdir_recursive_opts())
+  }
+  let cwd = path_resolve(".")
+  let branch = git_branch_for(git_root_for(cwd))
+  write_file_secure(
+    review_path,
+    js_external_review_submit(
+      read_file_safe(review_path),
+      body,
+      file,
+      branch,
+      iso_now(),
+    ),
+  )
+}
+
+///|
+fn review_json_path_for_id(review_id : String) -> String {
+  let override_dir = get_env_var("YUNOMI_REVIEW_DIR")
+  let reviews_root = if override_dir.length() > 0 {
+    override_dir
+  } else {
+    let cwd = path_resolve(".")
+    path_join(path_join(git_root_for(cwd), ".yunomi"), "reviews")
+  }
+  path_join(path_join(reviews_root, js_sanitize_branch(review_id)), "review.json")
+}
+
+///|
 fn review_server_path_for_cwd() -> String {
   path_join(review_dir_for_cwd(), "server.json")
 }
@@ -1325,7 +1511,7 @@ fn review_snapshot_path(file_path : String, round : Int) -> String {
 ///|
 fn review_display_file(file_path : String) -> String {
   let root = git_root_for(file_path)
-  let rel = path_relative(root, path_resolve(file_path))
+  let rel = path_relative(root, realpath_or_resolve(file_path))
   if rel.length() > 0 && !rel.has_prefix("..") { rel } else { path_basename(file_path) }
 }
 
@@ -1367,6 +1553,27 @@ fn ensure_review_state(file_path : String) -> Unit {
 }
 
 ///|
+extern "js" fn js_review_update_viewed_files(json : String, viewed_json : String) -> String =
+  #|(json, viewedJson) => {
+  #|  let review;
+  #|  let viewed;
+  #|  try { review = JSON.parse(json || "{}"); } catch { review = {}; }
+  #|  try { viewed = JSON.parse(viewedJson || "{}"); } catch { viewed = {}; }
+  #|  review.viewed_files = viewed && typeof viewed === "object" && !Array.isArray(viewed) ? viewed : {};
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn update_review_viewed_files(file_path : String, viewed_json : String) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  write_file_secure(
+    review_path,
+    js_review_update_viewed_files(read_file_safe(review_path), viewed_json),
+  )
+}
+
+///|
 fn write_review_server(file_path : String, port : Int, notify_pane : String) -> Unit {
   ensure_review_state(file_path)
   let data = "{\"pid\":" + process_pid().to_string() + ",\"port\":" +
@@ -1397,23 +1604,44 @@ extern "js" fn js_review_submit_update(
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const roundNo = Number(current.round || review.rounds.length);
   #|  let seq = review.comments.filter(c => Number(c.round) === roundNo).length + 1;
+  #|  const lineWindow = (row, before, after) => {
+  #|    const start = Math.max(0, row - before);
+  #|    const end = Math.min(sourceLines.length, row + after + 1);
+  #|    return sourceLines.slice(start, end).map(line => String(line || "")).join("\n");
+  #|  };
   #|  for (const c of submit.comments || []) {
   #|    const row = Number(c.row || 0);
+  #|    const col = Number(c.col || 0);
   #|    const line = row + 1;
-  #|    const snippet = String(c.value || sourceLines[row] || "");
-  #|    const before = row > 0 ? String(sourceLines[row - 1] || "") : "";
-  #|    const after = row + 1 < sourceLines.length ? String(sourceLines[row + 1] || "") : "";
+  #|    const snippet = String(c.snippet || lineWindow(row, 3, 3) || c.value || sourceLines[row] || "");
+  #|    const before = String(c.context_before || lineWindow(row, 5, -1));
+  #|    const after = String(c.context_after || lineWindow(row + 1, 0, 4));
+  #|    const imagePath = String(c.imagePath || "");
+  #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
+  #|    const elementText = String(c.element_text || c.value || "");
+  #|    const bounds = c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds));
   #|    review.comments.push({
   #|      id: `c-${roundNo}-${seq++}`,
   #|      file,
+  #|      row,
+  #|      col,
+  #|      end_row: Number(c.end_row ?? row),
+  #|      end_col: Number(c.end_col ?? col),
   #|      line,
   #|      round: roundNo,
   #|      text: String(c.text || ""),
   #|      author: "human",
   #|      status: "unresolved",
   #|      replies: [],
+  #|      snippet,
+  #|      context_before: before,
+  #|      context_after: after,
+  #|      selector: String(c.selector || ""),
+  #|      bounds,
+  #|      element_text: elementText,
+  #|      attachments,
   #|      anchor: { snippet, context_before: before, context_after: after },
-  #|      image_path: String(c.imagePath || "")
+  #|      image_path: imagePath
   #|    });
   #|  }
   #|  return JSON.stringify(review, null, 2);
@@ -1439,9 +1667,11 @@ extern "js" fn js_review_send_now_update(
   line : Int,
   text : String,
   snippet : String,
+  context_before : String,
+  context_after : String,
   round : Int,
 ) -> String =
-  #|(json, file, id, line, text, snippet, round) => {
+  #|(json, file, id, line, text, snippet, before, after, round) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -1451,9 +1681,24 @@ extern "js" fn js_review_send_now_update(
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const commentId = String(id || `send-now-${Date.now()}`);
   #|  const existing = review.comments.find(c => c.id === commentId);
-  #|  const anchor = { snippet: String(snippet || ""), context_before: "", context_after: "" };
+  #|  const anchor = { snippet: String(snippet || ""), context_before: String(before || ""), context_after: String(after || "") };
+  #|  const structured = {
+  #|    file,
+  #|    row: Math.max(0, Number(line || 1) - 1),
+  #|    col: 0,
+  #|    end_row: Math.max(0, Number(line || 1) - 1),
+  #|    end_col: 0,
+  #|    snippet: String(snippet || ""),
+  #|    context_before: String(before || ""),
+  #|    context_after: String(after || ""),
+  #|    selector: "",
+  #|    bounds: "",
+  #|    element_text: String(snippet || ""),
+  #|    attachments: []
+  #|  };
   #|  if (existing) {
   #|    existing.file = existing.file || file;
+  #|    Object.assign(existing, { ...structured, ...existing, attachments: Array.isArray(existing.attachments) ? existing.attachments : structured.attachments });
   #|    existing.line = Number(line || existing.line || 1);
   #|    existing.round = Number(existing.round || round || 1);
   #|    existing.text = String(text || existing.text || "");
@@ -1466,7 +1711,7 @@ extern "js" fn js_review_send_now_update(
   #|  } else {
   #|    review.comments.push({
   #|      id: commentId,
-  #|      file,
+  #|      ...structured,
   #|      line: Number(line || 1),
   #|      round: Number(round || 1),
   #|      text: String(text || ""),
@@ -1486,11 +1731,10 @@ fn update_review_on_send_now(file_path : String, id : String, line : Int, text :
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
   let source_lines = @core.split_to_lines(read_file_safe(file_path))
-  let snippet = if line > 0 && line <= source_lines.length() {
-    source_lines[line - 1]
-  } else {
-    ""
-  }
+  let idx = line - 1
+  let snippet = comment_snippet(source_lines, idx)
+  let before = comment_context_before(source_lines, idx)
+  let after = comment_context_after(source_lines, idx)
   write_file_secure(
     review_path,
     js_review_send_now_update(
@@ -1500,7 +1744,41 @@ fn update_review_on_send_now(file_path : String, id : String, line : Int, text :
       line,
       text,
       snippet,
+      before,
+      after,
       current_review_round(file_path),
+    ),
+  )
+}
+
+///|
+fn update_review_on_cli_comment(
+  file_path : String,
+  _id : String,
+  line : Int,
+  text : String,
+  author : String,
+) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  let source_lines = @core.split_to_lines(read_file_safe(file_path))
+  let idx = line - 1
+  let snippet = comment_snippet(source_lines, idx)
+  let before = comment_context_before(source_lines, idx)
+  let after = comment_context_after(source_lines, idx)
+  write_file_secure(
+    review_path,
+    js_update_review_json(
+      read_file_safe(review_path),
+      current_branch(),
+      review_display_file(file_path),
+      line,
+      text,
+      author,
+      snippet,
+      before,
+      after,
+      iso_now(),
     ),
   )
 }
@@ -1510,9 +1788,27 @@ extern "js" fn js_review_current_round(json : String) -> Int =
   #|(json) => { try { const r = JSON.parse(json).rounds || []; return Number((r[r.length - 1] || {}).round || 1); } catch(e) { return 1; } }
 
 ///|
+extern "js" fn js_review_next_comment_seq(json : String, round : Int) -> Int =
+  #|(json, round) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|    return comments.filter((comment) => Number(comment?.round || 0) === Number(round || 1)).length + 1;
+  #|  } catch (_) {
+  #|    return 1;
+  #|  }
+  #|}
+
+///|
 fn current_review_round(file_path : String) -> Int {
   ensure_review_state(file_path)
   js_review_current_round(read_file_safe(review_json_path_for_file(file_path)))
+}
+
+///|
+fn next_review_comment_seq(file_path : String, round : Int) -> Int {
+  ensure_review_state(file_path)
+  js_review_next_comment_seq(read_file_safe(review_json_path_for_file(file_path)), round)
 }
 
 ///|
@@ -1555,6 +1851,35 @@ extern "js" fn js_review_response_json(
   #|(reviewJson, currentText, previousText, gateEnabled) => {
   #|  let review;
   #|  try { review = JSON.parse(reviewJson || "{}"); } catch { review = {}; }
+  #|  const normalizeComment = (comment) => {
+  #|    const c = comment && typeof comment === "object" ? comment : {};
+  #|    const anchor = c.anchor && typeof c.anchor === "object" ? c.anchor : {};
+  #|    const row = Math.max(0, Number(c.row ?? ((Number(c.line || 1) || 1) - 1)));
+  #|    const col = Math.max(0, Number(c.col ?? 0));
+  #|    const snippet = String(c.snippet ?? anchor.snippet ?? c.value ?? "");
+  #|    const before = String(c.context_before ?? anchor.context_before ?? "");
+  #|    const after = String(c.context_after ?? anchor.context_after ?? "");
+  #|    const imagePath = String(c.image_path || c.imagePath || "");
+  #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
+  #|    return {
+  #|      ...c,
+  #|      file: String(c.file || ""),
+  #|      row,
+  #|      col,
+  #|      end_row: Math.max(0, Number(c.end_row ?? row)),
+  #|      end_col: Math.max(0, Number(c.end_col ?? col)),
+  #|      snippet,
+  #|      context_before: before,
+  #|      context_after: after,
+  #|      selector: String(c.selector || ""),
+  #|      bounds: c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds)),
+  #|      element_text: String(c.element_text ?? c.value ?? snippet),
+  #|      attachments,
+  #|      anchor: { snippet, context_before: before, context_after: after },
+  #|      image_path: imagePath
+  #|    };
+  #|  };
+  #|  review.comments = Array.isArray(review.comments) ? review.comments.map(normalizeComment) : [];
   #|  const prev = String(previousText || "").split(/\r?\n/);
   #|  const curr = String(currentText || "").split(/\r?\n/);
   #|  const max = Math.max(prev.length, curr.length);
@@ -1695,9 +2020,41 @@ extern "js" fn js_github_pr_sync(
   #|    if (review.rounds.length === 0) review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
   #|    return review;
   #|  };
+  #|  const normalizedComment = (comment) => {
+  #|    const c = comment && typeof comment === "object" ? comment : {};
+  #|    const anchor = c.anchor && typeof c.anchor === "object" ? c.anchor : {};
+  #|    const row = Math.max(0, Number(c.row ?? ((Number(c.line || 1) || 1) - 1)));
+  #|    const col = Math.max(0, Number(c.col ?? 0));
+  #|    const snippet = String(c.snippet ?? anchor.snippet ?? c.value ?? "");
+  #|    const before = String(c.context_before ?? anchor.context_before ?? "");
+  #|    const after = String(c.context_after ?? anchor.context_after ?? "");
+  #|    const imagePath = String(c.image_path || c.imagePath || "");
+  #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
+  #|    return {
+  #|      ...c,
+  #|      file: String(c.file || ""),
+  #|      row,
+  #|      col,
+  #|      end_row: Math.max(0, Number(c.end_row ?? row)),
+  #|      end_col: Math.max(0, Number(c.end_col ?? col)),
+  #|      snippet,
+  #|      context_before: before,
+  #|      context_after: after,
+  #|      selector: String(c.selector || ""),
+  #|      bounds: c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds)),
+  #|      element_text: String(c.element_text ?? c.value ?? snippet),
+  #|      attachments,
+  #|      anchor: { snippet, context_before: before, context_after: after },
+  #|      image_path: imagePath
+  #|    };
+  #|  };
+  #|  const normalizeReview = (review) => {
+  #|    review.comments = Array.isArray(review.comments) ? review.comments.map(normalizedComment) : [];
+  #|    return review;
+  #|  };
   #|  const saveReview = (review) => {
   #|    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
-  #|    fs.writeFileSync(reviewPath, JSON.stringify(review, null, 2) + "\n");
+  #|    fs.writeFileSync(reviewPath, JSON.stringify(normalizeReview(review), null, 2) + "\n");
   #|  };
   #|  const currentRound = (review) => Number((review.rounds.at(-1) || {}).round || 1) || 1;
   #|  const real = (value) => {
@@ -1747,16 +2104,29 @@ extern "js" fn js_github_pr_sync(
   #|      const line = Number(item?.line || item?.original_line || 1) || 1;
   #|      if (!file) continue;
   #|      if (!review.files.includes(file)) review.files.push(file);
+  #|      const row = Math.max(0, line - 1);
+  #|      const snippet = String(item?.diff_hunk || "");
   #|      const comment = {
   #|        id: "gh-" + gid,
   #|        file,
+  #|        row,
+  #|        col: 0,
+  #|        end_row: row,
+  #|        end_col: 0,
   #|        line,
   #|        round: currentRound(review),
   #|        text: String(item?.body || ""),
   #|        author: "github:" + String(item?.user?.login || "unknown"),
   #|        status: "unresolved",
   #|        replies: [],
-  #|        anchor: { snippet: String(item?.diff_hunk || ""), context_before: "", context_after: "" },
+  #|        snippet,
+  #|        context_before: "",
+  #|        context_after: "",
+  #|        selector: "",
+  #|        bounds: "",
+  #|        element_text: snippet,
+  #|        attachments: [],
+  #|        anchor: { snippet, context_before: "", context_after: "" },
   #|        github: {
   #|          comment_id: gid,
   #|          html_url: String(item?.html_url || ""),
@@ -1847,10 +2217,43 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    const rel = path.relative(root, abs);
   #|    return rel && !rel.startsWith("..") ? rel : path.basename(abs);
   #|  };
+  #|  const normalizeComment = (comment) => {
+  #|    const c = comment && typeof comment === "object" ? comment : {};
+  #|    const anchor = c.anchor && typeof c.anchor === "object" ? c.anchor : {};
+  #|    const row = Math.max(0, Number(c.row ?? ((Number(c.line || 1) || 1) - 1)));
+  #|    const col = Math.max(0, Number(c.col ?? 0));
+  #|    const snippet = String(c.snippet ?? anchor.snippet ?? c.value ?? "");
+  #|    const before = String(c.context_before ?? anchor.context_before ?? "");
+  #|    const after = String(c.context_after ?? anchor.context_after ?? "");
+  #|    const imagePath = String(c.image_path || c.imagePath || "");
+  #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
+  #|    return {
+  #|      ...c,
+  #|      file: String(c.file || ""),
+  #|      row,
+  #|      col,
+  #|      end_row: Math.max(0, Number(c.end_row ?? row)),
+  #|      end_col: Math.max(0, Number(c.end_col ?? col)),
+  #|      snippet,
+  #|      context_before: before,
+  #|      context_after: after,
+  #|      selector: String(c.selector || ""),
+  #|      bounds: c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds)),
+  #|      element_text: String(c.element_text ?? c.value ?? snippet),
+  #|      attachments,
+  #|      anchor: { snippet, context_before: before, context_after: after },
+  #|      image_path: imagePath
+  #|    };
+  #|  };
+  #|  const normalizeReview = (review) => {
+  #|    const r = review && typeof review === "object" ? review : {};
+  #|    r.comments = Array.isArray(r.comments) ? r.comments.map(normalizeComment) : [];
+  #|    return r;
+  #|  };
   #|  const readReview = (cwd) => {
   #|    const p = reviewPath(cwd);
-  #|    if (!fs.existsSync(p)) return { version: 1, branch: branchName(repoRoot(cwd || ".")), files: [], rounds: [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }], comments: [] };
-  #|    return JSON.parse(fs.readFileSync(p, "utf8") || "{}");
+  #|    if (!fs.existsSync(p)) return normalizeReview({ version: 1, branch: branchName(repoRoot(cwd || ".")), files: [], rounds: [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }], comments: [] });
+  #|    return normalizeReview(JSON.parse(fs.readFileSync(p, "utf8") || "{}"));
   #|  };
   #|  const listReviews = (args) => {
   #|    const base = process.env.YUNOMI_REVIEW_DIR || path.join(repoRoot((args && args.cwd) || process.cwd()), ".yunomi", "reviews");
@@ -1885,17 +2288,18 @@ extern "js" fn run_mcp_server() -> Unit =
   #|  const writeReview = (cwd, review) => {
   #|    const dir = reviewDir(cwd);
   #|    ensureDir(dir);
-  #|    fs.writeFileSync(path.join(dir, "review.json"), JSON.stringify(review, null, 2));
+  #|    fs.writeFileSync(path.join(dir, "review.json"), JSON.stringify(normalizeReview(review), null, 2));
   #|    return path.join(dir, "review.json");
   #|  };
   #|  const lineContext = (file, line) => {
   #|    try {
   #|      const lines = fs.readFileSync(path.resolve(file), "utf8").split(/\r?\n/);
   #|      const idx = Math.max(0, Number(line || 1) - 1);
+  #|      const window = (start, end) => lines.slice(Math.max(0, start), Math.min(lines.length, end)).map((value) => String(value || "")).join("\n");
   #|      return {
-  #|        snippet: String(lines[idx] || ""),
-  #|        context_before: idx > 0 ? String(lines[idx - 1] || "") : "",
-  #|        context_after: idx + 1 < lines.length ? String(lines[idx + 1] || "") : ""
+  #|        snippet: window(idx - 3, idx + 4),
+  #|        context_before: window(idx - 5, idx),
+  #|        context_after: window(idx + 1, idx + 6)
   #|      };
   #|    } catch (_) {
   #|      return { snippet: "", context_before: "", context_after: "" };
@@ -1917,16 +2321,29 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    const currentRound = Number((review.rounds[review.rounds.length - 1] || {}).round || 1);
   #|    const id = String(args.id || `mcp-${currentRound}-${review.comments.length + 1}`);
   #|    const abs = path.resolve(cwd, file);
+  #|    const row = Math.max(0, line - 1);
+  #|    const anchor = lineContext(abs, line);
   #|    review.comments.push({
   #|      id,
   #|      file: display,
+  #|      row,
+  #|      col: 0,
+  #|      end_row: row,
+  #|      end_col: 0,
   #|      line,
   #|      round: currentRound,
   #|      text,
   #|      author: String(args.author || "mcp"),
   #|      status: "unresolved",
   #|      replies: [],
-  #|      anchor: lineContext(abs, line)
+  #|      snippet: anchor.snippet,
+  #|      context_before: anchor.context_before,
+  #|      context_after: anchor.context_after,
+  #|      selector: "",
+  #|      bounds: "",
+  #|      element_text: anchor.snippet,
+  #|      attachments: [],
+  #|      anchor
   #|    });
   #|    const p = writeReview(cwd, review);
   #|    return { id, path: p, comment_count: review.comments.length };
@@ -1984,7 +2401,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!msg || !msg.method) return;
   #|    try {
   #|      if (msg.method === "initialize") {
-  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "3.0.0-alpha.1" } } });
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.3.0" } } });
   #|      } else if (msg.method === "tools/list") {
   #|        send({ jsonrpc: "2.0", id: msg.id, result: { tools } });
   #|      } else if (msg.method === "tools/call") {
@@ -2039,6 +2456,25 @@ fn base64_to_file(data : String, dir : String, index : Int) -> String {
         mkdir_sync(dir, mkdir_recursive_opts())
       }
       let filepath = path_join(dir, "image_\{index}.\{ext}")
+      write_file_sync_buf(filepath, buffer_from_base64(b64_data))
+      filepath
+    },
+    "",
+  )
+}
+
+///|
+fn base64_to_named_file(data : String, dir : String, filename : String) -> String {
+  let b64_data = extract_base64_data(data)
+  if b64_data.length() == 0 || filename.length() == 0 {
+    return ""
+  }
+  try_call_string(
+    fn() {
+      if !exists_sync(dir) {
+        mkdir_sync(dir, mkdir_recursive_opts())
+      }
+      let filepath = path_join(dir, filename)
       write_file_sync_buf(filepath, buffer_from_base64(b64_data))
       filepath
     },
@@ -2502,16 +2938,31 @@ extern "js" fn js_update_review_json(
   #|  for (const c of review.comments) {
   #|    if (Number(c?.round || 0) === round) seq += 1;
   #|  }
+  #|  const row = Math.max(0, Number(line || 1) - 1);
+  #|  const safeSnippet = String(snippet || "");
+  #|  const safeBefore = String(before || "");
+  #|  const safeAfter = String(after || "");
   #|  review.comments.push({
   #|    id: `c-${round}-${seq}`,
   #|    file,
+  #|    row,
+  #|    col: 0,
+  #|    end_row: row,
+  #|    end_col: 0,
   #|    line,
   #|    round,
   #|    text,
   #|    author,
   #|    status: "unresolved",
   #|    replies: [],
-  #|    anchor: { snippet, context_before: before, context_after: after }
+  #|    snippet: safeSnippet,
+  #|    context_before: safeBefore,
+  #|    context_after: safeAfter,
+  #|    selector: "",
+  #|    bounds: "",
+  #|    element_text: safeSnippet,
+  #|    attachments: [],
+  #|    anchor: { snippet: safeSnippet, context_before: safeBefore, context_after: safeAfter }
   #|  });
   #|  return JSON.stringify(review, null, 2) + "\n";
   #|}

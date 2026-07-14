@@ -347,14 +347,14 @@ try {
   const completionChecklist = readFileSync(join(pluginHookHandlers, "completion-checklist.sh"), "utf8");
   assert(
     missingPluginFiles.length === 0 && agentNames.length >= 9 && hookHandlerNames.length >= 6,
-    "Claude Code plugin assets一式がhooks/agents中心の2.1.0構造で存在する",
+    "Claude Code plugin assets一式がhooks/agents中心のv3構造で存在する",
     {
       missingPluginFiles,
       agentCount: agentNames.length,
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.1.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが2.1.0のskill非同梱方針を明記している", {
+  assert(pluginManifest.version === "2.3.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが本体と同じ2.3.0版とskill非同梱方針を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });

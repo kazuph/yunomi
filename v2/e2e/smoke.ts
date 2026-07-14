@@ -7,7 +7,7 @@
 import http, { type IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, unlinkSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileSync } from "node:fs";
 
@@ -46,13 +46,14 @@ writeFileSync(TEST_CSV, "name,age\nAlice,30\nBob,25\n");
 let passed = 0;
 let failed = 0;
 
-function assert(condition: boolean, msg: string): void {
+function assert(condition: boolean, msg: string, detail?: unknown): void {
   if (condition) {
     passed++;
     console.log(`  PASS: ${msg}`);
   } else {
     failed++;
     console.error(`  FAIL: ${msg}`);
+    if (detail !== undefined) console.error(JSON.stringify(detail));
   }
 }
 
@@ -545,6 +546,7 @@ console.log("\n--- Submit Data Persistence ---");
   try {
     const submitPort = await sPortDetected;
     await waitForServer(submitPort, 5000);
+    const summaryImageDataUrl = `data:image/png;base64,${PNG_HEADER.toString("base64")}`;
     const payload = JSON.stringify({
       summary: "e2e test review summary",
       comments: [
@@ -554,7 +556,7 @@ console.log("\n--- Submit Data Persistence ---");
         { row: 2, col: 0, text: "comment with quoted line", image: "" },
         { row: 7, col: 0, text: "comment with structured context", image: "" },
       ],
-      summaryImages: [],
+      summaryImages: [summaryImageDataUrl],
       yunomiAnswers: { "q1": "answer to question 1" },
     });
     // Server calls process.exit(0) after responding, which may close the socket
@@ -575,8 +577,18 @@ console.log("\n--- Submit Data Persistence ---");
     assert(sStdout.includes("answer to question 1"), "Submit: answers object serialized as JSON, not coerced");
     assert(!sStdout.includes("[object Object]"), "Submit: no '[object Object]' coercion in YAML output");
     assert(sStdout.includes("value: Test content"), "Submit: comment quotes the source line it refers to");
-    assert(sStdout.includes("context:"), "Submit: comment YAML includes structured context block");
-    assert(sStdout.includes("before: - item 1"), "Submit: context includes the previous source line");
+    assert(sStdout.includes("context_before:") && sStdout.includes("context_after:"), "Submit: comment YAML includes the common structured context fields");
+    assert(sStdout.includes("- item 1"), "Submit: context_before includes the previous source line");
+    assert(sStdout.includes("summary_images:"), "Submit: summary image paths are emitted in YAML");
+    const summaryImageMatch = sStdout.match(/summary_images:\n\s+- (\/[^\n]+summary-[^\n]+-0\.png)/);
+    const summaryImagePath = summaryImageMatch?.[1] ?? "";
+    assert(summaryImagePath.length > 0, "Submit: summary image YAML contains an absolute path");
+    assert(existsSync(summaryImagePath), "Submit: summary image file exists on disk");
+    assert(
+      /^summary-[a-z0-9]+-\d+-[a-z0-9]+-[a-z0-9]+-\d+-[a-z0-9]+-0\.png$/.test(basename(summaryImagePath)),
+      "Submit: summary image filename includes review and submit identifiers",
+      basename(summaryImagePath),
+    );
   } catch (err: unknown) {
     failed++;
     console.error(`  FAIL: Submit test: ${(err as Error).message}`);
@@ -809,6 +821,34 @@ if (playwrightAvailable) {
     await page.goto(BASE, { waitUntil: "load", timeout: 30000 });
     await page.waitForSelector("#md-preview", { timeout: 10000 });
 
+    const mobilePage = await browser.newPage({ viewport: { width: 390, height: 844 } });
+    await mobilePage.goto(BASE, { waitUntil: "load", timeout: 30000 });
+    const mobileHeader = await mobilePage.evaluate(() => {
+      const header = document.querySelector("header");
+      const meta = document.querySelector<HTMLElement>("header .meta");
+      const actions = document.querySelector<HTMLElement>("header .actions");
+      const file = document.querySelector<HTMLElement>("header h1 .title-file");
+      if (!header || !meta || !actions || !file) return null;
+      const headerBox = header.getBoundingClientRect();
+      const actionBoxes = Array.from(actions.children)
+        .map((child) => child.getBoundingClientRect())
+        .filter((box) => box.width > 0 && box.height > 0);
+      return {
+        height: headerBox.height,
+        actionWrap: getComputedStyle(actions).flexWrap,
+        actionRows: new Set(actionBoxes.map((box) => Math.round(box.top))).size,
+        fileTop: file.getBoundingClientRect().top,
+        metaTop: meta.getBoundingClientRect().top,
+        metaBottom: meta.getBoundingClientRect().bottom,
+      };
+    });
+    assert(
+      Boolean(mobileHeader && mobileHeader.height <= 100 && mobileHeader.actionWrap === "nowrap" && mobileHeader.actionRows === 1 && mobileHeader.fileTop >= mobileHeader.metaTop && mobileHeader.fileTop < mobileHeader.metaBottom),
+      "Mobile: header keeps brand/title and actions in two rows within 100px",
+      mobileHeader,
+    );
+    await mobilePage.close();
+
     // --- Theme toggle + localStorage persistence ---
     const themeResult = await page.evaluate(() => {
       const html = document.documentElement;
@@ -990,6 +1030,29 @@ if (playwrightAvailable) {
         const modal = document.getElementById("submit-modal");
         return modal && modal.classList.contains("visible");
       }, { timeout: 5000 }).catch(() => {});
+      const decisionAlignment = await page.evaluate(() => ["modal-approve", "modal-cancel", "modal-request-changes"].map((id) => {
+        const button = document.getElementById(id) as HTMLButtonElement | null;
+        const icon = button?.querySelector("svg");
+        if (!button) return { id, missing: true };
+        const buttonBox = button.getBoundingClientRect();
+        const iconBox = icon?.getBoundingClientRect();
+        return {
+          id,
+          display: getComputedStyle(button).display,
+          alignItems: getComputedStyle(button).alignItems,
+          whiteSpace: getComputedStyle(button).whiteSpace,
+          height: buttonBox.height,
+          buttonCenterY: buttonBox.top + buttonBox.height / 2,
+          iconCenterY: iconBox ? iconBox.top + iconBox.height / 2 : null,
+        };
+      }));
+      assert(
+        decisionAlignment.every((item) => !item.missing && item.height === decisionAlignment[0].height && item.whiteSpace === "nowrap") &&
+          decisionAlignment.filter((item) => item.iconCenterY !== null).every((item) => item.alignItems === "center" && item.buttonCenterY === item.iconCenterY),
+        "Browser Submit: all decision buttons share one height and Request Changes stays on one line",
+        decisionAlignment,
+      );
+      console.log(`Submit decision geometry: ${JSON.stringify(decisionAlignment)}`);
       // Confirm submit (click Approve button)
       const confirmBtn = page.locator("#modal-approve");
       if (await confirmBtn.isVisible().catch(() => false)) {
@@ -1070,6 +1133,10 @@ if (playwrightAvailable) {
     }, { timeout: 5000 });
     await closePage.locator("#comment-input").fill("Close draft comment");
 
+    // Match close_race_regression: wait past the reload-correlation window so
+    // this final navigation is tested as a real abandon, not as the reload that
+    // happened above.
+    await closePage.waitForTimeout(4000);
     const closedResult = waitForProcessExit(closeProc, 12000);
     await closePage.goto("about:blank", { waitUntil: "load", timeout: 30000 });
     await closePage.close();

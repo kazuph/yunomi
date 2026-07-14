@@ -1,6 +1,9 @@
 import http, { type IncomingMessage } from "node:http";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
@@ -10,6 +13,7 @@ const SERVER_JS = new URL(
 const TARGET_PORT = 5311;
 const PROXY_PORT = 5312;
 const REJECT_PORT = 5313;
+const REVIEW_DIR = mkdtempSync(join(tmpdir(), "yunomi-live-review-"));
 
 let passed = 0;
 let failed = 0;
@@ -136,7 +140,10 @@ const proc = spawn("node", [
   "--no-open",
   "--port",
   String(PROXY_PORT),
-], { stdio: ["ignore", "pipe", "pipe"] });
+], {
+  stdio: ["ignore", "pipe", "pipe"],
+  env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_REVIEW_DIR: REVIEW_DIR },
+});
 
 let output = "";
 proc.stdout?.on("data", (chunk: Buffer) => { output += chunk.toString("utf8"); });
@@ -182,9 +189,24 @@ try {
   const exitCode = await waitForExit(proc, 5000);
   assert(exitCode === 0, "live proxy exits after submit");
   assert(output.includes("mode: live"), "live submit YAML includes mode: live");
+  assert(output.includes("file: 'http://127.0.0.1:") || output.includes("file: http://127.0.0.1:"), "live submit YAML includes URL file identifier");
+  assert(output.includes("row: 0"), "live submit YAML includes row");
+  assert(output.includes("col: 0"), "live submit YAML includes col");
+  assert(output.includes("end_row: 0"), "live submit YAML includes end_row");
+  assert(output.includes("end_col: 0"), "live submit YAML includes end_col");
+  assert(output.includes("snippet: Save now"), "live submit YAML includes snippet");
+  assert(output.includes("context_before:"), "live submit YAML includes context_before");
+  assert(output.includes("context_after:"), "live submit YAML includes context_after");
   assert(output.includes("selector: '#save'") || output.includes("selector: #save"), "live submit YAML includes selector field");
   assert(output.includes("value: Save now"), "live submit YAML includes element text");
   assert(output.includes("bounds:"), "live submit YAML includes structured bounds");
+  assert(output.includes("element_text: Save now"), "live submit YAML includes element_text");
+  assert(output.includes("attachments: []"), "live submit YAML includes attachments");
+  const review = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));
+  const persisted = review.comments?.find((comment: any) => comment.text === "Button label is unclear");
+  const schemaKeys = ["file", "row", "col", "end_row", "end_col", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"];
+  assert(schemaKeys.every((key) => Object.prototype.hasOwnProperty.call(persisted || {}, key)), "live /exit persists every common schema key to review.json");
+  assert(persisted?.file?.startsWith("http://127.0.0.1:") && persisted?.selector === "#save" && persisted?.element_text === "Save now", "live review.json preserves URL and DOM context");
 } catch (err: unknown) {
   failed++;
   console.error(`  FAIL: ${(err as Error).message}`);
@@ -202,7 +224,10 @@ console.log("\n--- Live Review URL Guard ---");
     "--no-open",
     "--port",
     String(REJECT_PORT),
-  ], { stdio: ["ignore", "pipe", "pipe"] });
+  ], {
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_REVIEW_DIR: REVIEW_DIR },
+  });
   let rejectOutput = "";
   rejected.stdout?.on("data", (chunk: Buffer) => { rejectOutput += chunk.toString("utf8"); });
   rejected.stderr?.on("data", (chunk: Buffer) => { rejectOutput += chunk.toString("utf8"); });
@@ -212,4 +237,5 @@ console.log("\n--- Live Review URL Guard ---");
 }
 
 console.log(`\nLive review E2E: ${passed} passed, ${failed} failed`);
+rmSync(REVIEW_DIR, { recursive: true, force: true });
 if (failed > 0) process.exit(1);

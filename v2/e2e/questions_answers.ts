@@ -406,9 +406,10 @@ async function main(): Promise<void> {
       if (await nextBtn.isVisible().catch(() => false)) {
         await nextBtn.click();
       }
-      const closeBtn2 = page.locator("#yunomi-questions-close");
-      if (await closeBtn2.isVisible().catch(() => false)) {
-        await closeBtn2.click();
+      const questionOverlay = page.locator("#yunomi-questions-overlay");
+      if (await questionOverlay.isVisible().catch(() => false)) {
+        await page.locator("#yunomi-questions-close").click();
+        await questionOverlay.waitFor({ state: "hidden", timeout: 5000 });
       }
     }
 

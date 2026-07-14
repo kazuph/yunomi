@@ -3,6 +3,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
 
 const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
@@ -11,7 +12,9 @@ const SERVER_JS = new URL(
 
 const TMP_DIR = mkdtempSync(join(tmpdir(), "yunomi-agent-interop-"));
 const LOCK_DIR = join(TMP_DIR, "locks");
+const REVIEW_DIR = join(TMP_DIR, "reviews");
 mkdirSync(LOCK_DIR, { recursive: true });
+mkdirSync(REVIEW_DIR, { recursive: true });
 
 const FILE_A = join(TMP_DIR, "served-a.md");
 const FILE_B = join(TMP_DIR, "served-b.md");
@@ -43,7 +46,7 @@ function waitForServer(proc: ChildProcess): Promise<number> {
 function startServer(file: string, port: number): ChildProcess {
   return spawn("node", [SERVER_JS, file, "--port", String(port), "--no-open"], {
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+    env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR },
   });
 }
 
@@ -129,6 +132,8 @@ async function main(): Promise<void> {
   const serverA = startServer(FILE_A, 5521);
   const serverB = startServer(FILE_B, 5522);
   const processes = [serverA, serverB];
+  let browser: Browser | null = null;
+  let page: Page | null = null;
   try {
     const [portA, portB] = await Promise.all([
       waitForServer(serverA),
@@ -146,6 +151,10 @@ async function main(): Promise<void> {
     const text = "agent interop server route";
     const sseA = openSse(portA);
     await sseA.ready;
+    browser = await chromium.launch({ headless: true });
+    page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+    await page.goto(`http://127.0.0.1:${portA}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#md-preview", { timeout: 10000 });
     const sseB = collectNoSse(portB, text, 1200);
     const result = spawnSync(
       "node",
@@ -153,7 +162,7 @@ async function main(): Promise<void> {
       {
         encoding: "utf8",
         cwd: TMP_DIR,
-        env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR },
+        env: { ...process.env, YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR },
       },
     );
     if (result.status !== 0) {
@@ -172,6 +181,24 @@ async function main(): Promise<void> {
     if (eventB.includes(text)) {
       throw new Error(`non-matching server received CLI comment\n${eventB}`);
     }
+    await page.waitForFunction((needle) => {
+      const count = document.querySelector("#comment-count")?.textContent?.trim();
+      const inline = Array.from(document.querySelectorAll(".review-comment-inline")).find((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && (el.textContent || "").includes(String(needle));
+      });
+      return count === "1" && Boolean(inline);
+    }, text, { timeout: 5000 });
+    const reviewState = await new Promise<string>((resolve, reject) => {
+      http.get(`http://127.0.0.1:${portA}/review-state`, (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => body += chunk.toString());
+        res.on("end", () => resolve(body));
+      }).on("error", reject);
+    });
+    if (!reviewState.includes(text)) {
+      throw new Error(`review-state did not include CLI comment\n${reviewState}`);
+    }
     const offlineFile = join(TMP_DIR, "offline.md");
     const offlineLockDir = join(TMP_DIR, "empty-locks");
     mkdirSync(offlineLockDir, { recursive: true });
@@ -182,7 +209,7 @@ async function main(): Promise<void> {
       {
         encoding: "utf8",
         cwd: TMP_DIR,
-        env: { ...process.env, YUNOMI_LOCK_DIR: offlineLockDir },
+        env: { ...process.env, YUNOMI_LOCK_DIR: offlineLockDir, YUNOMI_REVIEW_DIR: REVIEW_DIR },
       },
     );
     if (offline.status !== 0) {
@@ -196,6 +223,8 @@ async function main(): Promise<void> {
     }
     console.log("PASS: yunomi comment posts to the running server for the same file");
   } finally {
+    await page?.close().catch(() => {});
+    await browser?.close().catch(() => {});
     for (const proc of processes) {
       try {
         proc.kill("SIGINT");

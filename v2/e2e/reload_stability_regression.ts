@@ -98,6 +98,17 @@ function threeQuestionFixture(rev: number): string {
   ].join("\n");
 }
 
+function reviewInputFixture(rev: number): string {
+  return [
+    "# Preview refresh keeps review input",
+    "",
+    "This paragraph is the active review target.",
+    "",
+    `preview revision ${rev}`,
+    "",
+  ].join("\n");
+}
+
 type ServerHandle = { proc: ChildProcess; getOutput: () => string; port: number };
 
 function startServer(mdPath: string, port: number, lockDir: string): Promise<ServerHandle> {
@@ -437,12 +448,86 @@ async function scenarioReloadRestoresWithoutFinalizing(browser: Browser): Promis
   }
 }
 
+/**
+ * A genuine file update must refresh the preview without throwing the human
+ * out of either review surface they may be typing in. This covers the two
+ * states that were missing from the old questions-only regression: a floating
+ * comment card and the final Submit Review dialog.
+ */
+async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise<void> {
+  console.log("\n--- Scenario (d): a preview refresh keeps comment-card and Submit Review input intact ---");
+  const workDir = mkdtempSync(join(tmpdir(), "yunomi-reload-stability-d-"));
+  const mdPath = join(workDir, "fixture.md");
+  writeFileSync(mdPath, reviewInputFixture(1));
+  const { proc, port } = await startServer(mdPath, 5473, join(workDir, "locks"));
+  try {
+    await waitHealth(port);
+    const page = await freshPage(browser, port);
+    await page.locator(".md-preview p").first().click();
+    await page.waitForSelector("#comment-card", { state: "visible", timeout: 5000 });
+    const commentText = "入力途中のコメントは消えない";
+    await page.locator("#comment-input").fill(commentText);
+
+    const firstRefresh = page.waitForEvent("load", { timeout: 15000 });
+    writeFileSync(mdPath, reviewInputFixture(2));
+    await firstRefresh;
+    await page.waitForSelector("#comment-card", { state: "visible", timeout: 5000 });
+    assertTrue(
+      await page.locator("#comment-input").inputValue() === commentText,
+      "プレビュー更新後も開いていたコメントカードと未保存入力がそのまま残る",
+    );
+
+    await page.locator("#close-card").click();
+    await page.locator("#send-and-exit").click();
+    await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+    const summary = "入力途中の全体コメントは消えない";
+    await page.locator("#global-comment").fill(summary);
+
+    const secondRefresh = page.waitForEvent("load", { timeout: 15000 });
+    writeFileSync(mdPath, reviewInputFixture(3));
+    await secondRefresh;
+    await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+    assertTrue(
+      await page.locator("#global-comment").inputValue() === summary,
+      "プレビュー更新後もSubmit Reviewダイアログと入力済みsummaryが残る",
+    );
+
+    // Clicking the overlay is a dismissal, not a destructive discard.
+    await page.locator("#submit-modal").click({ position: { x: 4, y: 4 } });
+    await page.waitForFunction(() => !document.querySelector("#submit-modal")?.classList.contains("visible"));
+    await page.locator("#send-and-exit").click();
+    await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+    assertTrue(
+      await page.locator("#global-comment").inputValue() === summary,
+      "Submit Reviewの外側クリックで閉じても、再オープン時に入力は残る",
+    );
+
+    const exitPromise = new Promise<number | null>((resolve) => {
+      if (proc.exitCode !== null) return resolve(proc.exitCode);
+      proc.once("exit", (code) => resolve(code));
+    });
+    await page.locator("#modal-request-changes").click();
+    const exited = await exitPromise;
+    const tabRetired = await page
+      .waitForFunction(() => location.href === "about:blank", undefined, { timeout: 5000 })
+      .then(() => true)
+      .catch(() => page.isClosed());
+    assertTrue(exited === 0, "Request Changesの最終Submit後にサーバーが終了する", { exited });
+    assertTrue(tabRetired, "Request Changesの最終Submit後にレビュータブが閉じるかabout:blankへ退避する");
+    await page.close().catch(() => {});
+  } finally {
+    killIfAlive(proc);
+    rmSync(workDir, { recursive: true, force: true });
+  }
+}
+
 async function main(): Promise<void> {
   const browser = await chromium.launch();
   try {
     await scenarioNoSpuriousReloadWhileIdle(browser);
     await scenarioAnswerLiveDeliveryDoesNotTriggerReload(browser);
     await scenarioReloadRestoresWithoutFinalizing(browser);
+    await scenarioPreviewRefreshKeepsReviewInput(browser);
   } finally {
     await browser.close();
   }

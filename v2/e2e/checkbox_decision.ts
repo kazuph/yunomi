@@ -11,7 +11,9 @@ const SERVER_JS = new URL(
 
 const TMP_DIR = mkdtempSync(join(tmpdir(), "yunomi-checkbox-decision-"));
 const LOCK_DIR = join(TMP_DIR, "locks");
+const REVIEW_DIR = join(TMP_DIR, "reviews");
 mkdirSync(LOCK_DIR, { recursive: true });
+mkdirSync(REVIEW_DIR, { recursive: true });
 
 const REPORT = join(TMP_DIR, "REPORT.md");
 const NOTIFY_LOG = join(TMP_DIR, "notify.log");
@@ -119,6 +121,7 @@ async function main(): Promise<void> {
     env: {
       ...process.env,
       YUNOMI_LOCK_DIR: LOCK_DIR,
+      YUNOMI_REVIEW_DIR: REVIEW_DIR,
       YUNOMI_NOTIFY_CMD: `node ${NOTIFY_HELPER} ${NOTIFY_LOG} {msg}`,
     },
   });

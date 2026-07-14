@@ -36,12 +36,20 @@ pub fn FileMode::from_extension(ext : String) -> FileMode {
 ///|
 /// A single review comment
 pub(all) struct Comment {
+  file : String?
   row : Int
   col : Int
+  end_row : Int?
+  end_col : Int?
   text : String
   value : String
+  snippet : String?
   context_before : String
   context_after : String
+  selector : String?
+  bounds : String?
+  element_text : String?
+  attachments : Array[String]?
   image_path : String
 } derive(Debug, Eq)
 
@@ -110,6 +118,7 @@ pub(all) struct ReviewResult {
   mode : FileMode
   comments : Array[Comment]
   summary : String
+  summary_images : Array[String]
   answers : String
   mermaid_errors : Array[MermaidError]
   decision : ReviewDecision?

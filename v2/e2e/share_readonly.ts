@@ -1,7 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chromium } from "playwright";
 
 const SERVER_JS = new URL("../_build/js/release/build/server/server.js", import.meta.url).pathname;
 const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-share-"));
@@ -93,6 +94,28 @@ writeFileSync(report, "# Shared Report\n\nRead-only content.\n");
 writeFileSync(notes, "plain shared text\n");
 
 try {
+  const unsafeHost = spawnSync(
+    process.execPath,
+    [SERVER_JS, "share", report, "--host", "0.0.0.0", "--no-open"],
+    {
+      cwd: WORK_DIR,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HERDR_PANE_ID: "",
+        YUNOMI_NOTIFY_CMD: "",
+        YUNOMI_LOCK_DIR: LOCK_DIR,
+        YUNOMI_REVIEW_DIR: REVIEW_DIR,
+        YUNOMI_SHARE_DIR: SHARE_DIR,
+      },
+    },
+  );
+  assert(
+    unsafeHost.status === 1 && unsafeHost.stderr.includes("requires --public"),
+    "share rejects non-loopback binding unless --public is explicit",
+    unsafeHost,
+  );
+
   const share = await startShare([
     report,
     notes,
@@ -123,6 +146,33 @@ try {
       "share supports read-only multi-file switching",
     );
 
+    const browser = await chromium.launch();
+    try {
+      for (const width of [1280, 375]) {
+        const tab = await browser.newPage({ viewport: { width, height: 800 } });
+        await tab.goto(`http://127.0.0.1:${share.port}/?f=0&share=${shareToken}`, { waitUntil: "domcontentloaded" });
+        const tabLayout = await tab.evaluate(() => {
+          const nav = document.querySelector<HTMLElement>("#review-file-switcher");
+          const tabs = Array.from(document.querySelectorAll<HTMLElement>("#review-file-switcher a"));
+          const rects = tabs.map((item) => item.getBoundingClientRect());
+          return {
+            navHeight: nav?.getBoundingClientRect().height ?? 0,
+            label: document.querySelector(".review-file-switcher-label")?.textContent?.trim() ?? "",
+            tabCount: tabs.length,
+            overlap: rects.some((rect, index) => index > 0 && rect.left < rects[index - 1].right),
+          };
+        });
+        assert(
+          tabLayout.navHeight >= 44 && tabLayout.label === "Review files" && tabLayout.tabCount === 2 && !tabLayout.overlap,
+          `share file tabs stay labeled and non-overlapping at width=${width}`,
+          tabLayout,
+        );
+        await tab.close();
+      }
+    } finally {
+      await browser.close();
+    }
+
     const second = await get(share.port, `/?f=1&share=${shareToken}`);
     assert(second.status === 200 && second.text.includes("plain shared text"), "share serves the second file read-only");
 
@@ -150,6 +200,23 @@ try {
     assert(revoke.code === 0 && revoke.output.includes("revoked") && !existsSync(join(SHARE_DIR, `${revokeToken}.json`)), "share --revoke removes the token metadata", revoke);
   } finally {
     await stop(share.proc);
+  }
+
+  const publicShare = await startShare([
+    report,
+    "--public",
+    "--no-open",
+    "--port",
+    String(BASE_PORT + 1),
+  ]);
+  try {
+    assert(
+      publicShare.output().includes("yunomi share token") && publicShare.port >= BASE_PORT + 1,
+      "share --public starts an explicitly public signed share server",
+      publicShare.output(),
+    );
+  } finally {
+    await stop(publicShare.proc);
   }
 } catch (error) {
   failed++;

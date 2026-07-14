@@ -43,23 +43,26 @@ Your browser opens. You read at your own pace. You leave comments; you approve �
 
 In the vibe coding era, humans no longer read every diff. We review the work itself: **intent, changes, and proof**. yunomi is the moment of handoff between AI work and human judgment — served politely, every single time.
 
-## Roadmap: The Review Loop 🔁
+## Review Loop 🔁
 
-One cup is never the whole conversation. The next major evolution of yunomi turns a single review into a **multi-round loop** — the defining workflow of AI-native review tools:
+One cup is never the whole conversation. yunomi turns a single review into a **multi-round loop** — the defining workflow of AI-native review tools:
 
 - **Rounds** — after you request changes, the agent fixes and runs `yunomi go`; your browser shows a fresh round with a **diff of what actually changed** since your comments
 - **Threads that never get lost** — comments stay pinned to their lines across rounds, **unresolved until *you* resolve them**; "I think I fixed it" can no longer make feedback silently disappear
 - **Review files** — verdicts persist to `.yunomi/reviews/` per branch, so any agent (Claude Code, Codex, Cursor, OpenCode, …) can pick the loop back up tomorrow, even after the terminal is gone
+- **Change review** — `yunomi review [base-ref]` detects Git, Jujutsu, or Sapling changes and keeps their Markdown, text, table, and diff views in one review session
 - **Live app review** — `yunomi live http://localhost:3000` proxies your dev server so you can pin comments **directly on DOM elements** of the running app
+- **Static HTML review** — `yunomi page.html` renders a sandboxed local preview with its relative assets and records clicked-element context
+- **Code review** — diff files have a file tree, Unified/Split views, and durable per-file Reviewed state
 - **Talk back mid-review** — send a single comment to the agent *while you keep reading*, and watch the reply land in the thread
-- **Read-only sharing** — `yunomi share REPORT.md` serves a review URL with comment and submit actions disabled; binding stays local unless you explicitly pass `--host`
-- **GitHub PR sync** — `yunomi pull 123` imports PR review comments into `review.json`; `yunomi push 123` sends unsynced yunomi comments back through the GitHub CLI
+- **Read-only sharing** — `yunomi share REPORT.md` serves a review URL with comment and submit actions disabled; binding stays local unless you explicitly pass `--public`
+- **GitHub PR sync** — `yunomi pull 123` imports PR review comments into `review.json`; `yunomi push <review-id> 123` sends that review's unsynced comments back through the GitHub CLI
 - **Keyboard review** — `j/k` moves through review targets, `c` comments, `n/N` jumps comments, `r` resolves threads, and `?` opens the key help
 - **Review metadata commands** — `yunomi status`, `yunomi stats`, and `yunomi cleanup` show active sessions, summarize recent review history, and remove old approved review files
 - **Report templates** — `yunomi init --template bugfix` creates `.artifacts/<feature>/REPORT.md` from built-in or `~/.yunomi/templates/*.md` templates
 - **`yunomi install <agent>`** / **`yunomi mcp`** — one-command skill distribution and a stdio MCP server exposing review state, comment creation, and next-round control
 
-The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi will keep reviewing **the work, not just the diff**.
+The full feature-by-feature plan — including a gap analysis against tools like [crit](https://crit.md/) — lives in [PLAN.md](./PLAN.md). Evidence-first reporting stays at the heart of it all: yunomi reviews **the work, not just the diff**.
 
 ## Getting started (the only step)
 
@@ -214,14 +217,23 @@ yunomi changes.diff
 ```yaml
 file: data.csv
 mode: csv
-reason: button
-at: '2025-11-26T12:00:00.000Z'
 comments:
-  - row: 2
+  - file: data.csv
+    row: 2
     col: 3
+    end_row: 2
+    end_col: 3
     text: This value needs review
     value: '150'
+    snippet: 'alpha,ready,150'
+    context_before: 'name,status,total'
+    context_after: ''
+    selector: ''
+    bounds: ''
+    element_text: ''
+    attachments: []
 summary: Overall the data looks good, minor issues noted above.
+decision: request_changes
 ```
 
 ## Claude Code Plugin

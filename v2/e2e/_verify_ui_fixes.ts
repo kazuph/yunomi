@@ -1,12 +1,15 @@
 // Manual dogfooding script for the 2026-06-12 UI fixes (not part of npm test).
 // Captures screenshots into .artifacts/ui-polish-2026-06-12/ and asserts behaviors.
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 
 const SERVER_JS = new URL("../_build/js/release/build/server/server.js", import.meta.url).pathname;
 const FEATURES_MD = new URL("../../examples/test-features.md", import.meta.url).pathname;
 const OUT = new URL("../../.artifacts/ui-polish-2026-06-12/", import.meta.url).pathname;
+const REVIEW_DIR = mkdtempSync(join(tmpdir(), "yunomi-ui-verify-"));
 mkdirSync(OUT, { recursive: true });
 
 let failed = 0;
@@ -16,7 +19,7 @@ function check(cond: boolean, msg: string, detail?: unknown) {
 }
 
 const proc = spawn("node", [SERVER_JS, FEATURES_MD, "--port", "5397", "--no-open"], {
-  env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "" },
+  env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_REVIEW_DIR: REVIEW_DIR },
   stdio: ["ignore", "pipe", "pipe"],
 });
 await new Promise<void>((res) => {

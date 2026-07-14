@@ -345,7 +345,20 @@ fn main {
       i = i + 1
     }
     server_instance_id.val = gen_instance_id()
-    start_live_proxy(args[1], port, bind_host.val, no_open, server_instance_id.val)
+    start_live_proxy(
+      args[1],
+      port,
+      bind_host.val,
+      no_open,
+      server_instance_id.val,
+      fn(body) {
+        persist_external_review(
+          review_json_path_for_cwd(),
+          args[1],
+          body,
+        )
+      },
+    )
     return
   }
   if args.length() > 0 {
@@ -543,11 +556,16 @@ fn enforce_media_discipline(files : Array[String]) -> Unit {
 
 ///|
 fn git_result(args : Array[String]) -> (Int, String, String) {
-  let git = resolve_command("git")
-  if git.length() == 0 {
-    (1, "", "git command not found")
+  command_result("git", args)
+}
+
+///|
+fn command_result(command : String, args : Array[String]) -> (Int, String, String) {
+  let executable = resolve_command(command)
+  if executable.length() == 0 {
+    (1, "", command + " command not found")
   } else {
-    spawn_sync_result_args(git, args)
+    spawn_sync_result_args(executable, args)
   }
 }
 
@@ -595,13 +613,46 @@ fn default_review_base() -> String {
 }
 
 ///|
-fn review_changed_files(base_ref : String) -> Array[String] {
-  let root_result = git_result(["rev-parse", "--show-toplevel"])
-  if root_result.0 != 0 {
-    console_error("yunomi review: not a git repository")
-    exit_process("review not git", 1)
+fn paths_from_vcs_output(root : String, output : String) -> Array[String] {
+  let files : Array[String] = []
+  for file in split_nonempty_lines(output) {
+    push_unique(files, path_join(root, file))
   }
-  let root = root_result.1.trim().to_owned()
+  files
+}
+
+///|
+pub fn sapling_status_paths(output : String) -> Array[String] {
+  let files : Array[String] = []
+  for line in split_nonempty_lines(output) {
+    let chars = line.to_array()
+    let mut separator = 0
+    while separator < chars.length() && chars[separator] != ' ' {
+      separator = separator + 1
+    }
+    let path = @core.safe_slice(line, separator + 1).trim().to_owned()
+    if path.length() > 0 {
+      push_unique(files, path)
+    }
+  }
+  files
+}
+
+///|
+pub fn summary_image_filename(
+  review_id : String,
+  submit_id : String,
+  index : Int,
+  ext : String,
+) -> String {
+  if ext.length() == 0 {
+    return ""
+  }
+  "summary-\{sanitize_branch_name(review_id)}-\{sanitize_branch_name(submit_id)}-\{index}.\{ext}"
+}
+
+///|
+fn review_git_changed_files(root : String, base_ref : String) -> Array[String] {
   let files : Array[String] = []
   let base = if base_ref.length() > 0 { base_ref } else { default_review_base() }
   let committed = git_result([
@@ -618,22 +669,83 @@ fn review_changed_files(base_ref : String) -> Array[String] {
     )
     exit_process("review diff failed", 1)
   }
-  for file in split_nonempty_lines(committed.1) {
-    push_unique(files, path_join(root, file))
+  for file in paths_from_vcs_output(root, committed.1) {
+    push_unique(files, file)
   }
   let working = git_result(["diff", "--name-only", "--diff-filter=ACMR"])
   if working.0 == 0 {
-    for file in split_nonempty_lines(working.1) {
-      push_unique(files, path_join(root, file))
+    for file in paths_from_vcs_output(root, working.1) {
+      push_unique(files, file)
     }
   }
   let staged = git_result(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
   if staged.0 == 0 {
-    for file in split_nonempty_lines(staged.1) {
-      push_unique(files, path_join(root, file))
+    for file in paths_from_vcs_output(root, staged.1) {
+      push_unique(files, file)
     }
   }
   files
+}
+
+///|
+fn review_jj_changed_files(root : String, base_ref : String) -> Array[String] {
+  let args : Array[String] = ["diff", "--name-only"]
+  if base_ref.length() > 0 {
+    args.push("--from")
+    args.push(base_ref)
+    args.push("--to")
+    args.push("@")
+  }
+  let result = command_result("jj", args)
+  if result.0 != 0 {
+    let detail = result.2.trim().to_owned()
+    let detail_suffix = if detail.length() > 0 { ": " + detail } else { "" }
+    console_error("yunomi review: jj diff failed" + detail_suffix)
+    exit_process("review jj diff failed", 1)
+  }
+  paths_from_vcs_output(root, result.1)
+}
+
+///|
+fn review_sapling_changed_files(root : String, base_ref : String) -> Array[String] {
+  let args : Array[String] = ["status", "-ma"]
+  if base_ref.length() > 0 {
+    args.push("--rev")
+    args.push(base_ref)
+    args.push("--rev")
+    args.push(".")
+  }
+  let result = command_result("sl", args)
+  if result.0 != 0 {
+    let detail = result.2.trim().to_owned()
+    let detail_suffix = if detail.length() > 0 { ": " + detail } else { "" }
+    console_error("yunomi review: Sapling status failed" + detail_suffix)
+    exit_process("review sapling status failed", 1)
+  }
+  let files : Array[String] = []
+  for file in sapling_status_paths(result.1) {
+    push_unique(files, path_join(root, file))
+  }
+  files
+}
+
+///|
+fn review_changed_files(base_ref : String) -> Array[String] {
+  let git_root = git_result(["rev-parse", "--show-toplevel"])
+  if git_root.0 == 0 {
+    return review_git_changed_files(git_root.1.trim().to_owned(), base_ref)
+  }
+  let jj_root = command_result("jj", ["root"])
+  if jj_root.0 == 0 {
+    return review_jj_changed_files(jj_root.1.trim().to_owned(), base_ref)
+  }
+  let sapling_root = command_result("sl", ["root"])
+  if sapling_root.0 == 0 {
+    return review_sapling_changed_files(sapling_root.1.trim().to_owned(), base_ref)
+  }
+  console_error("yunomi review: not a git repository, jj workspace, or Sapling repository")
+  exit_process("review not repository", 1)
+  []
 }
 
 ///|
@@ -682,9 +794,9 @@ fn print_usage() -> Unit {
     #|       yunomi live <http://localhost:port> [options]
     #|       yunomi comment <file:line> <text> [--author <name>]
     #|       yunomi mcp
-    #|       yunomi share <file...> [--host <addr>] [--port <n>] [--no-open]
+    #|       yunomi share <file...> [--public] [--port <n>] [--no-open]
     #|       yunomi pull [pr-number|url]
-    #|       yunomi push [pr-number|url]
+    #|       yunomi push <review-id> <pr-number|url>
     #|       yunomi status [--json]
     #|       yunomi stats [--json]
     #|       yunomi cleanup [--older-than <days>] [--json]
@@ -710,8 +822,8 @@ fn print_usage() -> Unit {
     #|Continue a loop: yunomi go
     #|Reply to a thread: yunomi reply <comment-id> '<text>'
     #|MCP bridge: yunomi mcp
-    #|Read-only share URL: yunomi share REPORT.md --host 0.0.0.0
-    #|GitHub PR sync: yunomi pull 123 && yunomi push 123
+    #|Read-only share URL: yunomi share REPORT.md --public
+    #|GitHub PR sync: yunomi pull 123 && yunomi push feature-branch 123
     #|Live review accepts only http://localhost or http://127.0.0.1 targets.
     #|Run with no arguments to print the AI agent skill document.
   console_log(usage)
@@ -719,8 +831,20 @@ fn print_usage() -> Unit {
 
 ///|
 fn handle_pr_sync_command(mode : String, args : Array[String]) -> Unit {
-  let pr = if args.length() > 1 { args[1] } else { "" }
-  let review_path = review_json_path_for_cwd()
+  let mut review_path = review_json_path_for_cwd()
+  let mut pr = if args.length() > 1 { args[1] } else { "" }
+  if mode == "push" {
+    if args.length() < 3 {
+      console_error("yunomi push: review-id and PR number or URL are required")
+      exit_process("github pr sync arguments missing", 1)
+    }
+    review_path = review_json_path_for_id(args[1])
+    pr = args[2]
+    if !exists_sync(review_path) {
+      console_error("yunomi push: review-id not found: " + args[1])
+      exit_process("github review not found", 1)
+    }
+  }
   let result = js_github_pr_sync(mode, review_path, process_cwd(), pr, iso_now())
   if json_parse_string("ok", result) != "true" {
     let error = json_parse_string("error", result)
@@ -840,10 +964,52 @@ fn source_context(file_path : String, line : Int) -> (String, String, String) {
   }
   let lines = @core.split_to_lines(content)
   let idx = line - 1
-  let snippet = if idx >= 0 && idx < lines.length() { lines[idx] } else { "" }
-  let before = if idx > 0 && idx - 1 < lines.length() { lines[idx - 1] } else { "" }
-  let after = if idx + 1 < lines.length() { lines[idx + 1] } else { "" }
+  let snippet = comment_snippet(lines, idx)
+  let before = comment_context_before(lines, idx)
+  let after = comment_context_after(lines, idx)
   (snippet, before, after)
+}
+
+///|
+fn join_line_window(lines : Array[String], start : Int, end_exclusive : Int) -> String {
+  let buf = StringBuilder::new()
+  let mut i = if start < 0 { 0 } else { start }
+  let last = if end_exclusive > lines.length() { lines.length() } else { end_exclusive }
+  let mut first = true
+  while i < last {
+    if first {
+      first = false
+    } else {
+      buf.write_char('\n')
+    }
+    buf.write_string(lines[i])
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn comment_snippet(lines : Array[String], row : Int) -> String {
+  if row < 0 || row >= lines.length() {
+    return ""
+  }
+  join_line_window(lines, row - 3, row + 4)
+}
+
+///|
+fn comment_context_before(lines : Array[String], row : Int) -> String {
+  if row < 0 || row >= lines.length() {
+    return ""
+  }
+  join_line_window(lines, row - 5, row)
+}
+
+///|
+fn comment_context_after(lines : Array[String], row : Int) -> String {
+  if row < 0 || row >= lines.length() {
+    return ""
+  }
+  join_line_window(lines, row + 1, row + 6)
 }
 
 ///|
@@ -869,7 +1035,11 @@ fn write_review_comment(target : CommentTarget, text : String, author : String) 
 }
 
 ///|
-fn post_comment_to_running_servers(target : CommentTarget, text : String) -> String {
+fn post_comment_to_running_servers(
+  target : CommentTarget,
+  text : String,
+  author : String,
+) -> String {
   let curl = resolve_command("curl")
   if curl.length() == 0 {
     return "curl command not found"
@@ -882,7 +1052,7 @@ fn post_comment_to_running_servers(target : CommentTarget, text : String) -> Str
     return "no lock files found in " + lock_dir()
   }
   let target_abs = path_resolve(target.file)
-  let body = "{\"type\":\"comment\",\"key\":\"cli-\{target.line}\",\"row\":\{target.line},\"col\":0,\"text\":\{json_encode_value(text)}}"
+  let body = "{\"type\":\"comment\",\"key\":\"cli-\{target.line}\",\"row\":\{target.line},\"col\":0,\"text\":\{json_encode_value(text)},\"author\":\{json_encode_value(author)}}"
   let mut scanned = 0
   let mut candidates = 0
   let mut last_error = ""
@@ -959,7 +1129,7 @@ fn handle_comment_command(args : Array[String]) -> Unit {
     }
     i = i + 1
   }
-  let fallback_reason = post_comment_to_running_servers(target, text)
+  let fallback_reason = post_comment_to_running_servers(target, text, author)
   if fallback_reason.length() == 0 {
     console_log("Posted comment to running yunomi server")
     return
@@ -1119,6 +1289,9 @@ fn print_skill_doc_text() -> String {
     #|   npx yunomi reply c-2-3 'Fixed the Japanese error message wording.'
     #|   ```
     #|
+    #|   Do not leave the review UI saying "No implementation reply yet" /
+    #|   "実装側の応答はまだありません" after you have acted on a comment.
+    #|
     #|   Save the file; yunomi hot-reloads the browser. Wait for the human
     #|   to click Resolve, comment again, approve, or reject. Keep the
     #|   process alive until approval/rejection completes.
@@ -1127,6 +1300,18 @@ fn print_skill_doc_text() -> String {
     #|   fix -> `yunomi go` until the human approves.
     #|8. Only after `decision: approve`: commit, push, publish, or report
     #|   completion.
+    #|
+    #|## v3 review commands
+    #|
+    #|- `yunomi review [base-ref]` reviews changed files from Git, Jujutsu,
+    #|  or Sapling in one multi-file session.
+    #|- `yunomi share <files>` stays on loopback. Add `--public` explicitly
+    #|  only when the human asked for a public read-only URL.
+    #|- `yunomi pull <pr>` imports GitHub review comments. Use
+    #|  `yunomi push <review-id> <pr>` to send one selected review back.
+    #|- `yunomi status`, `stats`, `cleanup`, and `init --template <name>`
+    #|  manage durable review sessions and report templates.
+    #|- `yunomi mcp` starts the stdio MCP bridge registered by `.mcp.json`.
     #|
     #|## REPORT.md rules
     #|
@@ -1155,10 +1340,20 @@ fn print_skill_doc_text() -> String {
     #|file: REPORT.md
     #|mode: markdown
     #|comments:           # may be empty
-    #|  - row: 12         # line/row the comment is anchored to
+    #|  - file: REPORT.md
+    #|    row: 12         # line/row the comment is anchored to
     #|    col: 0
+    #|    end_row: 12
+    #|    end_col: 0
     #|    text: the human's comment
     #|    value: the line content it refers to
+    #|    snippet: the target plus nearby source lines
+    #|    context_before: the five preceding source lines
+    #|    context_after: the five following source lines
+    #|    selector: ''    # populated by live/static HTML review
+    #|    bounds: ''      # populated by live/static HTML review
+    #|    element_text: ''
+    #|    attachments: []
     #|summary: overall feedback from the human
     #|decision: approve | request_changes
     #|```
@@ -1396,6 +1591,10 @@ fn compute_tab_title(file_path : String, filename : String) -> String {
   let mut depth = 0
   while depth < 16 {
     if exists_sync(path_join(dir, ".git")) {
+      let rel = path_relative(dir, path_resolve(file_path))
+      if rel.length() > 0 && !rel.has_prefix("..") {
+        return path_basename(dir) + "/" + rel
+      }
       return path_basename(dir) + "/" + filename
     }
     let parent = path_dirname(dir)
@@ -1518,7 +1717,7 @@ fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
   }
   let active_idx = context_index(ctx)
   let nav = StringBuilder::new()
-  nav.write_string("<nav id=\"review-file-switcher\" class=\"review-file-switcher\" aria-label=\"Review files\">")
+  nav.write_string("<nav id=\"review-file-switcher\" class=\"review-file-switcher\" aria-label=\"Review files\"><span class=\"review-file-switcher-label\">Review files</span><div class=\"review-file-switcher-tabs\">")
   for i, candidate in active_servers {
     let cls = if i == active_idx { " class=\"active\"" } else { "" }
     nav.write_string("<a")
@@ -1535,7 +1734,7 @@ fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
     nav.write_string(@core.escape_html(candidate.filename))
     nav.write_string("</a>")
   }
-  nav.write_string("</nav>")
+  nav.write_string("</div></nav>")
   js_inject_before_body_end(html, nav.to_string())
 }
 
@@ -1570,7 +1769,20 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
   let ctx = create_file_context(file_path, port)
   if ctx.mode == @core.FileMode::Html {
     active_servers.push(ctx)
-    start_html_preview_server(ctx.file_path, ctx.port, bind_host.val, no_open, server_instance_id.val)
+    start_html_preview_server(
+      ctx.file_path,
+      ctx.port,
+      bind_host.val,
+      no_open,
+      server_instance_id.val,
+      fn(body) {
+        persist_external_review(
+          review_json_path_for_file(ctx.file_path),
+          review_display_file(ctx.file_path),
+          body,
+        )
+      },
+    )
     return
   }
   ctx.html_cache = load_and_build_html(ctx)
@@ -1688,6 +1900,7 @@ fn handle_share_command(args : Array[String]) -> Unit {
   let mut port = 4989
   let mut no_open = false
   let mut revoke_token = ""
+  let mut public_share = false
   let files : Array[String] = []
   let mut i = 1
   while i < args.length() {
@@ -1702,6 +1915,7 @@ fn handle_share_command(args : Array[String]) -> Unit {
     } else if arg == "--no-vim" {
       vim_keys_enabled.val = false
     } else if arg == "--public" {
+      public_share = true
       bind_host.val = "0.0.0.0"
     } else if arg == "--revoke" {
       i = i + 1
@@ -1722,6 +1936,10 @@ fn handle_share_command(args : Array[String]) -> Unit {
       files.push(arg)
     }
     i = i + 1
+  }
+  if !public_share && bind_host.val != "127.0.0.1" && bind_host.val != "localhost" {
+    console_error("yunomi share: non-loopback binding requires --public")
+    exit_process("share public flag required", 1)
   }
   if revoke_token.length() > 0 {
     if revoke_share_token(revoke_token) {
@@ -2105,6 +2323,14 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   } else if http_method == "POST" && url == "/comment" {
     read_body(req, fn(body) {
       handle_comment(ctx, body)
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
+    })
+  } else if http_method == "POST" && url == "/review-viewed" {
+    read_body(req, fn(body) {
+      if ctx.file_path != "<stdin>" {
+        update_review_viewed_files(ctx.file_path, body)
+      }
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
     })
@@ -2569,6 +2795,11 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     buf.write_string(",\"text\":")
     buf.write_string(json_encode_value(text))
   }
+  let author = json_parse_string("author", body)
+  if author.length() > 0 {
+    buf.write_string(",\"author\":")
+    buf.write_string(json_encode_value(author))
+  }
   let has_image = json_parse_string("hasImage", body)
   if has_image == "true" {
     buf.write_string(",\"hasImage\":true")
@@ -2579,6 +2810,12 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     let line = json_parse_int_field("row", body) + 1
     let id = if key.length() > 0 { key } else { "draft" }
     update_review_on_send_now(ctx.file_path, id, line, text)
+  }
+  if text.length() > 0 && event_type == "comment" && key.has_prefix("cli-") &&
+    ctx.file_path != "<stdin>" {
+    let line = json_parse_int_field("row", body)
+    let writer = if author.length() > 0 { author } else { "agent" }
+    update_review_on_cli_comment(ctx.file_path, key, line, text, writer)
   }
   if text.length() > 0 && event_type != "delete" {
     let line = json_parse_int_field("row", body) + 1
@@ -2646,21 +2883,70 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   let raw_comments = json_parse_comments(body)
   let comments : Array[@core.Comment] = []
   let output_dir = path_join(os_homedir(), ".yunomi/outputs")
+  let review_file = if ctx.file_path == "<stdin>" {
+    "<stdin>"
+  } else {
+    review_display_file(ctx.file_path)
+  }
+  let attachment_dir = if ctx.file_path == "<stdin>" {
+    ""
+  } else {
+    path_join(review_dir_for_file(ctx.file_path), "comment-attachments")
+  }
   // Save summary images
   let images = json_parse_images(body)
+  let summary_image_paths : Array[String] = []
+  if server_instance_id.val.length() == 0 {
+    server_instance_id.val = gen_instance_id()
+  }
+  let summary_submit_id = gen_instance_id()
   for i, img in images {
     if img.length() > 0 {
-      ignore(base64_to_file(img, output_dir, i))
+      let ext = extract_base64_ext(img)
+      let filename = summary_image_filename(server_instance_id.val, summary_submit_id, i, ext)
+      if filename.length() > 0 {
+        let path = base64_to_named_file(img, output_dir, filename)
+        if path.length() > 0 {
+          summary_image_paths.push(path)
+        }
+      }
     }
   }
   let comment_image_paths : Array[String] = []
+  let comment_attachment_refs : Array[String] = []
   let mut comment_img_idx = images.length()
+  let current_round = if ctx.file_path != "<stdin>" {
+    current_review_round(ctx.file_path)
+  } else {
+    1
+  }
+  let mut comment_seq = if ctx.file_path != "<stdin>" {
+    next_review_comment_seq(ctx.file_path, current_round)
+  } else {
+    1
+  }
   for c in raw_comments {
     if c.length() >= 5 && c[4].length() > 0 {
       comment_image_paths.push(base64_to_file(c[4], output_dir, comment_img_idx))
+      let attachment_ext = extract_base64_ext(c[4])
+      let attachment_name = if attachment_ext.length() > 0 {
+        "c-\{current_round}-\{comment_seq}.\{attachment_ext}"
+      } else {
+        ""
+      }
+      if attachment_dir.length() > 0 && attachment_name.length() > 0 {
+        ignore(base64_to_named_file(c[4], attachment_dir, attachment_name))
+        comment_attachment_refs.push("./comment-attachments/" + attachment_name)
+      } else {
+        comment_attachment_refs.push("")
+      }
       comment_img_idx = comment_img_idx + 1
     } else {
       comment_image_paths.push("")
+      comment_attachment_refs.push("")
+    }
+    if c.length() >= 3 {
+      comment_seq = comment_seq + 1
     }
   }
   // Source lines for quoting: agents consuming the verdict YAML only get a
@@ -2678,36 +2964,45 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   for i, c in raw_comments {
     if c.length() >= 3 {
       let row = @core.parse_int_safe(c[0])
+      let col = @core.parse_int_safe(c[1])
       let sent_value = if c.length() > 3 { c[3] } else { "" }
-      let before = if row > 0 && row - 1 < source_lines.length() {
-        source_lines[row - 1]
+      let image_path = if i < comment_image_paths.length() { comment_image_paths[i] } else { "" }
+      let end_row = if c.length() > 5 { @core.parse_int_safe(c[5]) } else { row }
+      let end_col = if c.length() > 6 { @core.parse_int_safe(c[6]) } else { col }
+      let selector = if c.length() > 7 { c[7] } else { "" }
+      let bounds = if c.length() > 8 { c[8] } else { "" }
+      let element_text = if c.length() > 9 { c[9] } else { "" }
+      let attachment_ref = if i < comment_attachment_refs.length() {
+        comment_attachment_refs[i]
       } else {
         ""
       }
-      let after = if row + 1 < source_lines.length() {
-        source_lines[row + 1]
-      } else {
-        ""
+      let attachments : Array[String] = []
+      if attachment_ref.length() > 0 {
+        attachments.push(attachment_ref)
       }
       comments.push({
+        file: Some(review_file),
         row,
-        col: @core.parse_int_safe(c[1]),
+        col,
+        end_row: Some(end_row),
+        end_col: Some(end_col),
         text: c[2],
         value: if sent_value.length() > 0 {
           sent_value
         } else {
           @core.quote_source_line(source_lines, row)
         },
-        context_before: before,
-        context_after: after,
-        image_path: if i < comment_image_paths.length() { comment_image_paths[i] } else { "" },
+        snippet: Some(comment_snippet(source_lines, row)),
+        context_before: comment_context_before(source_lines, row),
+        context_after: comment_context_after(source_lines, row),
+        selector: Some(selector),
+        bounds: Some(bounds),
+        element_text: Some(element_text),
+        attachments: Some(attachments),
+        image_path,
       })
     }
-  }
-  let current_round = if ctx.file_path != "<stdin>" {
-    current_review_round(ctx.file_path)
-  } else {
-    1
   }
   let answers = json_parse_json_field("yunomiAnswers", body)
   let raw_merr = json_parse_mermaid_errors(body)
@@ -2725,10 +3020,11 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     "submit file=\{ctx.filename} comments=\{raw_comments.length()} summary_len=\{summary.length()} decision=\{decision_str} action=\{action_str}",
   )
   let result : @core.ReviewResult = {
-    file: ctx.filename,
+    file: review_file,
     mode: ctx.mode,
     comments,
     summary,
+    summary_images: summary_image_paths,
     answers,
     mermaid_errors,
     decision,
@@ -2738,7 +3034,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   if ctx.file_path != "<stdin>" {
     update_review_on_submit(
       ctx.file_path,
-      json_with_comment_image_paths(body, comment_image_paths),
+      json_with_comment_image_paths(body, comment_image_paths, comment_attachment_refs),
       source_lines,
       current_round,
     )

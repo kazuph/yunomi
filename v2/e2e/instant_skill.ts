@@ -62,9 +62,12 @@ for (const section of [
   "## The approval loop",
   "## REPORT.md rules",
   "## Verdict schema",
+  "## v3 review commands",
   "## Install this skill permanently",
   "npx yunomi REPORT.md",
   "decision: approve | request_changes",
+  "yunomi push <review-id> <pr>",
+  "attachments: []",
   "![alt](path)",
   "~/.claude/skills/yunomi/SKILL.md",
 ]) {

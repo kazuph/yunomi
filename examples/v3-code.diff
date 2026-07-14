@@ -1,0 +1,19 @@
+diff --git a/src/review.ts b/src/review.ts
+index 2d4f1c1..7c9a8ad 100644
+--- a/src/review.ts
++++ b/src/review.ts
+@@ -1,8 +1,13 @@
+ export function summarizeReview(comments: string[]): string {
+-  if (comments.length === 0) return "No comments";
++  if (comments.length === 0) {
++    return "No comments";
++  }
+-  return comments.join("\\n");
++  return comments
++    .map((comment, index) => `${index + 1}. ${comment}`)
++    .join("\\n");
+ }
+ export function isApproved(decision: string): boolean {
+-  return decision === "approve";
++  return decision.trim().toLowerCase() === "approve";
+ }

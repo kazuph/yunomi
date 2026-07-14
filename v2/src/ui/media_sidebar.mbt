@@ -47,6 +47,11 @@ struct MediaSidebarState {
 let global_sidebar : Ref[MediaSidebarState?] = Ref(None)
 
 ///|
+/// Keep the navigation ring visible beyond the persistent scroll correction
+/// window: 300ms initial delay + 8 * 250ms re-aims + the existing 3000ms dwell.
+let nav_highlight_dwell_ms : Int = 5300
+
+///|
 /// Initialize media sidebar for the current page
 pub fn init_media_sidebar() -> Unit {
   // Check if already initialized
@@ -359,7 +364,7 @@ fn navigate_to(state : MediaSidebarState, idx : Int) -> Unit {
           remove_class(target, "media-nav-highlight")
         }
       },
-      3000,
+      nav_highlight_dwell_ms,
     ),
   )
 }

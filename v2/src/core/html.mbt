@@ -113,12 +113,25 @@ pub let icon_svg_help : String = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 
 pub let icon_svg_check : String = "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>"
 
 ///|
+pub let icon_svg_approve : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 6 9 17l-5-5\"/></svg>"
+
+///|
+pub let icon_svg_request_changes : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M21 12a9 9 0 1 1-3-6.7\"/><path d=\"M21 3v6h-6\"/></svg>"
+
+///|
 fn build_page_start(
   buf : StringBuilder,
   filename : String,
   file_path? : String = "",
   tab_title? : String = "",
 ) -> Unit {
+  let page_title = if tab_title.length() > 0 {
+    tab_title
+  } else if file_path.length() > 0 {
+    filename
+  } else {
+    filename
+  }
   buf.write_string(
     "<!DOCTYPE html><html lang=\"en\" data-theme=\"light\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">",
   )
@@ -127,10 +140,11 @@ fn build_page_start(
   )
   buf.write_string("<meta http-equiv=\"Pragma\" content=\"no-cache\">")
   buf.write_string("<meta http-equiv=\"Expires\" content=\"0\">")
-  buf.write_string("<title>")
   buf.write_string(
-    escape_html(if tab_title.length() > 0 { tab_title } else { filename }),
+    "<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E%F0%9F%8D%B5%3C/text%3E%3C/svg%3E\">",
   )
+  buf.write_string("<title>")
+  buf.write_string(escape_html(page_title))
   buf.write_string(" | yunomi</title>")
   // highlight.js CDN stylesheets (dark/light theme support)
   buf.write_string(
@@ -146,25 +160,14 @@ fn build_page_start(
   buf.write_string(build_css())
   buf.write_string("</style></head><body>")
   buf.write_string("<header><div class=\"meta\">")
+  buf.write_string(
+    "<a class=\"brand\" href=\"/\" aria-label=\"yunomi\"><span class=\"brand-mark\" aria-hidden=\"true\">🍵</span></a>",
+  )
   buf.write_string("<h1>")
-  if file_path.length() > 0 {
-    // Show directory path above filename (like cli.cjs)
-    let dir_end = {
-      let mut last_slash = -1
-      let chars = file_path.to_array()
-      for i, ch in chars {
-        if ch == '/' {
-          last_slash = i
-        }
-      }
-      last_slash
-    }
-    if dir_end >= 0 {
-      let dir_path = file_path[0:dir_end + 1].to_owned()
-      buf.write_string("<span class=\"title-path\">")
-      buf.write_string(escape_html(dir_path))
-      buf.write_string("</span>")
-    }
+  if tab_title.length() > 0 && tab_title != filename {
+    buf.write_string("<span class=\"title-path\">")
+    buf.write_string(escape_html(tab_title))
+    buf.write_string("</span>")
   }
   buf.write_string("<span class=\"title-file\">")
   buf.write_string(escape_html(filename))
@@ -175,6 +178,9 @@ fn build_page_start(
   )
   buf.write_string(
     "<button class=\"pill\" id=\"pill-comments\" title=\"Click anywhere to comment / ESC to cancel\">Comments <strong id=\"comment-count\">0</strong></button>",
+  )
+  buf.write_string(
+    "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
   )
   buf.write_string(
     "<button class=\"media-sidebar-toggle\" id=\"media-sidebar-toggle\" title=\"Show / hide media thumbnail list\" aria-label=\"Toggle media gallery\">",
@@ -193,15 +199,31 @@ fn build_page_start(
   )
   buf.write_string(icon_svg_clock)
   buf.write_string("</button>")
+  buf.write_string("<div class=\"theme-picker\" id=\"theme-picker\">")
   buf.write_string(
-    "<button class=\"theme-toggle\" id=\"theme-toggle\" title=\"Switch to dark theme\" aria-label=\"Toggle theme\"><span id=\"theme-icon\">",
+    "<button class=\"theme-toggle\" id=\"theme-toggle\" title=\"Switch to dark theme\" aria-label=\"Toggle light and dark theme\"><span id=\"theme-icon\">",
   )
   buf.write_string(icon_svg_moon)
-  buf.write_string("</span></button>")
+  buf.write_string("</span><span id=\"theme-label\">Light</span></button>")
+  buf.write_string(
+    "<button class=\"theme-menu-toggle\" id=\"theme-menu-toggle\" title=\"Choose color scheme\" aria-label=\"Choose color scheme\" aria-expanded=\"false\">▼</button>",
+  )
+  buf.write_string("<div class=\"theme-menu\" id=\"theme-menu\" hidden>")
+  buf.write_string("<button data-color-scheme=\"primer\"><span>Primer</span><small>GitHub-like</small></button>")
+  buf.write_string("<button data-color-scheme=\"tokyo\"><span>Tokyo Night</span><small>sharp dark</small></button>")
+  buf.write_string("<button data-color-scheme=\"catppuccin\"><span>Catppuccin</span><small>soft pastel</small></button>")
+  buf.write_string("<button data-color-scheme=\"one-dark\"><span>Atom One</span><small>Light / Dark</small></button>")
+  buf.write_string("<button data-color-scheme=\"solarized\"><span>Solarized</span><small>Light / Dark</small></button>")
+  buf.write_string("<button data-color-scheme=\"gruvbox\"><span>Gruvbox</span><small>Light / Dark</small></button>")
+  buf.write_string("</div></div>")
   buf.write_string(
     "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>",
   )
   buf.write_string("</div></header>")
+}
+
+///|
+pub fn build_review_loop_mount(buf : StringBuilder) -> Unit {
   buf.write_string(
     "<section class=\"review-loop-panel\" id=\"review-loop-panel\" aria-live=\"polite\"></section>",
   )
@@ -287,11 +309,11 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("</div>")
   buf.write_string("<div class=\"modal-actions modal-actions-decision\">")
   buf.write_string(
-    "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">\u{2705} Approve</button>",
+    "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">" + icon_svg_approve + "Approve</button>",
   )
   buf.write_string("<button id=\"modal-cancel\">Cancel</button>")
   buf.write_string(
-    "<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">\u{1F504} Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>",
+    "<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">" + icon_svg_request_changes + "Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>",
   )
   buf.write_string("</div></div></div>")
 }
@@ -628,14 +650,13 @@ fn build_script_footer(
     buf.write_string("}")
     buf.write_string("}")
     buf.write_string("};")
-    // Matcha-green Mermaid theme variables so diagrams match the accent
-    // palette instead of Mermaid's default indigo/violet look.
+    // Primer-inspired Mermaid theme variables so diagrams match the app palette.
     buf.write_string("window.__mermaidConfig=function(isLight){")
     buf.write_string(
-      "var light={primaryColor:'#e3edd7',primaryTextColor:'#3b2d20',primaryBorderColor:'#5c8a42',lineColor:'#7fa860',secondaryColor:'#d9e8c4',secondaryBorderColor:'#8fae72',tertiaryColor:'#f6efe1',tertiaryBorderColor:'#c9dab0',edgeLabelBackground:'#f6efe1',clusterBkg:'#eef4e3',clusterBorder:'#a9c98a',mainBkg:'#e3edd7',nodeBorder:'#5c8a42',background:'#fffaf0'};",
+      "var light={primaryColor:'#ddf4ff',primaryTextColor:'#24292f',primaryBorderColor:'#0969da',lineColor:'#0969da',secondaryColor:'#f6f8fa',secondaryBorderColor:'#8250df',tertiaryColor:'#ffffff',tertiaryBorderColor:'#d0d7de',edgeLabelBackground:'#ffffff',clusterBkg:'#f6f8fa',clusterBorder:'#d0d7de',mainBkg:'#ddf4ff',nodeBorder:'#0969da',background:'#ffffff'};",
     )
     buf.write_string(
-      "var dark={primaryColor:'#33461f',primaryTextColor:'#f1ebe1',primaryBorderColor:'#9fc47c',lineColor:'#7fa860',secondaryColor:'#2a3a1c',secondaryBorderColor:'#5c8a42',tertiaryColor:'#1c1815',tertiaryBorderColor:'#3a4d2a',edgeLabelBackground:'#1c1815',clusterBkg:'#22301a',clusterBorder:'#5c8a42',mainBkg:'#33461f',nodeBorder:'#9fc47c',background:'#14110f'};",
+      "var dark={primaryColor:'#1f6feb33',primaryTextColor:'#e6edf3',primaryBorderColor:'#2f81f7',lineColor:'#58a6ff',secondaryColor:'#161b22',secondaryBorderColor:'#a371f7',tertiaryColor:'#0d1117',tertiaryBorderColor:'#30363d',edgeLabelBackground:'#161b22',clusterBkg:'#161b22',clusterBorder:'#30363d',mainBkg:'#1f6feb33',nodeBorder:'#2f81f7',background:'#0d1117'};",
     )
     buf.write_string(
       "return {startOnLoad:false,logLevel:0,theme:isLight?'default':'dark',securityLevel:'loose',themeVariables:isLight?light:dark};};",
@@ -771,19 +792,21 @@ pub fn build_diff_html(
     } else {
       file.old_path
     }
-    buf.write_string("<label class=\"diff-file-tree-item\" data-file=\"")
+    buf.write_string("<div class=\"diff-file-tree-item\" data-file=\"")
     buf.write_string(escape_html(display_path))
-    buf.write_string("\"><input type=\"checkbox\" class=\"diff-viewed-checkbox\" data-file=\"")
+    buf.write_string("\"><label class=\"diff-viewed-control\"><input type=\"checkbox\" class=\"diff-viewed-checkbox\" data-file=\"")
     buf.write_string(escape_html(display_path))
-    buf.write_string("\" aria-label=\"Mark ")
+    buf.write_string("\" aria-label=\"")
     buf.write_string(escape_html(display_path))
-    buf.write_string(" viewed\"><button type=\"button\" class=\"diff-file-link\" data-file=\"")
+    buf.write_string(" review state\"><span class=\"diff-viewed-state\">Unreviewed</span></label><button type=\"button\" class=\"diff-file-link\" data-file=\"")
     buf.write_string(escape_html(display_path))
     buf.write_string("\">")
     buf.write_string(escape_html(display_path))
-    buf.write_string("</button></label>")
+    buf.write_string("</button></div>")
   }
-  buf.write_string("</aside><main class=\"diff-review-main\"><div class=\"diff-toolbar\" role=\"toolbar\" aria-label=\"Diff view\"><div class=\"diff-view-mode\" role=\"group\" aria-label=\"View mode\"><button type=\"button\" id=\"diff-unified-toggle\" data-mode=\"unified\">Unified</button><button type=\"button\" id=\"diff-split-toggle\" data-mode=\"split\">Split</button></div></div><div class=\"diff-view\">")
+  buf.write_string("</aside><main class=\"diff-review-main\">")
+  build_review_loop_mount(buf)
+  buf.write_string("<div class=\"diff-toolbar\" role=\"toolbar\" aria-label=\"Diff view\"><div class=\"diff-view-mode\" role=\"group\" aria-label=\"View mode\"><button type=\"button\" id=\"diff-unified-toggle\" data-mode=\"unified\">Unified</button><button type=\"button\" id=\"diff-split-toggle\" data-mode=\"split\">Split</button></div></div><div class=\"diff-view\">")
   for file in data.files {
     let display_path = if file.new_path.length() > 0 {
       file.new_path
@@ -915,6 +938,7 @@ pub fn build_text_html(
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
   buf.write_string("<div class=\"text-view\">")
+  build_review_loop_mount(buf)
   for i, line in lines {
     let line_num = i + 1
     buf.write_string("<div class=\"text-line\" data-row=\"")

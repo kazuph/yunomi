@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "yunomi": {
+      "command": "node",
+      "args": ["./dist/server/server.js", "mcp"]
+    }
+  }
+}

@@ -137,6 +137,10 @@ try {
       await page.waitForSelector("#comment-card", { state: "visible" });
       assert(await page.evaluate(() => document.activeElement?.id === "comment-input"), "c opens the comment card for the selected target");
 
+      await page.locator("#comment-input").fill("");
+      await page.keyboard.type("?");
+      assert(await page.locator("#comment-input").inputValue() === "?", "? is inserted into the comment input");
+      assert(await page.locator(".vim-key-help:not(.hidden)").count() === 0, "? does not open keyboard help while typing");
       await page.locator("#comment-input").fill("keyboard comment");
       await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
       await page.waitForSelector("#comment-card", { state: "hidden" });
@@ -144,7 +148,7 @@ try {
 
       await page.keyboard.press("Escape");
       await page.waitForSelector("#comment-card", { state: "hidden" });
-      await page.keyboard.press("n");
+      await page.locator("#send-and-exit").focus();
       await page.keyboard.press("n");
       await page.waitForSelector("#comment-card", { state: "visible" });
       const jumpedText = await page.locator("#comment-input").inputValue();
@@ -152,6 +156,16 @@ try {
       const commentPanelText = await page.locator(".comment-list").textContent().catch(() => "");
       assert(jumpedText === "keyboard comment", "n jumps to the next saved comment", { jumpedText, jumpedTitle, commentPanelText });
       await page.keyboard.press("Escape");
+
+      await page.locator("#send-and-exit").focus();
+      await page.keyboard.press("?");
+      await page.waitForSelector(".vim-key-help:not(.hidden)");
+      assert(true, "? opens keyboard help outside text inputs");
+      await page.locator("#send-and-exit").focus();
+      await page.evaluate(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "？", bubbles: true, cancelable: true })));
+      await page.waitForSelector(".vim-key-help:not(.hidden)");
+      assert(true, "？ opens keyboard help outside text inputs");
+      await page.mouse.click(5, 5);
 
       await page.waitForSelector(".review-loop-resolve", { timeout: 10000 });
       await page.keyboard.press("r");
