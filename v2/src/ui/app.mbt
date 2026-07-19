@@ -495,7 +495,6 @@ pub fn init_app() -> Unit {
   if mode == "markdown" {
     setup_scroll_sync()
     setup_preview_click()
-    setup_preview_comment_buttons()
     setup_comment_keyboard_shortcuts()
     setup_preview_mouseup()
     setup_task_decision_checkboxes()
@@ -505,6 +504,7 @@ pub fn init_app() -> Unit {
     setup_mermaid_fullscreen_moonbit()
     setup_image_fullscreen_moonbit()
     setup_video_fullscreen_moonbit()
+    setup_preview_comment_buttons()
     // Initialize media sidebar (pure MoonBit implementation)
     ignore(set_timeout(fn() { init_media_sidebar() }, 500))
   }
@@ -3425,6 +3425,7 @@ fn setup_preview_click() -> Unit {
           set_attribute(details, "open", "")
         }
       }
+      ignore(open_or_select_preview_comment_target(summary, false))
       return
     }
     if tag == "IMG" ||

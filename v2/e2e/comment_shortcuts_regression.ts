@@ -152,22 +152,31 @@ async function main(): Promise<void> {
     await page.goto(`http://127.0.0.1:${port}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#md-preview .yunomi-comment-button", { timeout: 10000 });
 
-    const buttonSummary = await page.evaluate(() => ({
-      markdown: !!document.querySelector("#md-preview p > .yunomi-comment-button, #md-preview li > .yunomi-comment-button, #md-preview blockquote > .yunomi-comment-button"),
-      image: !!document.querySelector("#md-preview img:not(.timeline-thumb)")?.parentElement?.querySelector(":scope > .yunomi-comment-button"),
-      video: !!document.querySelector("#md-preview .video-overlay-wrapper > .yunomi-comment-button"),
-      mermaid: !!document.querySelector("#md-preview .mermaid-container > .yunomi-comment-button"),
-      mermaidFullscreenButtons: document.querySelectorAll("#md-preview .mermaid-fullscreen-btn").length,
-      total: document.querySelectorAll("#md-preview .yunomi-comment-button").length,
-    }));
+    const buttonSummary = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("#md-preview .yunomi-comment-button"));
+      const normalHosts = buttons.filter((button) => {
+        const host = button.parentElement;
+        return !host?.matches(".video-overlay-wrapper,.mermaid-container,.timeline-thumb-wrapper") &&
+          !host?.querySelector(":scope > img:not(.timeline-thumb)");
+      });
+      return {
+        markdown: normalHosts.length > 0,
+        normalHosts: normalHosts.map((button) => button.parentElement?.outerHTML.slice(0, 180) || ""),
+        image: !!document.querySelector("#md-preview img:not(.timeline-thumb)")?.parentElement?.querySelector(":scope > .yunomi-comment-button"),
+        video: !!document.querySelector("#md-preview .video-overlay-wrapper > .yunomi-comment-button"),
+        mermaid: !!document.querySelector("#md-preview .mermaid-container > .yunomi-comment-button"),
+        mermaidFullscreenButtons: document.querySelectorAll("#md-preview .mermaid-fullscreen-btn").length,
+        total: buttons.length,
+      };
+    });
     assert(
-      buttonSummary.markdown &&
+      !buttonSummary.markdown &&
         buttonSummary.image &&
         buttonSummary.video &&
         buttonSummary.mermaid &&
         buttonSummary.mermaidFullscreenButtons === 0 &&
         buttonSummary.total >= 4,
-      "Markdown・画像・動画・Mermaidにコメントアイコンが常設され、Mermaid全画面ボタンは出ない",
+      "画像・動画・Mermaidだけにコメントアイコンがあり、通常Markdown要素には表示されない",
       buttonSummary,
     );
 

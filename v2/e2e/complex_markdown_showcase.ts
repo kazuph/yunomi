@@ -47,12 +47,8 @@ async function openAndCancelEditor(page: Page, selector: string): Promise<boolea
   const target = page.locator(selector).first();
   if (await target.count() === 0 || !await target.isVisible()) return false;
   if (await target.evaluate((element) => element.tagName === "SUMMARY")) {
-    const clicked = await target.evaluate((summary) => {
-      const button = summary.querySelector<HTMLButtonElement>(":scope > .yunomi-comment-button");
-      button?.click();
-      return !!button;
-    });
-    if (!clicked) return false;
+    await target.click();
+    await page.keyboard.press("i");
   } else {
     await target.evaluate((element) => {
       const dedicatedButton = element.matches("img:not(.timeline-thumb),video.video-preview,.mermaid-container,.timeline-thumb-wrapper");

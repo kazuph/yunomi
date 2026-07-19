@@ -1628,7 +1628,7 @@ extern "js" fn install_preview_comment_buttons(
   #|(handler) => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return;
-  #|  const selector = "[data-source-line],[data-source-start-line],img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = "img:not(.timeline-thumb),video.video-preview,.mermaid-container,.timeline-thumb-wrapper";
   #|  const hostFor = (target) => {
   #|    if (!target) return null;
   #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;
@@ -1642,9 +1642,6 @@ extern "js" fn install_preview_comment_buttons(
   #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
   #|      if (target.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
   #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
-  #|      const inTableCell = target.closest?.("td,th");
-  #|      const isMediaTarget = target.matches?.("img:not(.timeline-thumb), video.video-preview, .timeline-thumb-wrapper");
-  #|      if (inTableCell && !isMediaTarget) continue;
   #|      if (seen.has(target)) continue;
   #|      seen.add(target);
   #|      const host = hostFor(target);
