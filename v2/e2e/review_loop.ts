@@ -244,7 +244,7 @@ async function main(): Promise<void> {
       };
     });
     assert.ok(overviewLayout, "review loop overview layout is available");
-    assert.equal(overviewLayout?.titlePathDisplay, "none", "header hides the project/path label in the top-left chrome");
+    assert.notEqual(overviewLayout?.titlePathDisplay, "none", "header shows the project/path label in the top-left chrome");
     assert.equal(overviewLayout?.previewBorderWidth, "0px", "review loop page removes the outer preview card border");
     assert.equal(overviewLayout?.previewPadding, "0px", "review loop page removes the outer preview card padding");
     assert.equal(overviewLayout?.previewBoxShadow, "none", "review loop page removes the outer preview card shadow");

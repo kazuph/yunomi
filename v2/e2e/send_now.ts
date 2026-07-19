@@ -95,14 +95,16 @@ try {
         const seen: string[] = [];
         const es = new EventSource(`${location.origin}/sse`);
         es.addEventListener("send-now", (event) => seen.push(`send-now:${(event as MessageEvent).data}`));
+        es.addEventListener("comment", (event) => seen.push(`comment:${(event as MessageEvent).data}`));
         es.addEventListener("reply", (event) => seen.push(`reply:${(event as MessageEvent).data}`));
         (window as unknown as { __sendNowSeen: string[]; __sendNowEs: EventSource }).__sendNowSeen = seen;
         (window as unknown as { __sendNowSeen: string[]; __sendNowEs: EventSource }).__sendNowEs = es;
       });
 
       await page.locator(".text-line[data-row='1']").click();
-      await page.waitForSelector("#comment-card", { state: "visible" });
-      assert(await page.locator("#send-now-comment").isVisible(), "Send now button is visible next to Save");
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      assert(await page.locator("#send-now-comment").textContent() === "Add single comment", "Immediate action uses GitHub's Add single comment label");
+      assert(await page.locator("#save-comment").textContent() === "Start a review", "First pending action uses GitHub's Start a review label");
       await page.locator("#comment-input").fill("send-now review comment");
       await page.locator("#send-now-comment").click();
 
@@ -111,12 +113,29 @@ try {
         return seen.some((line) => line.startsWith("send-now:"));
       });
       const sendEvents = await page.evaluate(() => (window as unknown as { __sendNowSeen: string[] }).__sendNowSeen.filter((line) => line.startsWith("send-now:")));
-      assert(sendEvents.length === 1 && sendEvents[0].includes("\"key\":\"1:0\""), "Send now emits a dedicated SSE event with the comment key", { sendEvents });
+      assert(sendEvents.length === 1 && sendEvents[0].includes("\"key\":\"1:0\""), "Add single comment emits a dedicated SSE event with the comment key", { sendEvents });
 
       const reviewPath = join(REVIEW_DIR, "review.json");
       const review = existsSync(reviewPath) ? JSON.parse(readFileSync(reviewPath, "utf8")) : {};
       const stored = Array.isArray(review.comments) ? review.comments.find((comment: { id?: string }) => comment.id === "1:0") : null;
-      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Send now writes the pending comment to review.json");
+      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Add single comment writes the sent comment to review.json");
+      const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
+      assert(sentDraft.includes('"pending":false') && sentDraft.includes('"sent":true'), "Immediate comments persist as sent, not pending", { sentDraft });
+
+      await page.locator(".text-line[data-row='2']").click();
+      await page.locator("#comment-input").fill("pending review comment");
+      await page.locator("#save-comment").click();
+      await page.waitForTimeout(200);
+      const pendingState = await page.evaluate(() => ({
+        events: (window as unknown as { __sendNowSeen?: string[] }).__sendNowSeen || [],
+        draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "",
+        badges: Array.from(document.querySelectorAll(".yunomi-inline-comment-pending")).map((element) => element.textContent),
+      }));
+      assert(!pendingState.events.some((line) => line.startsWith("comment:") && line.includes("pending review comment")), "Start a review keeps the comment local until Submit review", pendingState);
+      assert(pendingState.draft.includes('"pending":true') && pendingState.draft.includes('"sent":false') && pendingState.badges.includes("Pending"), "Pending state and badge persist locally", pendingState);
+      await page.locator(".text-line[data-row='0']").click();
+      assert(await page.locator("#save-comment").textContent() === "Add review comment", "Later pending actions use GitHub's Add review comment label");
+      await page.keyboard.press("Escape");
 
       const replyResponse = await fetch(`http://127.0.0.1:${server.port}/reply-comment`, {
         method: "POST",

@@ -152,10 +152,9 @@ async function testA(): Promise<void> {
       await page.screenshot({ path: join(ARTIFACTS, "03-after-escape.png") });
     }
 
-    // Check for comment-related elements in DOM
-    const hasCommentCard = await page.$("#comment-card") !== null;
-    const hasCommentOverlay = await page.$("#comment-overlay") !== null;
-    assert(hasCommentCard || hasCommentOverlay, "Comment card or overlay element exists in DOM");
+    const hasFloatingComment = await page.$("#comment-card") !== null;
+    const hasInlineTrigger = await page.$("#md-preview .yunomi-comment-button") !== null;
+    assert(!hasFloatingComment && hasInlineTrigger, "Floating comment UI is absent and inline comment triggers exist");
 
     await page.screenshot({ path: join(ARTIFACTS, "04-comment-dialog.png") });
   } finally {

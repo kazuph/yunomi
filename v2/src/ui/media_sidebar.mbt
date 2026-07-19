@@ -116,6 +116,9 @@ pub fn init_media_sidebar() -> Unit {
   // Setup mermaid mutation observer
   setup_mermaid_observer(state)
 
+  // Keep fixed overlays clear of the live sidebar width while it transitions.
+  state.handles.push(observe_media_sidebar_offset(sidebar))
+
   // Store global instance
   global_sidebar.val = Some(state)
 }
@@ -409,7 +412,43 @@ fn toggle_sidebar(state : MediaSidebarState) -> Unit {
     add_class(state.sidebar, "hidden")
     clear_active(state)
   }
+  sync_media_sidebar_offset(state.sidebar)
 }
+
+///|
+extern "js" fn sync_media_sidebar_offset(sidebar : Element) -> Unit =
+  #|(sidebar) => {
+  #|  const hidden = sidebar.classList.contains("hidden") || getComputedStyle(sidebar).display === "none";
+  #|  const offset = hidden ? 0 : window.innerWidth - sidebar.getBoundingClientRect().left;
+  #|  document.documentElement.style.setProperty("--media-sidebar-offset", `${offset}px`);
+  #|}
+
+///|
+extern "js" fn observe_media_sidebar_offset(
+  sidebar : Element,
+) -> ListenerHandle =
+  #|(sidebar) => {
+  #|  const root = document.documentElement;
+  #|  const update = () => {
+  #|    const style = getComputedStyle(sidebar);
+  #|    const offset = style.display === "none" || sidebar.classList.contains("hidden")
+  #|      ? 0
+  #|      : window.innerWidth - sidebar.getBoundingClientRect().left;
+  #|    root.style.setProperty("--media-sidebar-offset", `${offset}px`);
+  #|  };
+  #|  const resizeObserver = new ResizeObserver(update);
+  #|  const mutationObserver = new MutationObserver(update);
+  #|  resizeObserver.observe(sidebar);
+  #|  mutationObserver.observe(sidebar, { attributes: true, attributeFilter: ["class", "style"] });
+  #|  window.addEventListener("resize", update);
+  #|  update();
+  #|  return { disconnect: () => {
+  #|    resizeObserver.disconnect();
+  #|    mutationObserver.disconnect();
+  #|    window.removeEventListener("resize", update);
+  #|    root.style.removeProperty("--media-sidebar-offset");
+  #|  } };
+  #|}
 
 ///|
 /// Navigate thumbnails (scrolls preview to prev/next media)
@@ -541,11 +580,10 @@ fn review_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
   let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
-  let comment = query("#comment-card")
   (!is_null(submit) && has_class(submit, "visible")) ||
   (!is_null(recovery) && has_class(recovery, "visible")) ||
   (!is_null(questions) && has_class(questions, "visible")) ||
-  (!is_null(comment) && get_computed_style(comment, "display") != "none")
+  inline_comment_editor_open()
 }
 
 ///|
@@ -609,7 +647,9 @@ fn setup_keyboard_navigation(state : MediaSidebarState) -> Unit {
           state.active_idx = focused_timeline_idx
         }
         navigate_thumbs(state, 1)
-      } else if focused_thumb || state.active_idx != -1 || focused_timeline_idx != -1 {
+      } else if focused_thumb ||
+        state.active_idx != -1 ||
+        focused_timeline_idx != -1 {
         if key == "ArrowLeft" {
           if navigate_active_video_timeline(state, -1) {
             prevent_default(e)

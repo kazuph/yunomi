@@ -209,6 +209,14 @@ extern "js" fn set_theme(theme : String) -> Unit =
   #|(theme) => document.documentElement.setAttribute("data-theme", theme)
 
 ///|
+extern "js" fn rerender_mermaid(theme : String) -> Unit =
+  #|(theme) => {
+  #|  if (typeof window.__reRenderMermaid === "function") {
+  #|    window.__reRenderMermaid(theme);
+  #|  }
+  #|}
+
+///|
 extern "js" fn init_color_scheme_menu() -> Unit =
   #|() => {
   #|  const root = document.documentElement;
@@ -262,7 +270,10 @@ extern "js" fn sse_event_data(e : Event) -> String =
   #|(e) => String((e && e.data) || "")
 
 ///|
-extern "js" fn apply_comment_reply_event(filename : String, data : String) -> Unit =
+extern "js" fn apply_comment_reply_event(
+  filename : String,
+  data : String,
+) -> Unit =
   #|(filename, data) => {
   #|  let event;
   #|  try { event = JSON.parse(data || "{}"); } catch (_) { return; }
@@ -467,7 +478,7 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|    const data = JSON.parse(json);
   #|    const comments = data.comments;
   #|    if (!comments || typeof comments !== "object") return [];
-  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||""]);
+  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false)]);
   #|  } catch(e) { return []; }
   #|}
 
@@ -509,7 +520,7 @@ extern "js" fn parse_stored_step(json : String) -> Int =
   #|}
 
 ///|
-/// Extract the active comment-card target saved immediately before a preview
+/// Extract the active inline editor target saved immediately before a preview
 /// refresh. Older drafts return an empty array and simply restore comments.
 extern "js" fn parse_stored_active_comment(json : String) -> Array[String] =
   #|(json) => {
@@ -525,6 +536,37 @@ extern "js" fn parse_stored_active_comment(json : String) -> Array[String] =
 extern "js" fn parse_stored_submit_open(json : String) -> Bool =
   #|(json) => {
   #|  try { return JSON.parse(json).ui?.submit_open === true; } catch (e) { return false; }
+  #|}
+
+///|
+/// Resolve a restored editor against the newly rendered, visible DOM.
+extern "js" fn resolve_restored_comment_target(
+  key : String,
+  row : Int,
+  col : Int,
+) -> Element =
+  #|(key, row, col) => {
+  #|  const visible = (element) => {
+  #|    if (!element) return false;
+  #|    if (element.closest?.("details:not([open])") && !element.closest?.("summary")) return false;
+  #|    const style = getComputedStyle(element);
+  #|    const rect = element.getBoundingClientRect();
+  #|    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+  #|  };
+  #|  if (col > 0) {
+  #|    const cell = document.querySelector(`#md-preview [data-row="${row}"][data-col="${col}"]`);
+  #|    if (visible(cell)) return cell;
+  #|  }
+  #|  const parts = String(key || "").split(":");
+  #|  const anchorTag = parts.length > 2 ? parts[parts.length - 1].toLowerCase() : "";
+  #|  const candidates = Array.from(document.querySelectorAll(`#md-preview [data-source-line="${row + 1}"],#md-preview [data-source-start-line="${row + 1}"]`)).filter(visible);
+  #|  const preview = anchorTag
+  #|    ? candidates.find((element) => element.tagName.toLowerCase() === anchorTag)
+  #|      || candidates.map((element) => element.querySelector?.(anchorTag)).find(visible)
+  #|    : candidates[candidates.length - 1];
+  #|  if (preview) return preview;
+  #|  const source = document.querySelector(`td[data-row="${row}"][data-col="1"]:not(#md-preview *),.text-line[data-row="${row}"],.diff-line[data-row="${row}"]`);
+  #|  return visible(source) ? source : null;
   #|}
 
 ///|
@@ -800,7 +842,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const snippet = norm(c.element_text || c.value || c.anchor?.snippet || "");
   #|    const candidates = [];
   #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
-  #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,#comment-card")) return false;
+  #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) return false;
   #|      const rect = el.getBoundingClientRect();
   #|      const style = getComputedStyle(el);
   #|      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
@@ -889,7 +931,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
 
 ///|
 extern "js" fn clear_inline_saved_comments() -> Unit =
-  #|() => document.querySelectorAll(".review-comment-inline").forEach(el => el.remove())
+  #|() => document.querySelectorAll(".yunomi-inline-comment:not(.yunomi-inline-comment-editor)").forEach(el => el.remove())
 
 ///|
 extern "js" fn render_inline_saved_comment(
@@ -897,61 +939,152 @@ extern "js" fn render_inline_saved_comment(
   row : Int,
   col : Int,
   text : String,
+  image : String,
   value : String,
+  pending : Bool,
 ) -> Unit =
-  #|(key, row, col, text, value) => {
+  #|(key, row, col, text, image, value, pending) => {
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-  #|  const locale = /^ja\b/i.test(navigator.language || "");
-  #|  const labels = locale ? { comment: "コメント" } : { comment: "Comment" };
-  #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
-  #|  const snippet = norm(value);
-  #|  const excluded = "#review-loop-panel,.comment-list,.modal-overlay,#comment-card,.review-loop-inline,.review-comment-inline";
-  #|  const visible = (el) => {
-  #|    if (!el || el.closest(excluded)) return false;
-  #|    const style = getComputedStyle(el);
-  #|    if (style.display === "none" || style.visibility === "hidden") return false;
-  #|    const rect = el.getBoundingClientRect();
-  #|    return rect.width > 0 && rect.height > 0;
-  #|  };
-  #|  const firstVisible = (selectors) => {
-  #|    for (const selector of selectors) {
-  #|      for (const el of document.querySelectorAll(selector)) {
-  #|        if (visible(el)) return el;
-  #|      }
+  #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
+  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
+  #|  const badge = pending ? `<span class="yunomi-inline-comment-pending">Pending</span>` : "";
+  #|  const body = `<button type="button" class="yunomi-inline-comment-view" title="Edit comment"><span class="yunomi-inline-comment-label">${esc(label)}${badge}</span><span class="yunomi-inline-comment-text">${esc(text)}</span>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</button>`;
+  #|  const insert = (target, surface) => {
+  #|    if (!target || !target.parentElement) return;
+  #|    let holder;
+  #|    if (target.closest?.("tr")) {
+  #|      const rowEl = target.closest("tr");
+  #|      holder = document.createElement("tr");
+  #|      holder.innerHTML = `<td colspan="${Math.max(1, rowEl.children.length)}">${body}</td>`;
+  #|      rowEl.insertAdjacentElement("afterend", holder);
+  #|    } else {
+  #|      holder = document.createElement("div");
+  #|      holder.innerHTML = body;
+  #|      const headingContent = target.matches?.("h1.md-heading-toggle,h2.md-heading-toggle,h3.md-heading-toggle,h4.md-heading-toggle,h5.md-heading-toggle,h6.md-heading-toggle")
+  #|        ? target.closest("details.heading-toggle")?.querySelector(":scope > .toggle-content")
+  #|        : null;
+  #|      if (headingContent) headingContent.insertAdjacentElement("afterbegin", holder);
+  #|      else target.insertAdjacentElement("afterend", holder);
   #|    }
-  #|    return null;
+  #|    holder.className = "yunomi-inline-comment";
+  #|    holder.dataset.commentKey = String(key || "");
+  #|    holder.dataset.commentRow = String(row);
+  #|    holder.dataset.commentCol = String(col);
+  #|    holder.dataset.commentSurface = surface;
   #|  };
-  #|  let target = null;
-  #|  if (col > 0) target = firstVisible([`#md-preview [data-row="${row}"][data-col="${col}"]`, `[data-row="${row}"][data-col="${col}"]`]);
-  #|  if (!target && row > 0) {
-  #|    target = firstVisible([
-  #|      `#md-preview [data-source-line="${row}"]`,
-  #|      `#md-preview [data-source-start-line="${row}"]`,
-  #|      `.diff-line[data-new-line="${row}"]`,
-  #|      `.diff-line[data-old-line="${row}"]`,
-  #|      `.text-line[data-row="${row}"]`,
-  #|      `[data-source-line="${row}"]`,
-  #|      `[data-source-start-line="${row}"]`,
-  #|      `td[data-row="${row}"][data-col="1"]:not(#md-preview *)`,
-  #|      `[data-row="${row}"]`
-  #|    ]);
+  #|  const source = document.querySelector(`td[data-row="${row}"][data-col="1"]:not(#md-preview *)`) || document.querySelector(`.text-line[data-row="${row}"]`) || document.querySelector(`.diff-line[data-row="${row}"]`);
+  #|  let preview = null;
+  #|  if (col > 0) preview = document.querySelector(`#md-preview [data-row="${row}"][data-col="${col}"]`);
+  #|  if (!preview) {
+  #|    const parts = String(key || "").split(":");
+  #|    const anchorTag = parts.length > 2 ? parts[parts.length - 1].toLowerCase() : "";
+  #|    const candidates = Array.from(document.querySelectorAll(`#md-preview [data-source-line="${row + 1}"],#md-preview [data-source-start-line="${row + 1}"]`));
+  #|    preview = anchorTag
+  #|      ? candidates.find((element) => element.tagName.toLowerCase() === anchorTag)
+  #|        || candidates.map((element) => element.querySelector?.(anchorTag)).find(Boolean)
+  #|      : candidates[candidates.length - 1];
   #|  }
-  #|  if (!target && snippet) {
-  #|    for (const el of document.querySelectorAll("#md-preview [data-source-line],#md-preview [data-source-start-line],.diff-line,.text-line,[data-row],[data-source-line],[data-source-start-line]")) {
-  #|      if (!visible(el)) continue;
-  #|      if (norm(el.textContent || "").includes(snippet)) {
-  #|        target = el;
-  #|        break;
+  #|  insert(preview, "preview");
+  #|  if (source && source !== preview) insert(source, "source");
+  #|}
+
+///|
+extern "js" fn close_inline_comment_editor() -> Unit =
+  #|() => {
+  #|  document.querySelectorAll(".yunomi-inline-comment-editor-mount").forEach(el => el.remove());
+  #|  document.querySelectorAll(".yunomi-inline-comment-editor").forEach(el => el.remove());
+  #|}
+
+///|
+extern "js" fn inline_comment_editor_open() -> Bool =
+  #|() => !!document.querySelector(".yunomi-inline-comment-editor")
+
+///|
+extern "js" fn show_inline_comment_editor(
+  target : Element,
+  key : String,
+  row : Int,
+  col : Int,
+  text : String,
+  context : String,
+  review_label : String,
+  single_label : String,
+  on_save : () -> Unit,
+  on_send : () -> Unit,
+  on_cancel : () -> Unit,
+  on_input : () -> Unit,
+) -> Unit =
+  #|(target, key, row, col, text, context, reviewLabel, singleLabel, onSave, onSend, onCancel, onInput) => {
+  #|  document.querySelectorAll(".yunomi-inline-comment-editor-mount").forEach(el => el.remove());
+  #|  document.querySelectorAll(".yunomi-inline-comment-editor").forEach(el => el.remove());
+  #|  if (!target) return;
+  #|  const videoTime = String(context || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
+  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
+  #|  const section = document.createElement("section");
+  #|  section.className = "yunomi-inline-comment yunomi-inline-comment-editor is-editing";
+  #|  section.dataset.commentKey = String(key || "");
+  #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
+  #|  document.querySelectorAll(`.yunomi-inline-comment:not(.yunomi-inline-comment-editor)[data-comment-key="${CSS.escape(String(key || ""))}"]`).forEach(holder => {
+  #|    if (holder.dataset.commentSurface === surface) holder.remove();
+  #|  });
+  #|  section.dataset.commentSurface = surface;
+  #|  section.innerHTML = `<div class="yunomi-inline-comment-editor-head"><span class="yunomi-inline-comment-label">${label}</span><span id="cell-preview" class="yunomi-inline-comment-context"></span></div><textarea id="comment-input" aria-label="Comment" placeholder="Comment"></textarea><div class="image-attach-area image-attach-small" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="yunomi-inline-comment-actions"><button type="button" class="icon-only" data-action="cancel" title="Cancel" aria-label="Cancel">×</button><button type="button" class="comment-action send-now-btn" id="send-now-comment">${singleLabel}</button><button type="button" class="comment-action primary" id="save-comment">${reviewLabel}</button></div>`;
+  #|  const rowEl = target.closest?.("tr");
+  #|  let mount = section;
+  #|  if (rowEl) {
+  #|    mount = document.createElement("tr");
+  #|    mount.className = "yunomi-inline-comment-editor-mount";
+  #|    mount.dataset.commentKey = String(key || "");
+  #|    const cell = document.createElement("td");
+  #|    cell.colSpan = Math.max(1, rowEl.children.length);
+  #|    cell.appendChild(section);
+  #|    mount.appendChild(cell);
+  #|    rowEl.insertAdjacentElement("afterend", mount);
+  #|  } else {
+  #|    const headingContent = target.matches?.("h1.md-heading-toggle,h2.md-heading-toggle,h3.md-heading-toggle,h4.md-heading-toggle,h5.md-heading-toggle,h6.md-heading-toggle")
+  #|      ? target.closest("details.heading-toggle")?.querySelector(":scope > .toggle-content")
+  #|      : null;
+  #|    if (headingContent) headingContent.insertAdjacentElement("afterbegin", section);
+  #|    else target.insertAdjacentElement("afterend", section);
+  #|  }
+  #|  const input = section.querySelector("#comment-input");
+  #|  section.querySelector("#cell-preview").textContent = String(context || "");
+  #|  input.value = String(text || "");
+  #|  input.addEventListener("input", () => onInput());
+  #|  input.addEventListener("keydown", event => {
+  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.stopPropagation(); onSave(); }
+  #|    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onCancel(); }
+  #|  });
+  #|  section.querySelector('[data-action="cancel"]')?.addEventListener("click", () => onCancel());
+  #|  section.querySelector("#save-comment")?.addEventListener("click", () => onSave());
+  #|  section.querySelector("#send-now-comment")?.addEventListener("click", () => onSend());
+  #|  input.focus();
+  #|}
+
+///|
+extern "js" fn bind_inline_saved_comments(
+  handler : (String, Element, Int, Int) -> Unit,
+) -> Unit =
+  #|(handler) => {
+  #|  for (const holder of document.querySelectorAll(".yunomi-inline-comment:not(.yunomi-inline-comment-editor)")) {
+  #|    const button = holder.querySelector(".yunomi-inline-comment-view");
+  #|    if (!button) continue;
+  #|    button.addEventListener("click", (event) => {
+  #|      event.preventDefault();
+  #|      event.stopPropagation();
+  #|      const headingDetails = holder.parentElement?.matches?.(".toggle-content")
+  #|        ? holder.parentElement.closest("details.heading-toggle")
+  #|        : null;
+  #|      let anchor = headingDetails?.querySelector(":scope > summary > .md-heading-toggle")
+  #|        || holder.previousElementSibling;
+  #|      if (holder.tagName === "TR") {
+  #|        const col = Number(holder.dataset.commentCol || 0);
+  #|        const cells = anchor?.querySelectorAll?.("td,th") || [];
+  #|        anchor = col > 0 ? cells[Math.max(0, col - 1)] || cells[0] : cells[0];
   #|      }
-  #|    }
+  #|      handler(String(holder.dataset.commentKey || ""), anchor, Number(holder.dataset.commentRow || 0), Number(holder.dataset.commentCol || 0));
+  #|    });
   #|  }
-  #|  if (!target || !target.parentElement) return;
-  #|  if (/^(TD|TH|TR|TBODY|THEAD|TABLE)$/.test(target.tagName || "")) return;
-  #|  const holder = document.createElement("div");
-  #|  holder.className = "review-comment-inline";
-  #|  holder.setAttribute("data-comment-key", String(key || ""));
-  #|  holder.innerHTML = `<div class="review-comment-inline-label">${labels.comment}</div><div class="review-comment-inline-text">${esc(text)}</div>`;
-  #|  target.insertAdjacentElement("afterend", holder);
   #|}
 
 ///|
@@ -1425,16 +1558,15 @@ extern "js" fn _children_count(el : Element) -> Int =
 extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|(el) => {
   #|  if (!el) return null;
-  #|  if (el.closest?.("#review-loop-panel")) return null;
+  #|  if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) return null;
   #|  if (el.classList?.contains("yunomi-comment-button")) {
   #|    el = el.__yunomiCommentTarget || el.parentElement;
   #|  }
   #|  const timeline = el.closest?.(".timeline-thumb-wrapper");
   #|  if (timeline) return timeline;
-  #|  if (el.matches?.("img:not(.timeline-thumb), video.video-preview, .mermaid-container, td, th, pre, blockquote, li, p, h1, h2, h3, h4, h5, h6, summary")) {
-  #|    return el;
-  #|  }
-  #|  return el.closest?.("img:not(.timeline-thumb), video.video-preview, .mermaid-container, td, th, pre, blockquote, li, p, h1, h2, h3, h4, h5, h6, summary");
+  #|  const media = el.closest?.("img:not(.timeline-thumb),video.video-preview,.mermaid-container,td,th");
+  #|  if (media?.closest?.("[data-source-line],[data-source-start-line]")) return media;
+  #|  return el.closest?.("[data-source-line],[data-source-start-line]");
   #|}
 
 ///|
@@ -1446,12 +1578,12 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|  // get an overlapping pencil button (it would cover the cell's own text).
   #|  // Table cells remain commentable via direct click (see setup_preview_click /
   #|  // open_or_select_preview_comment_target), which resolves per-cell row+col.
-  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = "[data-source-line],[data-source-start-line],.timeline-thumb-wrapper";
   #|  const out = [];
   #|  const seen = new Set();
   #|  const visible = (el) => {
   #|    if (!el || el.offsetParent === null) return false;
-  #|    if (el.closest("details:not([open])")) return false;
+  #|    if (el.closest("details:not([open])") && !el.closest("summary")) return false;
   #|    const style = getComputedStyle(el);
   #|    if (style.display === "none" || style.visibility === "hidden") return false;
   #|    const rect = el.getBoundingClientRect();
@@ -1459,7 +1591,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|  };
   #|  for (const raw of preview.querySelectorAll(selector)) {
   #|    const el = raw.closest(".timeline-thumb-wrapper") || raw;
-  #|    if (el.closest?.("#review-loop-panel")) continue;
+  #|    if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
   #|    if (el.matches?.("img.timeline-thumb")) continue;
   #|    if (el.closest?.(".yunomi-comment-button")) continue;
   #|    if (el.closest?.(".video-timeline") && !el.classList?.contains("timeline-thumb-wrapper")) continue;
@@ -1496,7 +1628,7 @@ extern "js" fn install_preview_comment_buttons(
   #|(handler) => {
   #|  const preview = document.querySelector("#md-preview");
   #|  if (!preview) return;
-  #|  const selector = ".mermaid-container,h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
+  #|  const selector = "[data-source-line],[data-source-start-line],img:not(.timeline-thumb),video.video-preview,.timeline-thumb-wrapper";
   #|  const hostFor = (target) => {
   #|    if (!target) return null;
   #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;
@@ -1508,7 +1640,7 @@ extern "js" fn install_preview_comment_buttons(
   #|    const seen = new Set();
   #|    for (const raw of preview.querySelectorAll(selector)) {
   #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
-  #|      if (target.closest?.("#review-loop-panel")) continue;
+  #|      if (target.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
   #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
   #|      const inTableCell = target.closest?.("td,th");
   #|      const isMediaTarget = target.matches?.("img:not(.timeline-thumb), video.video-preview, .timeline-thumb-wrapper");
@@ -1853,7 +1985,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    return cs.display !== "none" && cs.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   #|  };
   #|  const dialogVisible = () => {
-  #|    if (visible(document.querySelector("#comment-card"))) return true;
+  #|    if (visible(document.querySelector(".yunomi-inline-comment-editor"))) return true;
   #|    return !!document.querySelector("#submit-modal.visible,#recovery-modal.visible,#yunomi-questions-overlay.visible,.image-fullscreen.visible,.video-fullscreen.visible");
   #|  };
   #|  const mediaSidebarActive = () => {
@@ -1875,7 +2007,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    const out = [];
   #|    for (const raw of document.querySelectorAll(selectors)) {
   #|      const el = raw.closest(".timeline-thumb-wrapper") || raw;
-  #|      if (el.closest?.("#review-loop-panel,.comment-list,.modal-overlay,#comment-card")) continue;
+  #|      if (el.closest?.("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) continue;
   #|      if (el.matches?.("td[data-row]") && el.closest?.("#md-preview")) continue;
   #|      if (seen.has(el) || !visible(el)) continue;
   #|      seen.add(el);
@@ -1950,22 +2082,22 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    const typing = isTyping();
   #|    const modalOpen = dialogVisible();
   #|    if ((event.key === "?" || event.key === "？") && !typing && !modalOpen && !composing) {
-      #|      event.preventDefault();
-      #|      showHelp();
-      #|      return;
-      #|    }
+  #|      event.preventDefault();
+  #|      showHelp();
+  #|      return;
+  #|    }
   #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !typing && !composing) {
-      #|      event.preventDefault();
-      #|      const modal = document.querySelector("#submit-modal.visible");
+  #|      event.preventDefault();
+  #|      const modal = document.querySelector("#submit-modal.visible");
   #|      if (!modal) {
   #|        const submit = document.querySelector("#send-and-exit");
   #|        if (submit && visible(submit)) {
   #|          submit.click();
   #|        }
   #|      }
-      #|      return;
-      #|    }
-      #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
+  #|      return;
+  #|    }
+  #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
   #|    if (!state.enabled || typing || composing || event.metaKey || event.ctrlKey || event.altKey) return;
   #|    if (dialogVisible() && event.key !== "n" && event.key !== "N" && event.key !== "r") return;
   #|    if ((event.key === "j" || event.key === "k") && mediaSidebarActive()) return;

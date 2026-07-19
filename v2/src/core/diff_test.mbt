@@ -19,14 +19,12 @@ test "parse simple unified diff" {
     data.files[0].old_path,
     content=(
       #|"hello.txt"
-
     ),
   )
   debug_inspect(
     data.files[0].new_path,
     content=(
       #|"hello.txt"
-
     ),
   )
   debug_inspect(
@@ -69,7 +67,6 @@ test "diff line kinds" {
     lines[0].content,
     content=(
       #|"removed"
-
     ),
   )
   debug_inspect(
@@ -82,7 +79,6 @@ test "diff line kinds" {
     lines[1].content,
     content=(
       #|"added"
-
     ),
   )
 }
@@ -102,7 +98,6 @@ test "parse diff with git prefix" {
     data.files[0].new_path,
     content=(
       #|"src/main.rs"
-
     ),
   )
   debug_inspect(

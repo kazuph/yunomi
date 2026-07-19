@@ -10,6 +10,7 @@ const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-review-isolation-"));
 const REVIEW_DIR = join(WORK_DIR, "reviews", "isolated");
 const LOCK_DIR = join(WORK_DIR, "locks");
 const REPORT = join(WORK_DIR, "REPORT.md");
+const BASE_PORT = 5683;
 writeFileSync(REPORT, "# Isolated E2E review\n");
 
 function assert(condition: boolean, message: string, detail?: unknown): void {
@@ -55,7 +56,7 @@ function postExit(port: number): Promise<void> {
 }
 
 const before = existsSync(REPO_REVIEW) ? readFileSync(REPO_REVIEW, "utf8") : null;
-const proc = spawn(process.execPath, [SERVER_JS, "--loop", "--no-open", REPORT], {
+const proc = spawn(process.execPath, [SERVER_JS, "--loop", "--no-open", "--port", String(BASE_PORT), REPORT], {
   cwd: WORK_DIR,
   stdio: ["ignore", "pipe", "pipe"],
   env: {

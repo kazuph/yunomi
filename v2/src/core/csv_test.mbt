@@ -45,7 +45,6 @@ test "parse csv with escaped quotes" {
     result[1][0],
     content=(
       #|"she said \"hi\""
-
     ),
   )
 }
@@ -57,7 +56,6 @@ test "parse csv with newline in quoted field" {
     result[1][0],
     content=(
       #|"line1\nline2"
-
     ),
   )
 }

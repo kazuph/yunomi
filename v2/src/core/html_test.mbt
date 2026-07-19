@@ -4,7 +4,6 @@ test "escape html special chars" {
     escape_html("<script>alert('xss')</script>"),
     content=(
       #|"&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
-
     ),
   )
 }
@@ -15,7 +14,6 @@ test "escape html ampersand" {
     escape_html("a & b"),
     content=(
       #|"a &amp; b"
-
     ),
   )
 }
@@ -26,7 +24,6 @@ test "escape html quotes" {
     escape_html("say \"hello\""),
     content=(
       #|"say &quot;hello&quot;"
-
     ),
   )
 }

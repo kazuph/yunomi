@@ -32,19 +32,9 @@
  *      the auto-close) — auto-close now only fires from genuine option
  *      clicks / textarea input, never from a programmatic restore.
  *
- *   3. arm_close_timer's reload-correlation grace period remains a
- *      ONE-SHOT extension (already_extended: Bool) — UNCHANGED from before
- *      this task. Root cause #1's fix (an SSE self-triggered reload never
- *      sends /close in the first place) is what actually protects a
- *      second back-to-back reload; schedule_close_submit() also resets the
- *      extension to a fresh state on every genuinely new /close signal, so
- *      the timer never needed more than one extension. A bounded
- *      max_close_extensions (5) variant was tried and reverted after it
- *      regressed smoke.ts's "Browser Close: closing the page exits the
- *      server" — looks_like_reload_in_flight() compares fixed timestamps
- *      that stay true across retries, so raising the cap just stretched
- *      the worst-case abandonment wait (up to ~30s) without fixing
- *      anything root causes #1/#2 didn't already fix.
+ * Closing or navigating away no longer submits at all. Only an explicit
+ * Submit Review dialog action can finalize the review and stop the server,
+ * so reload timing cannot turn a partial draft into a verdict.
  *
  * Run: node --experimental-strip-types e2e/reload_stability_regression.ts
  */
@@ -451,11 +441,11 @@ async function scenarioReloadRestoresWithoutFinalizing(browser: Browser): Promis
 /**
  * A genuine file update must refresh the preview without throwing the human
  * out of either review surface they may be typing in. This covers the two
- * states that were missing from the old questions-only regression: a floating
- * comment card and the final Submit Review dialog.
+ * states that were missing from the old questions-only regression: an inline
+ * comment editor and the final Submit Review dialog.
  */
 async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise<void> {
-  console.log("\n--- Scenario (d): a preview refresh keeps comment-card and Submit Review input intact ---");
+  console.log("\n--- Scenario (d): a preview refresh keeps inline comment and Submit Review input intact ---");
   const workDir = mkdtempSync(join(tmpdir(), "yunomi-reload-stability-d-"));
   const mdPath = join(workDir, "fixture.md");
   writeFileSync(mdPath, reviewInputFixture(1));
@@ -464,20 +454,20 @@ async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise
     await waitHealth(port);
     const page = await freshPage(browser, port);
     await page.locator(".md-preview p").first().click();
-    await page.waitForSelector("#comment-card", { state: "visible", timeout: 5000 });
+    await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible", timeout: 5000 });
     const commentText = "入力途中のコメントは消えない";
     await page.locator("#comment-input").fill(commentText);
 
     const firstRefresh = page.waitForEvent("load", { timeout: 15000 });
     writeFileSync(mdPath, reviewInputFixture(2));
     await firstRefresh;
-    await page.waitForSelector("#comment-card", { state: "visible", timeout: 5000 });
+    await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible", timeout: 5000 });
     assertTrue(
       await page.locator("#comment-input").inputValue() === commentText,
-      "プレビュー更新後も開いていたコメントカードと未保存入力がそのまま残る",
+      "プレビュー更新後も開いていたインライン編集と未保存入力がそのまま残る",
     );
 
-    await page.locator("#close-card").click();
+    await page.keyboard.press("Escape");
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
     const summary = "入力途中の全体コメントは消えない";

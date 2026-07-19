@@ -206,7 +206,7 @@ async function gotoFixture(page: Page, port: number): Promise<void> {
 
 async function waitForCommentCard(page: Page): Promise<void> {
   await page.waitForFunction(() => {
-    const card = document.querySelector("#comment-card");
+    const card = document.querySelector(".yunomi-inline-comment-editor");
     if (!card) {
       return false;
     }
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
         await page.waitForSelector(".md-preview");
         await page.waitForSelector(".md-right");
         const mermaid = page.locator(".md-preview .mermaid-container").first();
-        await clickAt(mermaid, { x: 24, y: 18 });
+        await mermaid.locator(":scope > .yunomi-comment-button").click();
         await waitForSelectedRowCount(page, 2);
         await waitForCommentCard(page);
         await page.waitForTimeout(200);
@@ -308,17 +308,17 @@ async function main(): Promise<void> {
         assert.ok(rows.length > 1, "mermaid click should select multiple source rows");
         assertContiguousRows(rows, "mermaid click");
 
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
         const target = await getBox(mermaid);
         assert.ok(card, "comment card should be rendered for mermaid click");
         assert.ok(target, "mermaid target box should be measurable");
-        assert.equal(boxIntersectionArea(card, target), 0, "comment card must not overlap mermaid target");
+        assert.equal(await page.locator(".yunomi-inline-comment-editor").count(), 1, "mermaid should open exactly one inline editor");
       } finally {
         await context.close();
       }
     });
 
-    await runScenario("split view places the comment card on md-right without covering the preview target", async () => {
+    await runScenario("split view places the inline editor below the preview target", async () => {
       const { context, page } = await createPage(browser!);
       try {
         await gotoFixture(page, port);
@@ -330,7 +330,7 @@ async function main(): Promise<void> {
         await waitForCommentCard(page);
         await page.waitForTimeout(200);
 
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
         const target = await getBox(paragraph);
         const mdRight = await getBox(page.locator(".md-right"));
         const rows = await getSelectedRows(page);
@@ -340,10 +340,7 @@ async function main(): Promise<void> {
         assert.ok(mdRight, "md-right pane should be measurable");
         assert.equal(rows[0], 4, "paragraph click should anchor to the first paragraph source row");
         assert.equal(boxIntersectionArea(card, target), 0, "comment card must not overlap the preview target");
-        assert.ok(
-          pointInRect(mdRight, centerOf(card), 4),
-          "comment card center should be inside md-right in split view",
-        );
+        assert.ok(card.y >= target.y + target.height, "inline editor should start below the preview target");
       } finally {
         await context.close();
       }
@@ -368,7 +365,7 @@ async function main(): Promise<void> {
         assert.ok(rows.length >= 1, "text-node click should select at least one source row");
         assert.equal(rows[0], 4, "text-node click should anchor to the first paragraph source row");
 
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
         const target = await getBox(page.locator(selector).first());
         assert.ok(card, "comment card should be visible after text-node click");
         assert.ok(target, "paragraph target should be measurable");
@@ -396,14 +393,14 @@ async function main(): Promise<void> {
         await waitForCommentCard(page);
         await page.waitForTimeout(200);
 
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
         const target = await getBox(quote);
         const rows = await getSelectedRows(page);
 
         assert.ok(card, "comment card should be visible in preview-only mode");
         assert.ok(target, "blockquote target should be measurable");
         assert.equal(rows[0], 7, "blockquote click should anchor to the first quote source row");
-        assert.equal(boxIntersectionArea(card, target), 0, "comment card must not overlap the clicked preview element");
+        assert.equal(await page.locator(".yunomi-inline-comment-editor").count(), 1, "preview-only should open exactly one inline editor");
       } finally {
         await context.close();
       }
@@ -456,8 +453,7 @@ async function main(): Promise<void> {
 
         assert.equal(afterRestore.modalVisible, false, "recovery modal should close after restore");
 
-        const image = page.locator('.md-preview img[alt="Fixture Image"]').first();
-        await image.click();
+        await page.locator('.yunomi-inline-comment-view:has-text("restored image note")').first().click();
         await waitForCommentCard(page);
         const restoredText = await page.locator("#comment-input").inputValue();
         assert.equal(restoredText, "restored image note", "restore should repopulate the saved comment text");
@@ -497,7 +493,7 @@ async function main(): Promise<void> {
 
         const rows = await getSelectedRows(page);
         const previewText = await page.locator("#cell-preview").textContent();
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
 
         assert.equal(rows[0], 27, "image whitespace click should anchor to the image markdown row");
         assert.notEqual(previewText, "(empty)", "image whitespace click should not be treated as empty");
@@ -520,12 +516,12 @@ async function main(): Promise<void> {
         await waitForCommentCard(page);
         await page.waitForTimeout(200);
 
-        const card = await getBox(page.locator("#comment-card"));
+        const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
         const target = await getBox(sourceCell);
 
         assert.ok(card, "comment card should be visible for source clicks");
         assert.ok(target, "selected markdown row should be measurable");
-        assert.equal(boxIntersectionArea(card, target), 0, "comment card must not overlap the selected markdown row");
+        assert.equal(await page.locator(".yunomi-inline-comment-editor").count(), 1, "source click should open exactly one inline editor");
       } finally {
         await context.close();
       }
@@ -547,7 +543,7 @@ async function main(): Promise<void> {
         await page.waitForTimeout(250);
 
         const state = await page.evaluate(() => {
-          const card = document.querySelector("#comment-card");
+          const card = document.querySelector(".yunomi-inline-comment-editor");
           const modal = document.querySelector("#submit-modal");
           const key = "yunomi:comments:preview-regression.md";
           return {
@@ -593,7 +589,7 @@ async function main(): Promise<void> {
           const summary = document.querySelector(".md-preview details.heading-toggle > summary.heading-summary");
           const heading = summary?.querySelector(".md-heading-toggle");
           const details = summary?.closest("details");
-          const card = document.querySelector("#comment-card");
+          const card = document.querySelector(".yunomi-inline-comment-editor");
           return {
             headingTag: heading?.tagName || "",
             open: !!details?.hasAttribute("open"),
@@ -609,7 +605,7 @@ async function main(): Promise<void> {
         await page.waitForTimeout(150);
 
         const cardAfterEscape = await page.evaluate(() => {
-          const card = document.querySelector("#comment-card");
+          const card = document.querySelector(".yunomi-inline-comment-editor");
           return !!card && getComputedStyle(card).display !== "none";
         });
         assert.equal(cardAfterEscape, false, "Escape should close the comment card before icon testing");
@@ -620,7 +616,7 @@ async function main(): Promise<void> {
         const detailsAfterIconClick = await page.evaluate(() => {
           const summary = document.querySelector(".md-preview details.heading-toggle > summary.heading-summary");
           const details = summary?.closest("details");
-          const card = document.querySelector("#comment-card");
+          const card = document.querySelector(".yunomi-inline-comment-editor");
           return {
             open: !!details?.hasAttribute("open"),
             cardVisible: !!card && getComputedStyle(card).display !== "none",
@@ -717,6 +713,7 @@ async function main(): Promise<void> {
           {
             name: "mermaid",
             locator: page.locator(".md-preview .mermaid-container .mermaid").first(),
+            commentButton: page.locator(".md-preview .mermaid-container > .yunomi-comment-button").first(),
             minRows: 2,
             expectedFirstRow: 21,
           },
@@ -726,7 +723,11 @@ async function main(): Promise<void> {
           await page.keyboard.press("Escape").catch(() => {});
           await page.waitForTimeout(100);
 
-          await clickAt(item.locator, { x: 20, y: 10 });
+          if ("commentButton" in item && item.commentButton) {
+            await item.commentButton.click();
+          } else {
+            await clickAt(item.locator, { x: 20, y: 10 });
+          }
           await waitForCommentCard(page);
           await page.waitForTimeout(250);
 
@@ -735,15 +736,11 @@ async function main(): Promise<void> {
           assertContiguousRows(rows, `${item.name} selection`);
           assert.equal(rows[0], item.expectedFirstRow, `${item.name} should anchor to the expected source row`);
 
-          const card = await getBox(page.locator("#comment-card"));
+          const card = await getBox(page.locator(".yunomi-inline-comment-editor"));
           const target = await getBox(item.locator);
           assert.ok(card, `${item.name} should render a comment card`);
           assert.ok(target, `${item.name} should be measurable`);
-          assert.equal(
-            boxIntersectionArea(card, target),
-            0,
-            `${item.name} comment card must not overlap the clicked target`,
-          );
+          assert.equal(await page.locator(".yunomi-inline-comment-editor").count(), 1, `${item.name} should open exactly one inline editor`);
         }
       } finally {
         await context.close();

@@ -164,7 +164,7 @@ try {
       const beforeSave = await page.evaluate(() => ({
         filename: window.__YUNOMI_FILENAME__,
         inputCount: document.querySelectorAll("#comment-input").length,
-        cardDisplay: getComputedStyle(document.querySelector("#comment-card")!).display,
+        editorDisplay: getComputedStyle(document.querySelector(".yunomi-inline-comment-editor")!).display,
         inputValue: (document.querySelector("#comment-input") as HTMLTextAreaElement | null)?.value || "",
         allStorage: Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])),
         storedComments: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`),
@@ -177,18 +177,18 @@ try {
       await page.locator("#save-comment").click();
       await page.waitForTimeout(150);
       const inlineState = await page.evaluate(() => ({
-        inlineCount: document.querySelectorAll(".review-comment-inline").length,
+        inlineCount: document.querySelectorAll(".yunomi-inline-comment:not(.yunomi-inline-comment-editor)").length,
         storedComments: localStorage.getItem("yunomi-comments:changes.diff"),
         commentList: document.querySelector("#comment-list")?.textContent || "",
         activeClassCount: document.querySelectorAll(".diff-line.has-comment").length,
       }));
       assert(inlineState.inlineCount > 0, "saved diff comment creates an inline card", inlineState);
-      const inline = page.locator(".review-comment-inline").first();
+      const inline = page.locator(".yunomi-inline-comment:not(.yunomi-inline-comment-editor)").first();
       const inlineComment = await inline.textContent();
       const inlineBox = await inline.boundingBox();
       const blockBox = await page.locator('.diff-file-block[data-file="alpha.txt"]').boundingBox();
       const nestedInSplitColumn = await inline.evaluate((el) => Boolean(el.closest(".old-content,.new-content,.split-content")));
-      const inlineLabel = await inline.locator(".review-comment-inline-label").textContent();
+      const inlineLabel = await inline.locator(".yunomi-inline-comment-label").textContent();
       assert(
         inlineComment?.includes("inline diff comment stays here") === true && inlineBox && inlineBox.width > 0 && inlineBox.height > 0,
         "saved diff comment is visibly inline below the commented line",
@@ -199,7 +199,7 @@ try {
         "split diff inline comment spans the row instead of one split column",
         { inlineBox, blockBox, nestedInSplitColumn },
       );
-      assert(inlineLabel === "Comment", "inline saved comments use the English default label", { inlineLabel });
+      assert(inlineLabel?.startsWith("Line") === true, "inline saved comments show their source location", { inlineLabel });
 
       await page.locator(".diff-file-link").nth(1).click();
       const betaVisible = await page.locator('.diff-file-block[data-file="beta.txt"]').isVisible();

@@ -47,6 +47,7 @@ const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
   import.meta.url,
 ).pathname;
+const BASE_PORT = 5680;
 const FIXTURE_MD = new URL("../../examples/questions-answers.md", import.meta.url).pathname;
 const LOCK_DIR = join(tmpdir(), "yunomi-questions-answer-summary-locks");
 mkdirSync(LOCK_DIR, { recursive: true });
@@ -70,7 +71,7 @@ function startServer(): Promise<ServerHandle> {
   return new Promise((resolve, reject) => {
     const proc = spawn(
       process.execPath,
-      [SERVER_JS, FIXTURE_MD, "--no-open", "--port", "0"],
+      [SERVER_JS, FIXTURE_MD, "--no-open", "--port", String(BASE_PORT)],
       {
         cwd: new URL("..", import.meta.url).pathname,
         env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: join(tmpdir(), "yunomi-review-" + Date.now() + "-" + Math.random().toString(36).slice(2,6)) },

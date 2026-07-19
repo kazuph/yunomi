@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
@@ -8,7 +8,8 @@ const SERVER_JS = new URL("../_build/js/release/build/server/server.js", import.
 const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-port-fallback-"));
 const TEST_MD = join(WORK_DIR, "port.md");
 const PORT_SCAN_START = 5900;
-const PORT_SCAN_END = 5990;
+const PORT_SCAN_END = 6200;
+const FIXED_PORT_ATTEMPTS = 50;
 
 let passed = 0;
 let failed = 0;
@@ -35,14 +36,21 @@ function canBind(port: number): Promise<boolean> {
   });
 }
 
-async function findConsecutivePorts(): Promise<number> {
-  for (let port = PORT_SCAN_START; port < PORT_SCAN_END; port++) {
-    if ((await canBind(port)) && (await canBind(port + 1))) return port;
+async function findConsecutivePorts(count = 2): Promise<number> {
+  for (let port = PORT_SCAN_START; port <= PORT_SCAN_END - count; port++) {
+    let available = true;
+    for (let offset = 0; offset < count; offset++) {
+      if (!(await canBind(port + offset))) {
+        available = false;
+        break;
+      }
+    }
+    if (available) return port;
   }
-  throw new Error(`No consecutive free ports in ${PORT_SCAN_START}-${PORT_SCAN_END}`);
+  throw new Error(`No ${count} consecutive free ports in ${PORT_SCAN_START}-${PORT_SCAN_END}`);
 }
 
-function startServer(port: number, label: string): Promise<{ proc: ChildProcess; output: () => string; port: number }> {
+function startServer(port: number, label: string): Promise<{ proc: ChildProcess; output: () => string; port: number; lockDir: string }> {
   return new Promise((resolve, reject) => {
     const lockDir = join(WORK_DIR, `locks-${label}`);
     const reviewDir = join(WORK_DIR, `reviews-${label}`);
@@ -67,7 +75,7 @@ function startServer(port: number, label: string): Promise<{ proc: ChildProcess;
       if (!settled && match) {
         settled = true;
         clearTimeout(startupTimer);
-        resolve({ proc, output: () => output, port: Number(match[1]) });
+        resolve({ proc, output: () => output, port: Number(match[1]), lockDir });
       }
     };
     proc.stdout?.on("data", (chunk: Buffer) => {
@@ -96,6 +104,28 @@ async function stop(proc: ChildProcess): Promise<void> {
     });
     proc.kill("SIGINT");
   });
+}
+
+async function occupyPorts(basePort: number, count: number): Promise<net.Server[]> {
+  const servers: net.Server[] = [];
+  try {
+    for (let offset = 0; offset < count; offset++) {
+      const server = net.createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(basePort + offset, "127.0.0.1", resolve);
+      });
+      servers.push(server);
+    }
+    return servers;
+  } catch (error) {
+    await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+    throw error;
+  }
+}
+
+async function releasePorts(servers: net.Server[]): Promise<void> {
+  await Promise.all(servers.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 }
 
 async function get(port: number, path: string): Promise<{ status: number; text: string }> {
@@ -128,6 +158,38 @@ try {
     }
   } finally {
     await stop(first.proc);
+  }
+
+  const exhaustedBase = await findConsecutivePorts(FIXED_PORT_ATTEMPTS);
+  const blockers = await occupyPorts(exhaustedBase, FIXED_PORT_ATTEMPTS);
+  try {
+    const ephemeral = await startServer(exhaustedBase, "ephemeral");
+    try {
+      assert(
+        ephemeral.port > 0 && (ephemeral.port < exhaustedBase || ephemeral.port >= exhaustedBase + FIXED_PORT_ATTEMPTS),
+        "after 50 busy candidates the OS assigns a nonzero ephemeral port",
+        { exhaustedBase, actualPort: ephemeral.port },
+      );
+      assert(
+        ephemeral.output().includes("All 50 candidate ports are busy; asking the OS for an ephemeral port"),
+        "exhausted fixed-port search logs the OS-assigned fallback",
+        ephemeral.output(),
+      );
+      const actualLock = join(ephemeral.lockDir, `${ephemeral.port}.lock`);
+      const zeroLock = join(ephemeral.lockDir, "0.lock");
+      const lock = existsSync(actualLock) ? JSON.parse(readFileSync(actualLock, "utf8")) : null;
+      assert(lock?.port === ephemeral.port, "lock filename and payload use the actual bound port", {
+        actualLock,
+        lock,
+      });
+      assert(!existsSync(zeroLock), "port 0 is never persisted as a lock file", { zeroLock });
+      const health = await get(ephemeral.port, "/healthz");
+      assert(health.status === 200, "ephemeral fallback server is reachable on the logged port", health);
+    } finally {
+      await stop(ephemeral.proc);
+    }
+  } finally {
+    await releasePorts(blockers);
   }
 } catch (error) {
   failed++;

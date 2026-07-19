@@ -23,11 +23,22 @@ fn option_attachments(value : Array[String]?) -> Array[String] {
 }
 
 ///|
-fn write_comment_yaml(buf : StringBuilder, comment : Comment, indent : String) -> Unit {
+fn write_comment_yaml(
+  buf : StringBuilder,
+  comment : Comment,
+  indent : String,
+) -> Unit {
   let file = option_string(comment.file, "")
   let end_row = option_int(comment.end_row, comment.row)
   let end_col = option_int(comment.end_col, comment.col)
-  let snippet = option_string(comment.snippet, if comment.value.length() > 0 { comment.value } else { "" })
+  let snippet = option_string(
+    comment.snippet,
+    if comment.value.length() > 0 {
+      comment.value
+    } else {
+      ""
+    },
+  )
   let selector = option_string(comment.selector, "")
   let bounds = option_string(comment.bounds, "")
   let element_text = option_string(comment.element_text, "")
@@ -108,7 +119,11 @@ fn write_comment_yaml(buf : StringBuilder, comment : Comment, indent : String) -
 }
 
 ///|
-fn write_summary_images_yaml(buf : StringBuilder, images : Array[String], indent : String) -> Unit {
+fn write_summary_images_yaml(
+  buf : StringBuilder,
+  images : Array[String],
+  indent : String,
+) -> Unit {
   if images.length() == 0 {
     return
   }

@@ -47,27 +47,25 @@ test "html compat: csv tbody has id tbody" {
 }
 
 ///|
-test "html compat: comment input has id comment-input" {
-  // csv.test.js expects `#comment-input` (not #comment-text)
+test "html compat: inline editor is not a floating static element" {
   let data : CsvData = { headers: ["a"], rows: [] }
   let html = build_csv_html(data, "test.csv", 4989)
   debug_inspect(
     html.contains("id=\"comment-input\""),
     content=(
-      #|true
+      #|false
     ),
   )
 }
 
 ///|
-test "html compat: save button has id save-comment" {
-  // csv.test.js expects `#save-comment` (not #comment-save)
+test "html compat: floating comment card is absent" {
   let data : CsvData = { headers: ["a"], rows: [] }
   let html = build_csv_html(data, "test.csv", 4989)
   debug_inspect(
-    html.contains("id=\"save-comment\""),
+    html.contains("comment-card"),
     content=(
-      #|true
+      #|false
     ),
   )
 }

@@ -10,6 +10,7 @@ const OUT = new URL("../../.artifacts/v3-plan/images/", import.meta.url).pathnam
 const WORK_DIR = mkdtempSync(join(tmpdir(), "e-"));
 const LOCK_DIR = join(WORK_DIR, "locks");
 const REVIEW_DIR = join(WORK_DIR, "reviews", "evidence");
+const BASE_PORT = 5681;
 mkdirSync(LOCK_DIR, { recursive: true });
 mkdirSync(REVIEW_DIR, { recursive: true });
 mkdirSync(OUT, { recursive: true });
@@ -18,8 +19,8 @@ function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
 }
 
-function start(file: string): Promise<{ proc: ChildProcess; port: number }> {
-  const proc = spawn(process.execPath, [SERVER_JS, file, "--no-open"], {
+function start(file: string, port: number): Promise<{ proc: ChildProcess; port: number }> {
+  const proc = spawn(process.execPath, [SERVER_JS, file, "--no-open", "--port", String(port)], {
     cwd: WORK_DIR,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: REVIEW_DIR },
@@ -101,7 +102,7 @@ const browser = await chromium.launch({ headless: true });
 let markdownServer: ChildProcess | null = null;
 let diffServer: ChildProcess | null = null;
 try {
-  const markdownRun = await start(markdown);
+  const markdownRun = await start(markdown, BASE_PORT);
   markdownServer = markdownRun.proc;
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: "en-US" });
   await page.goto(`http://127.0.0.1:${markdownRun.port}`, { waitUntil: "domcontentloaded" });
@@ -125,7 +126,7 @@ try {
   await mobile.close();
   await page.close();
 
-  const diffRun = await start(diff);
+  const diffRun = await start(diff, BASE_PORT + 1);
   diffServer = diffRun.proc;
   const diffPage = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: "en-US" });
   await diffPage.goto(`http://127.0.0.1:${diffRun.port}`, { waitUntil: "domcontentloaded" });
@@ -135,9 +136,9 @@ try {
   await diffPage.locator(".diff-line.addition[data-file]").click();
   await diffPage.locator("#comment-input").fill("inline diff comment stays here");
   await diffPage.locator("#save-comment").click();
-  await diffPage.waitForSelector(".review-comment-inline", { timeout: 5000 });
+  await diffPage.waitForSelector(".yunomi-inline-comment", { timeout: 5000 });
   await assertBrand(diffPage);
-  assert(await diffPage.locator(".review-comment-inline-label").textContent() === "Comment", "diff evidence must use English Comment label");
+  assert((await diffPage.locator(".yunomi-inline-comment-label").first().textContent())?.startsWith("Line") === true, "diff evidence uses the inline location label");
   assert(await diffPage.locator(".diff-viewed-state").textContent() === "Unreviewed", "diff evidence must use English Unreviewed label");
   await diffPage.screenshot({ path: join(OUT, "20260710-diff-inline-comment.png") });
   await diffPage.close();

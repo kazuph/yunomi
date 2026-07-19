@@ -99,14 +99,6 @@ extern "js" fn process_exists(pid : Int) -> Bool =
 extern "js" fn process_stdout_write(data : String) -> Unit =
   #|(data) => process.stdout.write(data)
 
-///|
-extern "js" fn js_null() -> JsValue =
-  #|() => null
-
-///|
-extern "js" fn js_is_nullish(value : JsValue) -> Bool =
-  #|(value) => value == null
-
 ///| readFileSync by file descriptor (avoids reopening /dev/stdin, which
 
 ///|
@@ -161,6 +153,25 @@ extern "js" fn create_share_token(files : Array[String], host : String, port : I
   #|}
 
 ///|
+extern "js" fn update_share_token_port(token : String, port : Int) -> Unit =
+  #|(token, port) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const os = process.getBuiltinModule("node:os");
+  #|  const dir = process.env.YUNOMI_SHARE_DIR || path.join(os.homedir(), ".yunomi", "shares");
+  #|  const file = path.join(dir, `${token}.json`);
+  #|  if (!fs.existsSync(file)) return;
+  #|  try {
+  #|    const meta = JSON.parse(fs.readFileSync(file, "utf8"));
+  #|    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return;
+  #|    meta.port = Number(port);
+  #|    fs.writeFileSync(file, JSON.stringify(meta, null, 2));
+  #|  } catch (error) {
+  #|    console.warn(`Unable to update share metadata port: ${error instanceof Error ? error.message : String(error)}`);
+  #|  }
+  #|}
+
+///|
 extern "js" fn revoke_share_token(token : String) -> Bool =
   #|(token) => {
   #|  if (!/^[A-Za-z0-9._-]+$/.test(String(token || ""))) return false;
@@ -194,6 +205,10 @@ extern "js" fn server_listen(
   callback : () -> Unit,
 ) -> Unit =
   #|(server, port, host, cb) => server.listen(port, host, cb)
+
+///|
+extern "js" fn server_bound_port(server : JsValue) -> Int =
+  #|(server) => Number(server.address()?.port || 0)
 
 ///|
 /// HTTP request helpers
@@ -272,10 +287,6 @@ extern "js" fn set_interval(callback : () -> Unit, ms : Int) -> JsValue =
 ///|
 extern "js" fn set_timeout(callback : () -> Unit, ms : Int) -> JsValue =
   #|(cb, ms) => setTimeout(cb, ms)
-
-///|
-extern "js" fn clear_timeout(timer : JsValue) -> Unit =
-  #|(timer) => { if (timer != null) clearTimeout(timer); }
 
 ///|
 /// Open browser - import exec via #module
@@ -908,11 +919,6 @@ extern "js" fn json_parse_json_field(key : String, json_str : String) -> String 
   #|(key, s) => { try { const v = JSON.parse(s)[key]; if (v == null) return ""; return typeof v === "string" ? v : JSON.stringify(v); } catch(e) { return ""; } }
 
 ///|
-/// Strip decision and action fields from JSON string (safety net for close-triggered submits)
-extern "js" fn json_strip_decision(json_str : String) -> String =
-  #|(s) => { try { const o = JSON.parse(s); delete o.decision; delete o.action; return JSON.stringify(o); } catch(e) { return s; } }
-
-///|
 /// Create options object for mkdirSync recursive
 extern "js" fn mkdir_recursive_opts() -> JsValue =
   #|() => ({ recursive: true })
@@ -1192,12 +1198,6 @@ extern "js" fn extract_base64_data(data : String) -> String =
 /// ISO timestamp (Date is a global)
 extern "js" fn iso_now() -> String =
   #|() => new Date().toISOString()
-
-///|
-/// Epoch milliseconds (Date is a global) — for correlating request timing
-/// (close-vs-reload race detection), not for display.
-extern "js" fn now_ms() -> Double =
-  #|() => Date.now()
 
 ///|
 /// JSON parse images array (JSON is a global)

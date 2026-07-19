@@ -4,7 +4,6 @@ test "safe_slice normal" {
     safe_slice("hello", 2),
     content=(
       #|"llo"
-
     ),
   )
 }
@@ -15,23 +14,28 @@ test "safe_slice from start" {
     safe_slice("hello", 0),
     content=(
       #|"hello"
-
     ),
   )
 }
 
 ///|
 test "safe_slice out of range" {
-  debug_inspect(safe_slice("hi", 10), content=(
-    #|""
-  ))
+  debug_inspect(
+    safe_slice("hi", 10),
+    content=(
+      #|""
+    ),
+  )
 }
 
 ///|
 test "safe_slice negative" {
-  debug_inspect(safe_slice("hi", -1), content=(
-    #|""
-  ))
+  debug_inspect(
+    safe_slice("hi", -1),
+    content=(
+      #|""
+    ),
+  )
 }
 
 ///|
@@ -40,7 +44,6 @@ test "safe_slice_range" {
     safe_slice_range("hello world", 6, 11),
     content=(
       #|"world"
-
     ),
   )
 }
@@ -88,14 +91,12 @@ test "split_to_lines" {
     lines[0],
     content=(
       #|"a"
-
     ),
   )
   debug_inspect(
     lines[2],
     content=(
       #|"c"
-
     ),
   )
 }
@@ -107,14 +108,12 @@ test "quote_source_line basic" {
     quote_source_line(lines, 0),
     content=(
       #|"# Title"
-
     ),
   )
   debug_inspect(
     quote_source_line(lines, 2),
     content=(
       #|"Hello world"
-
     ),
   )
 }
@@ -126,14 +125,12 @@ test "quote_source_line empty line yields empty" {
     quote_source_line(lines, 1),
     content=(
       #|""
-
     ),
   )
   debug_inspect(
     quote_source_line(lines, 2),
     content=(
       #|""
-
     ),
   )
 }
@@ -145,14 +142,12 @@ test "quote_source_line out of range" {
     quote_source_line(lines, -1),
     content=(
       #|""
-
     ),
   )
   debug_inspect(
     quote_source_line(lines, 1),
     content=(
       #|""
-
     ),
   )
 }

@@ -218,13 +218,27 @@ fn render_markdown_lines(
       let tag_name = extract_html_tag_name(line)
       if tag_name == "details" {
         // Special handling: parse markdown inside <details> (except <summary>)
-        buf.write_string("<details>\n")
+        let details_start_line = i + 1 + line_offset
+        let details_attrs = "data-source-start-line=\"" +
+          details_start_line.to_string() +
+          "\" data-source-line=\"" +
+          details_start_line.to_string() +
+          "\""
+        buf.write_string(
+          inject_attrs_into_open_tag(sanitize_html(line), details_attrs),
+        )
+        buf.write_string("\n")
         i = i + 1
         // Collect summary line if present
         while i < len {
           let current = trim(lines[i])
-          if current.has_prefix("<summary>") {
-            buf.write_string(sanitize_html(lines[i]))
+          if current.has_prefix("<summary") {
+            let summary_attrs = "data-source-line=\"" +
+              (i + 1 + line_offset).to_string() +
+              "\""
+            buf.write_string(
+              inject_attrs_into_open_tag(sanitize_html(lines[i]), summary_attrs),
+            )
             buf.write_string("\n")
             i = i + 1
             break
@@ -269,6 +283,7 @@ fn render_markdown_lines(
       } else {
         // Generic HTML block: pass through as-is
         let html_buf = StringBuilder::new()
+        let html_start_line = i + 1 + line_offset
         // Void tags and one-liners that already close on the start line
         // must not swallow the following markdown
         let mut depth = if is_void_tag(tag_name) ||
@@ -292,7 +307,17 @@ fn render_markdown_lines(
           html_buf.write_string("\n")
           i = i + 1
         }
+        buf.write_string(
+          "<div class=\"markdown-html-block\" data-source-start-line=\"",
+        )
+        buf.write_string(html_start_line.to_string())
+        buf.write_string("\" data-source-end-line=\"")
+        buf.write_string((i + line_offset).to_string())
+        buf.write_string("\" data-source-line=\"")
+        buf.write_string(html_start_line.to_string())
+        buf.write_string("\">")
         buf.write_string(sanitize_html(html_buf.to_string()))
+        buf.write_string("</div>\n")
       }
       continue
     }
@@ -314,7 +339,9 @@ fn render_markdown_lines(
         buf.write_string(
           "\"><span class=\"heading-toggle-icon\">\u{25BC}</span>",
         )
-        buf.write_string(render_inline(content))
+        buf.write_string(
+          render_inline(content, source_line=i + 1 + line_offset),
+        )
         buf.write_string("</h")
         buf.write_string(level.to_string())
         buf.write_string(">\n")
@@ -324,18 +351,21 @@ fn render_markdown_lines(
     }
     // Horizontal rule
     if is_horizontal_rule(line) {
-      buf.write_string("<hr />\n")
+      buf.write_string("<hr data-source-line=\"")
+      buf.write_string((i + 1 + line_offset).to_string())
+      buf.write_string("\" />\n")
       i = i + 1
       continue
     }
     // Code block
-    if line.has_prefix("```") {
+    if line.has_prefix("```") || line.has_prefix("~~~") {
+      let fence = if line.has_prefix("~~~") { "~~~" } else { "```" }
       let lang = trim(safe_slice(line, 3))
       let code_block_start_line = i + 1 + line_offset // 1-indexed line number of ```mermaid
       i = i + 1
       let code_buf = StringBuilder::new()
       let mut code_first = true
-      while i < len && !lines[i].has_prefix("```") {
+      while i < len && !lines[i].has_prefix(fence) {
         if !code_first {
           code_buf.write_string("\n")
         }
@@ -393,86 +423,37 @@ fn render_markdown_lines(
         quote_lines.push(content)
         i = i + 1
       }
-      buf.write_string("<blockquote data-source-start-line=\"")
+      buf.write_string("<blockquote data-source-line=\"")
+      buf.write_string(quote_start_line.to_string())
+      buf.write_string("\" data-source-start-line=\"")
       buf.write_string(quote_start_line.to_string())
       buf.write_string("\" data-source-end-line=\"")
       buf.write_string((i + line_offset).to_string())
       buf.write_string("\">")
-      for ql in quote_lines {
-        buf.write_string("<p>")
-        buf.write_string(render_inline(ql))
-        buf.write_string("</p>")
-      }
+      buf.write_string(
+        render_markdown_lines(quote_lines, line_offset=quote_start_line - 1),
+      )
       buf.write_string("</blockquote>\n")
       continue
     }
-    // Unordered list (with task list support)
-    if line.has_prefix("- ") || line.has_prefix("* ") {
-      buf.write_string("<ul>\n")
-      while i < len && (lines[i].has_prefix("- ") || lines[i].has_prefix("* ")) {
-        let item_line = i + 1 + line_offset
-        let item_text = safe_slice(lines[i], 2)
-        // Task list: - [ ] or - [x]
-        if item_text.has_prefix("[ ] ") {
-          buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
-          buf.write_string(item_line.to_string())
-          buf.write_string(
-            "\"><input class=\"task-decision-checkbox\" type=\"checkbox\" data-source-line=\"",
-          )
-          buf.write_string(item_line.to_string())
-          buf.write_string("\" data-decision-text=\"")
-          buf.write_string(escape_html(safe_slice(item_text, 4)))
-          buf.write_string("\" /> ")
-          buf.write_string(render_inline(safe_slice(item_text, 4)))
-        } else if item_text.has_prefix("[x] ") || item_text.has_prefix("[X] ") {
-          buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
-          buf.write_string(item_line.to_string())
-          buf.write_string(
-            "\"><input class=\"task-decision-checkbox\" type=\"checkbox\" checked data-source-line=\"",
-          )
-          buf.write_string(item_line.to_string())
-          buf.write_string("\" data-decision-text=\"")
-          buf.write_string(escape_html(safe_slice(item_text, 4)))
-          buf.write_string("\" /> ")
-          buf.write_string(render_inline(safe_slice(item_text, 4)))
-        } else if item_text.has_prefix("✅️ ") {
-          buf.write_string("<li class=\"decision-done\" data-source-line=\"")
-          buf.write_string(item_line.to_string())
-          buf.write_string("\">")
-          buf.write_string(render_inline(safe_slice(item_text, 3)))
-        } else {
-          buf.write_string("<li data-source-line=\"")
-          buf.write_string(item_line.to_string())
-          buf.write_string("\">")
-          buf.write_string(render_inline(item_text))
-        }
-        buf.write_string("</li>\n")
-        i = i + 1
-      }
-      buf.write_string("</ul>\n")
-      continue
-    }
-    // Ordered list
-    if is_ordered_list_item(line) {
-      buf.write_string("<ol>\n")
-      while i < len && is_ordered_list_item(lines[i]) {
-        let item_line = i + 1 + line_offset
-        let content = extract_ordered_list_content(lines[i])
-        buf.write_string("<li data-source-line=\"")
-        buf.write_string(item_line.to_string())
-        buf.write_string("\">")
-        buf.write_string(render_inline(content))
-        buf.write_string("</li>\n")
-        i = i + 1
-      }
-      buf.write_string("</ol>\n")
+    // Lists, including nested and multi-line items.
+    let list_kind = markdown_list_kind(line)
+    if list_kind > 0 && leading_spaces(line) == 0 {
+      let rendered = render_markdown_list(lines, i, line_offset, 0, list_kind)
+      buf.write_string(rendered.0)
+      i = rendered.1
       continue
     }
     // Table
     if i + 1 < len && is_table_separator(lines[i + 1]) {
-      buf.write_string("<div class=\"table-container\">\n")
-      buf.write_string("<table>\n<thead>\n<tr>\n")
       let header_line = i + 1 + line_offset
+      buf.write_string("<div class=\"table-container\" data-source-line=\"")
+      buf.write_string(header_line.to_string())
+      buf.write_string("\">\n<table data-source-line=\"")
+      buf.write_string(header_line.to_string())
+      buf.write_string("\">\n<thead>\n<tr data-source-line=\"")
+      buf.write_string(header_line.to_string())
+      buf.write_string("\">\n")
       let headers = parse_table_row(line)
       for col_idx, h in headers {
         buf.write_string("<th data-source-line=\"")
@@ -482,7 +463,7 @@ fn render_markdown_lines(
         buf.write_string("\" data-col=\"")
         buf.write_string((col_idx + 1).to_string())
         buf.write_string("\">")
-        buf.write_string(render_inline(trim(h)))
+        buf.write_string(render_inline(trim(h), source_line=header_line))
         buf.write_string("</th>\n")
       }
       buf.write_string("</tr>\n</thead>\n<tbody>\n")
@@ -490,7 +471,9 @@ fn render_markdown_lines(
       while i < len && lines[i].contains("|") {
         let row_line = i + 1 + line_offset
         let cells = parse_table_row(lines[i])
-        buf.write_string("<tr>\n")
+        buf.write_string("<tr data-source-line=\"")
+        buf.write_string(row_line.to_string())
+        buf.write_string("\">\n")
         for col_idx, cell in cells {
           buf.write_string("<td data-source-line=\"")
           buf.write_string(row_line.to_string())
@@ -499,7 +482,7 @@ fn render_markdown_lines(
           buf.write_string("\" data-col=\"")
           buf.write_string((col_idx + 1).to_string())
           buf.write_string("\">")
-          buf.write_string(render_inline(trim(cell)))
+          buf.write_string(render_inline(trim(cell), source_line=row_line))
           buf.write_string("</td>\n")
         }
         buf.write_string("</tr>\n")
@@ -527,7 +510,7 @@ fn render_markdown_lines(
       buf.write_string("\" data-source-end-line=\"")
       buf.write_string((i + line_offset).to_string())
       buf.write_string("\">")
-      buf.write_string(render_inline(para_text))
+      buf.write_string(render_inline(para_text, source_line=para_start_line))
       buf.write_string("</p>\n")
     }
   }
@@ -535,10 +518,159 @@ fn render_markdown_lines(
 }
 
 ///|
+/// Return 1 for unordered items, 2 for ordered items, or 0 otherwise.
+fn markdown_list_kind(line : String) -> Int {
+  let content = trim(line)
+  if content.has_prefix("- ") || content.has_prefix("* ") {
+    1
+  } else if is_ordered_list_item(content) {
+    2
+  } else {
+    0
+  }
+}
+
+///|
+fn markdown_list_item_text(line : String, kind : Int) -> String {
+  let content = trim(line)
+  if kind == 1 {
+    safe_slice(content, 2)
+  } else {
+    extract_ordered_list_content(content)
+  }
+}
+
+///|
+/// Render one indentation level and recurse for nested list items. The
+/// returned index is the first source line not consumed by this list.
+fn render_markdown_list(
+  lines : Array[String],
+  start : Int,
+  line_offset : Int,
+  indent : Int,
+  kind : Int,
+) -> (String, Int) {
+  let buf = StringBuilder::new()
+  let tag = if kind == 1 { "ul" } else { "ol" }
+  let first_line = start + 1 + line_offset
+  buf.write_string("<")
+  buf.write_string(tag)
+  buf.write_string(" data-source-line=\"")
+  buf.write_string(first_line.to_string())
+  buf.write_string("\">\n")
+  let mut i = start
+  while i < lines.length() &&
+        leading_spaces(lines[i]) == indent &&
+        markdown_list_kind(lines[i]) == kind {
+    let item_line = i + 1 + line_offset
+    let item_text = markdown_list_item_text(lines[i], kind)
+    let task_open = item_text.has_prefix("[ ] ")
+    let task_done = item_text.has_prefix("[x] ") || item_text.has_prefix("[X] ")
+    let decision_done = item_text.has_prefix("✅️ ")
+    if task_open || task_done {
+      buf.write_string("<li class=\"task-list-item\" data-source-line=\"")
+    } else if decision_done {
+      buf.write_string("<li class=\"decision-done\" data-source-line=\"")
+    } else {
+      buf.write_string("<li data-source-line=\"")
+    }
+    buf.write_string(item_line.to_string())
+    buf.write_string("\">")
+    if task_open || task_done {
+      let task_text = safe_slice(item_text, 4)
+      buf.write_string(
+        "<input class=\"task-decision-checkbox\" type=\"checkbox\"",
+      )
+      if task_done {
+        buf.write_string(" checked")
+      }
+      buf.write_string(" data-source-line=\"")
+      buf.write_string(item_line.to_string())
+      buf.write_string("\" data-decision-text=\"")
+      buf.write_string(escape_html(task_text))
+      buf.write_string("\" /> ")
+      buf.write_string(render_inline(task_text, source_line=item_line))
+    } else if decision_done {
+      buf.write_string(
+        render_inline(safe_slice(item_text, 3), source_line=item_line),
+      )
+    } else {
+      buf.write_string(render_inline(item_text, source_line=item_line))
+    }
+    i = i + 1
+    while i < lines.length() {
+      if trim(lines[i]).length() == 0 {
+        if i + 1 < lines.length() && leading_spaces(lines[i + 1]) > indent {
+          i = i + 1
+          continue
+        }
+        break
+      }
+      if leading_spaces(lines[i]) <= indent {
+        break
+      }
+      let child_kind = markdown_list_kind(lines[i])
+      let child_line = trim(lines[i])
+      if child_line.has_prefix("```") || child_line.has_prefix("~~~") {
+        let fence = if child_line.has_prefix("~~~") { "~~~" } else { "```" }
+        let code_start = i
+        let fence_indent = leading_spaces(lines[i])
+        let nested_code : Array[String] = []
+        nested_code.push(child_line)
+        i = i + 1
+        while i < lines.length() {
+          let raw_code_line = lines[i]
+          let code_line = if leading_spaces(raw_code_line) >= fence_indent {
+            safe_slice(raw_code_line, fence_indent)
+          } else {
+            raw_code_line
+          }
+          nested_code.push(code_line)
+          i = i + 1
+          if trim(code_line).has_prefix(fence) {
+            break
+          }
+        }
+        buf.write_string("\n")
+        buf.write_string(
+          render_markdown_lines(
+            nested_code,
+            line_offset=code_start + line_offset,
+          ),
+        )
+      } else if child_kind > 0 {
+        let child = render_markdown_list(
+          lines,
+          i,
+          line_offset,
+          leading_spaces(lines[i]),
+          child_kind,
+        )
+        buf.write_string("\n")
+        buf.write_string(child.0)
+        i = child.1
+      } else {
+        buf.write_string("<br />")
+        buf.write_string(
+          render_inline(trim(lines[i]), source_line=i + 1 + line_offset),
+        )
+        i = i + 1
+      }
+    }
+    buf.write_string("</li>\n")
+  }
+  buf.write_string("</")
+  buf.write_string(tag)
+  buf.write_string(">\n")
+  (buf.to_string(), i)
+}
+
+///|
 /// Check if line starts a block element
 fn is_block_start(line : String) -> Bool {
   line.has_prefix("#") ||
   line.has_prefix("```") ||
+  line.has_prefix("~~~") ||
   line.has_prefix(">") ||
   line.has_prefix("- ") ||
   line.has_prefix("* ") ||
@@ -630,7 +762,7 @@ fn parse_table_row(line : String) -> Array[String] {
 
 ///|
 /// Render inline markdown (bold, italic, code, links, images)
-fn render_inline(text : String) -> String {
+fn render_inline(text : String, source_line? : Int = 0) -> String {
   let chars = text.to_array()
   let len = chars.length()
   let buf = StringBuilder::new()
@@ -680,12 +812,20 @@ fn render_inline(text : String) -> String {
             buf.write_string(escaped_src)
             buf.write_string("\" title=\"")
             buf.write_string(escape_html(alt))
+            if source_line > 0 {
+              buf.write_string("\" data-source-line=\"")
+              buf.write_string(source_line.to_string())
+            }
             buf.write_string("\"></video>")
           } else {
             buf.write_string("<img src=\"")
             buf.write_string(escaped_src)
             buf.write_string("\" alt=\"")
             buf.write_string(escape_html(alt))
+            if source_line > 0 {
+              buf.write_string("\" data-source-line=\"")
+              buf.write_string(source_line.to_string())
+            }
             buf.write_string(
               "\" loading=\"lazy\" style=\"max-width:100%;height:auto;\" />",
             )
@@ -724,12 +864,12 @@ fn render_inline(text : String) -> String {
           // Block javascript: scheme to prevent XSS
           let lower_url = link_url.to_lower()
           if lower_url.has_prefix("javascript:") {
-            buf.write_string(escape_html(link_text))
+            buf.write_string(render_inline(link_text, source_line~))
           } else {
             buf.write_string("<a href=\"")
             buf.write_string(escape_html(link_url))
             buf.write_string("\">")
-            buf.write_string(escape_html(link_text))
+            buf.write_string(render_inline(link_text, source_line~))
             buf.write_string("</a>")
           }
           i = url_end + 1
@@ -774,7 +914,10 @@ fn render_inline(text : String) -> String {
       if del_end > 0 {
         buf.write_string("<del>")
         buf.write_string(
-          escape_html(safe_slice_range(text, del_start, del_end)),
+          render_inline(
+            safe_slice_range(text, del_start, del_end),
+            source_line~,
+          ),
         )
         buf.write_string("</del>")
         i = del_end + 2
@@ -797,7 +940,10 @@ fn render_inline(text : String) -> String {
       if bold_end > 0 {
         buf.write_string("<strong>")
         buf.write_string(
-          escape_html(safe_slice_range(text, bold_start, bold_end)),
+          render_inline(
+            safe_slice_range(text, bold_start, bold_end),
+            source_line~,
+          ),
         )
         buf.write_string("</strong>")
         i = bold_end + 2
@@ -818,10 +964,39 @@ fn render_inline(text : String) -> String {
       }
       if em_end > 0 {
         buf.write_string("<em>")
-        buf.write_string(escape_html(safe_slice_range(text, em_start, em_end)))
+        buf.write_string(
+          render_inline(safe_slice_range(text, em_start, em_end), source_line~),
+        )
         buf.write_string("</em>")
         i = em_end + 1
         continue
+      }
+    }
+    // Autolink: <https://example.com> or <mailto:user@example.com>
+    if chars[i] == '<' {
+      let mut auto_end = -1
+      let mut j = i + 1
+      while j < len {
+        if chars[j] == '>' {
+          auto_end = j
+          break
+        }
+        j = j + 1
+      }
+      if auto_end > i + 1 {
+        let url = safe_slice_range(text, i + 1, auto_end)
+        let lower = url.to_lower()
+        if lower.has_prefix("https://") ||
+          lower.has_prefix("http://") ||
+          lower.has_prefix("mailto:") {
+          buf.write_string("<a href=\"")
+          buf.write_string(escape_html(url))
+          buf.write_string("\">")
+          buf.write_string(escape_html(url))
+          buf.write_string("</a>")
+          i = auto_end + 1
+          continue
+        }
       }
     }
     // Regular character — escape HTML-significant chars to prevent XSS
@@ -833,6 +1008,24 @@ fn render_inline(text : String) -> String {
       ch => buf.write_char(ch)
     }
     i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+/// Add renderer-owned source metadata without discarding safe author
+/// attributes such as `<details open>` or inline markup inside `<summary>`.
+fn inject_attrs_into_open_tag(html : String, attrs : String) -> String {
+  let chars = html.to_array()
+  let buf = StringBuilder::new()
+  let mut injected = false
+  for ch in chars {
+    if !injected && ch == '>' {
+      buf.write_char(' ')
+      buf.write_string(attrs)
+      injected = true
+    }
+    buf.write_char(ch)
   }
   buf.to_string()
 }
@@ -1597,15 +1790,17 @@ pub fn build_markdown_html(
     buf.write_string(
       "<div class=\"frontmatter-header\">Document Metadata</div>",
     )
-    buf.write_string("<table class=\"frontmatter-table\"><tbody>")
+    buf.write_string(
+      "<table class=\"frontmatter-table\" data-source-line=\"1\"><tbody data-source-line=\"1\">",
+    )
     md.frontmatter.each(fn(key, value) {
       // Skip yunomi: questions from metadata display
       if key == "yunomi" {
         return
       }
-      buf.write_string("<tr><th>")
+      buf.write_string("<tr data-source-line=\"1\"><th data-source-line=\"1\">")
       buf.write_string(escape_html(key))
-      buf.write_string("</th><td>")
+      buf.write_string("</th><td data-source-line=\"1\">")
       buf.write_string(escape_html(value))
       buf.write_string("</td></tr>")
     })
@@ -1647,7 +1842,6 @@ pub fn build_markdown_html(
   buf.write_string("</div>")
   // Close .wrap
   buf.write_string("</div>")
-  build_comment_card(buf)
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_recovery_modal(buf)
