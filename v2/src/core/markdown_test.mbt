@@ -637,6 +637,15 @@ test "markdown coverage: nested lists, continuation lines, and list code blocks"
 }
 
 ///|
+test "markdown list code fence preserves code indentation beyond the list prefix" {
+  let md = parse_markdown(
+    "- parent\n  ```ts\n  if (ready) {\n    run()\n  }\n  ```",
+  )
+  debug_inspect(md.html.contains("if (ready) {"), content="true")
+  debug_inspect(md.html.contains("  run()"), content="true")
+}
+
+///|
 test "markdown coverage: nested blockquote and list" {
   let md = parse_markdown("> outer\n>> inner\n> - quoted item")
   debug_inspect(

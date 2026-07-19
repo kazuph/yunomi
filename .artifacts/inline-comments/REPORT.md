@@ -254,7 +254,7 @@ stateDiagram-v2
 
 | 検証 | 結果 | 内訳 |
 |---|---:|---|
-| `moon test --target js` | 188/188 PASS | 行アンカー、details、リスト内コードフェンスを含むMoonBit全テスト。廃止したclose時刻相関テスト7件を除去 |
+| `moon test --target js` | 189/189 PASS | 行アンカー、details、リスト内コードフェンスを含むMoonBit全テスト。廃止したclose時刻相関テスト7件を除去 |
 | `moon build --target js --release` | PASS | JS release成果物 |
 | `v2/e2e/inline_comments.ts` | 59/59 PASS | 15要素×保存・編集・削除=45、見出し配置/非重複=2、共通=12 |
 | `v2/e2e/complex_markdown_showcase.ts` | 25/25 PASS | 複雑Markdown、details/summary、dark Mermaid、動画・タイムライン、時刻ラベル |
@@ -264,7 +264,7 @@ stateDiagram-v2
 | `v2/e2e/send_now.ts` | 11/11 PASS | 即時送信、pending local、pending/sent永続化 |
 | `v2/e2e/port_auto_fallback.ts` | 10/10 PASS | 次ポートfallback、50ポート枯渇、OS割当、実port lock、health |
 | `v2/e2e/close_race_regression.ts` | 20/20 PASS | reload、6秒遅延reconnect、close後待機、draft復元、明示Submit限定 |
-| `npm test` | all passed / exit 0 | 新E2E、MoonBit 188件、旧E2Eを含むフルスイート |
+| `npm test` | all passed / exit 0 | 新E2E、MoonBit 189件、旧E2Eを含むフルスイート |
 
 新E2E対象はheading、paragraph、unordered-list、list-item、ordered-list、blockquote、horizontal-rule、code、table-header、table-cell、image、video、mermaid、details、raw-html。追加契約はeditor前後のblock非重複、fullscreen開始時のeditor close・focus解放・draft保持、fullscreen中`i`/`Enter`遮断、restore時の同一surface二重表示防止。既存のフローティングカード不在、ヘッダーパス、localStorage、sidebar展開・折り畳み、reload/Pending復元、runtime error不在も維持する。
 

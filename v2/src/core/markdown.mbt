@@ -614,14 +614,20 @@ fn render_markdown_list(
       if child_line.has_prefix("```") || child_line.has_prefix("~~~") {
         let fence = if child_line.has_prefix("~~~") { "~~~" } else { "```" }
         let code_start = i
+        let fence_indent = leading_spaces(lines[i])
         let nested_code : Array[String] = []
         nested_code.push(child_line)
         i = i + 1
         while i < lines.length() {
-          let code_line = trim(lines[i])
+          let raw_code_line = lines[i]
+          let code_line = if leading_spaces(raw_code_line) >= fence_indent {
+            safe_slice(raw_code_line, fence_indent)
+          } else {
+            raw_code_line
+          }
           nested_code.push(code_line)
           i = i + 1
-          if code_line.has_prefix(fence) {
+          if trim(code_line).has_prefix(fence) {
             break
           }
         }

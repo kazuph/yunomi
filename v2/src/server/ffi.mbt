@@ -161,9 +161,14 @@ extern "js" fn update_share_token_port(token : String, port : Int) -> Unit =
   #|  const dir = process.env.YUNOMI_SHARE_DIR || path.join(os.homedir(), ".yunomi", "shares");
   #|  const file = path.join(dir, `${token}.json`);
   #|  if (!fs.existsSync(file)) return;
-  #|  const meta = JSON.parse(fs.readFileSync(file, "utf8"));
-  #|  meta.port = Number(port);
-  #|  fs.writeFileSync(file, JSON.stringify(meta, null, 2));
+  #|  try {
+  #|    const meta = JSON.parse(fs.readFileSync(file, "utf8"));
+  #|    if (!meta || typeof meta !== "object" || Array.isArray(meta)) return;
+  #|    meta.port = Number(port);
+  #|    fs.writeFileSync(file, JSON.stringify(meta, null, 2));
+  #|  } catch (error) {
+  #|    console.warn(`Unable to update share metadata port: ${error instanceof Error ? error.message : String(error)}`);
+  #|  }
   #|}
 
 ///|
