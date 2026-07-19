@@ -93,7 +93,7 @@ test "parse markdown inline code" {
 test "parse markdown unordered list" {
   let md = parse_markdown("- item 1\n- item 2\n- item 3")
   debug_inspect(
-    md.html.contains("<ul>"),
+    md.html.contains("<ul data-source-line=\"1\">"),
     content=(
       #|true
     ),
@@ -108,21 +108,29 @@ test "parse markdown unordered list" {
 
 ///|
 test "parse markdown task decisions" {
-  let md = parse_markdown("- [ ] Use OAuth\n- [x] Use password\n- ✅️ Use OAuth")
+  let md = parse_markdown(
+    "- [ ] Use OAuth\n- [x] Use password\n- ✅️ Use OAuth",
+  )
   debug_inspect(
-    md.html.contains("class=\"task-decision-checkbox\" type=\"checkbox\" data-source-line=\"1\""),
+    md.html.contains(
+      "class=\"task-decision-checkbox\" type=\"checkbox\" data-source-line=\"1\"",
+    ),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("class=\"task-decision-checkbox\" type=\"checkbox\" checked data-source-line=\"2\""),
+    md.html.contains(
+      "class=\"task-decision-checkbox\" type=\"checkbox\" checked data-source-line=\"2\"",
+    ),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("<li class=\"decision-done\" data-source-line=\"3\">Use OAuth</li>"),
+    md.html.contains(
+      "<li class=\"decision-done\" data-source-line=\"3\">Use OAuth</li>",
+    ),
     content=(
       #|true
     ),
@@ -133,7 +141,7 @@ test "parse markdown task decisions" {
 test "parse markdown ordered list" {
   let md = parse_markdown("1. first\n2. second")
   debug_inspect(
-    md.html.contains("<ol>"),
+    md.html.contains("<ol data-source-line=\"1\">"),
     content=(
       #|true
     ),
@@ -208,7 +216,7 @@ test "parse markdown blockquote" {
   let md = parse_markdown("> quoted text")
   debug_inspect(
     md.html.contains(
-      "<blockquote data-source-start-line=\"1\" data-source-end-line=\"1\">",
+      "<blockquote data-source-line=\"1\" data-source-start-line=\"1\" data-source-end-line=\"1\">",
     ),
     content=(
       #|true
@@ -220,7 +228,7 @@ test "parse markdown blockquote" {
 test "parse markdown horizontal rule" {
   let md = parse_markdown("above\n\n---\n\nbelow")
   debug_inspect(
-    md.html.contains("<hr"),
+    md.html.contains("<hr data-source-line=\"3\""),
     content=(
       #|true
     ),
@@ -231,7 +239,7 @@ test "parse markdown horizontal rule" {
 test "parse markdown table" {
   let md = parse_markdown("| a | b |\n|---|---|\n| 1 | 2 |")
   debug_inspect(
-    md.html.contains("<table>"),
+    md.html.contains("<table data-source-line=\"1\">"),
     content=(
       #|true
     ),
@@ -544,6 +552,258 @@ test "parse markdown frontmatter excludes nested yunomi keys" {
 }
 
 ///|
+test "markdown coverage: every top-level block exposes a source anchor" {
+  let input =
+    #|# H1
+    #|## H2
+    #|### H3
+    #|#### H4
+    #|##### H5
+    #|###### H6
+    #|
+    #|wrapped paragraph
+    #|continues here
+    #|
+    #|***
+    #|
+    #|- item
+    #|
+    #|1. ordered
+    #|
+    #|> quote
+    #|
+    #|```txt
+    #|# literal
+    #|- literal
+    #|```
+  let md = parse_markdown(input)
+  for level = 1; level <= 6; level = level + 1 {
+    debug_inspect(
+      md.html.contains(
+        "<h" + level.to_string() + " class=\"md-heading-toggle\"",
+      ),
+      content=(
+        #|true
+      ),
+    )
+  }
+  debug_inspect(
+    md.html.contains(
+      "<p data-source-start-line=\"8\" data-source-end-line=\"9\">",
+    ),
+    content="true",
+  )
+  debug_inspect(md.html.contains("<hr data-source-line=\"11\""), content="true")
+  debug_inspect(
+    md.html.contains("<ul data-source-line=\"13\">"),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<ol data-source-line=\"15\">"),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<blockquote data-source-line=\"17\""),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<pre data-source-start-line=\"19\" data-source-end-line=\"22\">",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "markdown coverage: nested lists, continuation lines, and list code blocks" {
+  let md = parse_markdown(
+    "- parent\n  - child two spaces\n    - grandchild four spaces\n  child continuation\n  ```js\n  const nested = true\n  ```\n- sibling",
+  )
+  debug_inspect(md.html.contains("<ul data-source-line=\"1\">"), content="true")
+  debug_inspect(md.html.contains("<ul data-source-line=\"2\">"), content="true")
+  debug_inspect(md.html.contains("<ul data-source-line=\"3\">"), content="true")
+  debug_inspect(
+    md.html.contains("<li data-source-line=\"3\">grandchild four spaces</li>"),
+    content="true",
+  )
+  debug_inspect(md.html.contains("child continuation"), content="true")
+  debug_inspect(
+    md.html.contains(
+      "<pre data-source-start-line=\"5\" data-source-end-line=\"7\"><code class=\"language-js\">",
+    ),
+    content="true",
+  )
+  debug_inspect(md.html.contains("const nested = true"), content="true")
+}
+
+///|
+test "markdown coverage: nested blockquote and list" {
+  let md = parse_markdown("> outer\n>> inner\n> - quoted item")
+  debug_inspect(
+    md.html.contains("<blockquote data-source-line=\"1\""),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<blockquote data-source-line=\"2\""),
+    content="true",
+  )
+  debug_inspect(md.html.contains("<ul data-source-line=\"3\">"), content="true")
+  debug_inspect(
+    md.html.contains("<li data-source-line=\"3\">quoted item</li>"),
+    content="true",
+  )
+}
+
+///|
+test "markdown coverage: tilde fence and inline combinations" {
+  let md = parse_markdown(
+    "~~~moonbit\n# not a heading\n- not a list\n~~~\n\n**bold [link](https://example.com)** and ~~deleted *em*~~ with `code` <https://example.org>",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<pre data-source-start-line=\"1\" data-source-end-line=\"4\"><code class=\"language-moonbit\">",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<strong>bold <a href=\"https://example.com\">link</a></strong>",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<del>deleted <em>em</em></del>"),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<a href=\"https://example.org\">https://example.org</a>"),
+    content="true",
+  )
+}
+
+///|
+test "markdown coverage: table rows and cells carry source anchors" {
+  let md = parse_markdown(
+    "| left | center | empty |\n|:---|:---:|---:|\n| **bold** | *em* | |",
+  )
+  debug_inspect(
+    md.html.contains("<table data-source-line=\"1\">"),
+    content="true",
+  )
+  debug_inspect(md.html.contains("<tr data-source-line=\"1\">"), content="true")
+  debug_inspect(md.html.contains("<tr data-source-line=\"3\">"), content="true")
+  debug_inspect(
+    md.html.contains(
+      "<td data-source-line=\"3\" data-row=\"2\" data-col=\"3\"></td>",
+    ),
+    content="true",
+  )
+  debug_inspect(md.html.contains("<strong>bold</strong>"), content="true")
+}
+
+///|
+test "markdown coverage: details, raw html, media, unicode, and sanitization" {
+  let md = parse_markdown(
+    "<details>\n<summary>詳細</summary>\n\n本文 🐈\n</details>\n\n<div class=\"note\">raw</div>\n\n![画像](cat.png)\n\n<script>alert('x')</script>",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<details data-source-start-line=\"1\" data-source-line=\"1\">",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("<summary data-source-line=\"2\">詳細</summary>"),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "class=\"markdown-html-block\" data-source-start-line=\"7\"",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<p data-source-start-line=\"9\" data-source-end-line=\"9\"><img",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("alt=\"画像\" data-source-line=\"9\""),
+    content="true",
+  )
+  debug_inspect(md.html.contains("<script"), content="false")
+  debug_inspect(md.html.contains("&lt;script&gt;"), content="true")
+}
+
+///|
+test "markdown details preserves open and summary inline markup" {
+  let md = parse_markdown(
+    "<details open>\n<summary><strong>Latest: 修正履歴</strong> 🐈</summary>\n\n本文\n</details>",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<details open=\"\" data-source-start-line=\"1\" data-source-line=\"1\">",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<summary data-source-line=\"2\"><strong>Latest: 修正履歴</strong> 🐈</summary>",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "markdown details preserves nested details summaries" {
+  let md = parse_markdown(
+    "<details open>\n<summary><strong>Outer</strong></summary>\n\n<details open>\n<summary><strong>Inner</strong></summary>\n\nNested body\n</details>\n\n</details>",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<summary data-source-line=\"2\"><strong>Outer</strong></summary>",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<summary data-source-line=\"5\"><strong>Inner</strong></summary>",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<details open=\"\" data-source-start-line=\"4\" data-source-line=\"4\">",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "markdown list keeps an indented fenced code block after a blank line" {
+  let md = parse_markdown(
+    "- Code follows:\n\n  ```ts\n  const state = \"pending\";\n  ```\n\nAfter",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<pre data-source-start-line=\"3\" data-source-end-line=\"5\"><code class=\"language-ts\">",
+    ),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains("const state = &quot;pending&quot;;"),
+    content="true",
+  )
+  debug_inspect(
+    md.html.contains(
+      "<p data-source-start-line=\"7\" data-source-end-line=\"7\">After</p>",
+    ),
+    content="true",
+  )
+}
+
+///|
 test "parse markdown link url escaped" {
   let md = parse_markdown("[click](http://example.com/a\"b)")
   debug_inspect(
@@ -586,7 +846,7 @@ test "parse markdown image src escaped" {
 test "parse markdown table wrapped in table-container" {
   let md = parse_markdown("| a | b |\n|---|---|\n| 1 | 2 |")
   debug_inspect(
-    md.html.contains("<div class=\"table-container\">"),
+    md.html.contains("<div class=\"table-container\" data-source-line=\"1\">"),
     content=(
       #|true
     ),

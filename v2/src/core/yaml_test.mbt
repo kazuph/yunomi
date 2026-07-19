@@ -3,23 +3,25 @@ test "review to yaml single file" {
   let result : ReviewResult = {
     file: "data.csv",
     mode: Csv,
-    comments: [{
-      file: Some("data.csv"),
-      row: 1,
-      col: 2,
-      end_row: Some(1),
-      end_col: Some(2),
-      text: "needs review",
-      value: "150",
-      snippet: Some("150"),
-      context_before: "",
-      context_after: "",
-      selector: None,
-      bounds: None,
-      element_text: None,
-      attachments: None,
-      image_path: "",
-    }],
+    comments: [
+      {
+        file: Some("data.csv"),
+        row: 1,
+        col: 2,
+        end_row: Some(1),
+        end_col: Some(2),
+        text: "needs review",
+        value: "150",
+        snippet: Some("150"),
+        context_before: "",
+        context_after: "",
+        selector: None,
+        bounds: None,
+        element_text: None,
+        attachments: None,
+        image_path: "",
+      },
+    ],
     summary: "looks good",
     summary_images: [],
     answers: "",
@@ -31,7 +33,6 @@ test "review to yaml single file" {
     review_to_yaml(result),
     content=(
       #|"action: final_approve\nfile: data.csv\nmode: csv\ncomments:\n  - file: data.csv\n    row: 1\n    col: 2\n    end_row: 1\n    end_col: 2\n    text: needs review\n    value: 150\n    snippet: 150\n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: looks good\n"
-
     ),
   )
 }
@@ -41,23 +42,25 @@ test "review to yaml escapes special chars" {
   let result : ReviewResult = {
     file: "test.csv",
     mode: Csv,
-    comments: [{
-      file: Some("test.csv"),
-      row: 0,
-      col: 0,
-      end_row: Some(0),
-      end_col: Some(0),
-      text: "has: colon and #hash",
-      value: "",
-      snippet: Some(""),
-      context_before: "",
-      context_after: "",
-      selector: None,
-      bounds: None,
-      element_text: None,
-      attachments: None,
-      image_path: "",
-    }],
+    comments: [
+      {
+        file: Some("test.csv"),
+        row: 0,
+        col: 0,
+        end_row: Some(0),
+        end_col: Some(0),
+        text: "has: colon and #hash",
+        value: "",
+        snippet: Some(""),
+        context_before: "",
+        context_after: "",
+        selector: None,
+        bounds: None,
+        element_text: None,
+        attachments: None,
+        image_path: "",
+      },
+    ],
     summary: "it's fine",
     summary_images: [],
     answers: "",
@@ -69,7 +72,6 @@ test "review to yaml escapes special chars" {
     review_to_yaml(result),
     content=(
       #|"action: final_approve\nfile: test.csv\nmode: csv\ncomments:\n  - file: test.csv\n    row: 0\n    col: 0\n    end_row: 0\n    end_col: 0\n    text: 'has: colon and #hash'\n    snippet: \n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: 'it''s fine'\n"
-
     ),
   )
 }
@@ -104,7 +106,6 @@ test "reviews to yaml multiple files" {
     reviews_to_yaml(results),
     content=(
       #|"action: final_approve\nfiles:\n  - file: a.csv\n    mode: csv\n    comments:\n    summary: ok\n  - file: b.md\n    mode: markdown\n    comments:\n    summary: ok\n"
-
     ),
   )
 }
@@ -114,23 +115,25 @@ test "yaml escape empty value omitted" {
   let result : ReviewResult = {
     file: "f.csv",
     mode: Csv,
-    comments: [{
-      file: None,
-      row: 0,
-      col: 0,
-      end_row: None,
-      end_col: None,
-      text: "note",
-      value: "",
-      snippet: None,
-      context_before: "",
-      context_after: "",
-      selector: None,
-      bounds: None,
-      element_text: None,
-      attachments: None,
-      image_path: "",
-    }],
+    comments: [
+      {
+        file: None,
+        row: 0,
+        col: 0,
+        end_row: None,
+        end_col: None,
+        text: "note",
+        value: "",
+        snippet: None,
+        context_before: "",
+        context_after: "",
+        selector: None,
+        bounds: None,
+        element_text: None,
+        attachments: None,
+        image_path: "",
+      },
+    ],
     summary: "done",
     summary_images: [],
     answers: "",
@@ -153,23 +156,25 @@ test "review to yaml includes structured context and image path" {
   let result : ReviewResult = {
     file: "test.md",
     mode: Markdown,
-    comments: [{
-      file: Some("test.md"),
-      row: 2,
-      col: 1,
-      end_row: Some(2),
-      end_col: Some(1),
-      text: "needs context",
-      value: "target line",
-      snippet: Some("before line\ntarget line\nafter line"),
-      context_before: "before line",
-      context_after: "after line",
-      selector: Some("#target"),
-      bounds: Some("{\"x\":1,\"y\":2,\"width\":3,\"height\":4}"),
-      element_text: Some("target line"),
-      attachments: Some(["./comment-attachments/c-1-1.png"]),
-      image_path: "/tmp/yunomi/image_0.png",
-    }],
+    comments: [
+      {
+        file: Some("test.md"),
+        row: 2,
+        col: 1,
+        end_row: Some(2),
+        end_col: Some(1),
+        text: "needs context",
+        value: "target line",
+        snippet: Some("before line\ntarget line\nafter line"),
+        context_before: "before line",
+        context_after: "after line",
+        selector: Some("#target"),
+        bounds: Some("{\"x\":1,\"y\":2,\"width\":3,\"height\":4}"),
+        element_text: Some("target line"),
+        attachments: Some(["./comment-attachments/c-1-1.png"]),
+        image_path: "/tmp/yunomi/image_0.png",
+      },
+    ],
     summary: "done",
     summary_images: [],
     answers: "",
@@ -193,8 +198,7 @@ test "review to yaml includes summary image paths" {
     comments: [],
     summary: "see attached",
     summary_images: [
-      "/Users/example/.yunomi/outputs/summary-srv-123-0.png",
-      "/Users/example/.yunomi/outputs/summary-srv-123-1.jpg",
+      "/Users/example/.yunomi/outputs/summary-srv-123-0.png", "/Users/example/.yunomi/outputs/summary-srv-123-1.jpg",
     ],
     answers: "",
     mermaid_errors: [],
@@ -217,9 +221,8 @@ test "review to yaml includes summary image paths" {
 /// character through untouched (only doubling literal single quotes) so the
 /// full JSON text survives the trip into the verdict YAML byte-for-byte.
 test "review to yaml preserves unicode answers (japanese + emoji + escapes)" {
-  let answers = (
+  let answers =
     #|{"q1-help-overlay":"採用","q4-agent-comment":"エージェントへのコメント機能は非常に重要な体験改善だと思います。長文の日本語フィードバックが途中で切れずに反映されることを確認したいです。絵文字も安全か確認します🎉。\"引用\"や改行(\n)を含む文章でも壊れないこと。"}
-  )
   let result : ReviewResult = {
     file: "test.md",
     mode: Markdown,
@@ -236,7 +239,10 @@ test "review to yaml preserves unicode answers (japanese + emoji + escapes)" {
   // must appear verbatim inside the single-quoted YAML scalar — nothing
   // truncated, nothing mangled.
   debug_inspect(yaml.contains(answers), content="true")
-  debug_inspect(yaml.contains("エージェントへのコメント機能"), content="true")
+  debug_inspect(
+    yaml.contains("エージェントへのコメント機能"),
+    content="true",
+  )
   debug_inspect(yaml.contains("🎉"), content="true")
   // Answer text must not be cut short anywhere before its final character.
   debug_inspect(yaml.contains("壊れないこと。\"}'"), content="true")
@@ -246,9 +252,8 @@ test "review to yaml preserves unicode answers (japanese + emoji + escapes)" {
 /// Same guarantee on the multi-file YAML path (reviews_to_yaml), which has
 /// its own independent answers-serialization branch.
 test "reviews to yaml preserves unicode answers across multiple files" {
-  let answers = (
+  let answers =
     #|{"q2-multifile":"これって何の意味ある？moonbitのモダン化ならやっていいよ。","q3-plan-hook":"これ体験してないので、わからない。"}
-  )
   let results = [
     ReviewResult::{
       file: "a.md",
@@ -264,7 +269,10 @@ test "reviews to yaml preserves unicode answers across multiple files" {
   ]
   let yaml = reviews_to_yaml(results)
   debug_inspect(yaml.contains(answers), content="true")
-  debug_inspect(yaml.contains("これって何の意味ある？"), content="true")
+  debug_inspect(
+    yaml.contains("これって何の意味ある？"),
+    content="true",
+  )
 }
 
 ///|
@@ -295,9 +303,8 @@ fn undouble_single_quotes(s : String) -> String {
 /// outer quotes, undouble '') must reconstruct the exact original — no
 /// char is ever silently dropped or split.
 test "yaml_escape_string round-trips unicode without loss" {
-  let original = (
+  let original =
     #|エージェント🎉テスト "quoted" back\slash and \n escaped-newline, comma, colon: value
-  )
   let escaped = yaml_escape_string(original)
   let chars = escaped.to_array()
   // Must be wrapped in single quotes since it contains ':' etc.
@@ -328,7 +335,6 @@ test "review to yaml with mermaid errors" {
     review_to_yaml(result),
     content=(
       #|"action: final_approve\nfile: test.md\nmode: markdown\ncomments:\nsummary: no comments\nmermaid_errors:\n  - line: 12\n    error: Parse error on line 2\n  - line: 25\n    error: 'Expecting ''TXT'', got ''NEWLINE'''\n"
-
     ),
   )
 }

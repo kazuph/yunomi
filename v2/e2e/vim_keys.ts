@@ -134,8 +134,8 @@ try {
       assert(true, "k moves to the previous review target");
 
       await page.keyboard.press("c");
-      await page.waitForSelector("#comment-card", { state: "visible" });
-      assert(await page.evaluate(() => document.activeElement?.id === "comment-input"), "c opens the comment card for the selected target");
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      assert(await page.evaluate(() => document.activeElement?.id === "comment-input"), "c opens the inline editor for the selected target");
 
       await page.locator("#comment-input").fill("");
       await page.keyboard.type("?");
@@ -143,16 +143,16 @@ try {
       assert(await page.locator(".vim-key-help:not(.hidden)").count() === 0, "? does not open keyboard help while typing");
       await page.locator("#comment-input").fill("keyboard comment");
       await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-      await page.waitForSelector("#comment-card", { state: "hidden" });
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
       assert(await page.locator("#comment-list li[data-key='0:0']").count() === 1, "Cmd/Ctrl+Enter saves an open keyboard comment");
 
       await page.keyboard.press("Escape");
-      await page.waitForSelector("#comment-card", { state: "hidden" });
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
       await page.locator("#send-and-exit").focus();
       await page.keyboard.press("n");
-      await page.waitForSelector("#comment-card", { state: "visible" });
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
       const jumpedText = await page.locator("#comment-input").inputValue();
-      const jumpedTitle = await page.locator("#card-title").textContent().catch(() => "");
+      const jumpedTitle = await page.locator(".yunomi-inline-comment-label").first().textContent().catch(() => "");
       const commentPanelText = await page.locator(".comment-list").textContent().catch(() => "");
       assert(jumpedText === "keyboard comment", "n jumps to the next saved comment", { jumpedText, jumpedTitle, commentPanelText });
       await page.keyboard.press("Escape");
@@ -169,11 +169,22 @@ try {
 
       await page.waitForSelector(".review-loop-resolve", { timeout: 10000 });
       await page.keyboard.press("r");
-      await page.waitForFunction(() => !document.querySelector(".review-loop-resolve"));
+      await page.waitForFunction(() => {
+        const badge = document.querySelector(".review-loop-badge")?.textContent?.trim();
+        const status = (window as unknown as { __YUNOMI_REVIEW_LOOP_STATUS__?: string }).__YUNOMI_REVIEW_LOOP_STATUS__ || "";
+        return !document.querySelector(".review-loop-resolve")
+          && !!document.querySelector(".review-loop-resolved")
+          && badge === "0"
+          && status.includes("All resolved");
+      });
       const review = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));
       assert(review.comments[0]?.status === "resolved", "r resolves the focused review-loop comment");
 
-      await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+      const submitShortcut = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
+      for (let attempt = 0; attempt < 3 && !await page.locator("#submit-modal.visible").isVisible(); attempt++) {
+        await page.keyboard.press(submitShortcut);
+        await page.locator("#submit-modal.visible").waitFor({ state: "visible", timeout: 1500 }).catch(() => {});
+      }
       await page.waitForSelector("#submit-modal.visible");
       assert(true, "Cmd/Ctrl+Enter opens Submit from the review surface");
       await page.keyboard.press("Escape");

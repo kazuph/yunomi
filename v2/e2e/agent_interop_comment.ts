@@ -183,7 +183,7 @@ async function main(): Promise<void> {
     }
     await page.waitForFunction((needle) => {
       const count = document.querySelector("#comment-count")?.textContent?.trim();
-      const inline = Array.from(document.querySelectorAll(".review-comment-inline")).find((el) => {
+      const inline = Array.from(document.querySelectorAll(".yunomi-inline-comment")).find((el) => {
         const rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 && (el.textContent || "").includes(String(needle));
       });

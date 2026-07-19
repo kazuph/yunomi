@@ -1,40 +1,7 @@
 /**
- * Close-auto-submit race regression.
- *
- * Background: pagehide/beforeunload -> POST /close arms a 5s server-side
- * timer (schedule_close_submit) that auto-submits whatever draft was
- * captured at the instant of pagehide, UNLESS the tab reconnects via
- * POST /session/open before the timer fires. If a reload (the browser's
- * own F5, or the app's own "the reviewed file changed" SSE-driven reload)
- * happens while the human is mid-typing, and the reconnect is slow for any
- * reason (slow JS boot, slow network, contention), the 5s timer used to
- * fire first: a STALE, PARTIAL snapshot (e.g. "エージェ" instead of the
- * intended "エージェントへの..." text) got silently finalized as the human's
- * real answer, and the server process exited — permanently, since there is
- * no server left to receive the late reconnect.
- *
- * Two structural fixes close this:
- *   (A) A reload triggered by the app's own SSE "reload" event (file
- *       changed) never reports a /close at all — see
- *       intentional_reload_in_progress in app.mbt. No close means no timer
- *       is ever armed, so there's no race to lose for this trigger.
- *   (B) For any OTHER reload (manual F5, or a close that arrives before
- *       fix A's flag could apply), the server correlates a nearby index-page
- *       GET / with the close signal (looks_like_reload_in_flight in
- *       main.mbt) and grants exactly one 5s extension before finalizing —
- *       giving a slow reconnect real room to land instead of confirming a
- *       mid-typing snapshot on a fixed clock.
- *   Independently, question answers, the summary textarea, and comments now
- *   all persist to the SAME localStorage draft (persist_draft in app.mbt,
- *   generalized from the comments-only persist_comments), so even a
- *   genuinely-lost tab's typing survives a reload via the existing
- *   Restore/Discard recovery modal.
- *
- * This test also re-confirms the safety net's OWN reason to exist still
- * works: a tab that is truly closed (never reconnects) must still
- * auto-submit so an AI agent waiting on the verdict is never stuck forever.
- *
- * Run: node --experimental-strip-types v2/e2e/close_race_regression.ts
+ * Closing, navigating, and reloading must never finalize a review.
+ * Drafts stay in localStorage and the server exits only after an explicit
+ * action in the Submit Review dialog reaches POST /exit.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -156,40 +123,7 @@ function startServer(
 }
 
 /**
- * Poll server stdout/stderr for a log substring instead of guessing a sleep
- * duration relative to a timer's nominal delay — the actual timer callback
- * (Node event loop, GC pauses, CI contention) can fire measurably later
- * than its nominal delay, so a fixed-sleep check with a thin margin above
- * that nominal delay is inherently flaky. Observing the server's own log
- * line for the state transition under test removes that guesswork.
- */
-function waitForLogLine(
-  getOutput: () => string,
-  pattern: string,
-  timeoutMs: number,
-): Promise<boolean> {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      if (getOutput().includes(pattern)) {
-        resolve(true);
-        return;
-      }
-      if (Date.now() - start >= timeoutMs) {
-        resolve(false);
-        return;
-      }
-      setTimeout(check, 100);
-    };
-    check();
-  });
-}
-
-/**
- * Like waitForLogLine, but waits for `pattern` to appear at least `minCount`
- * times. Used for log lines (like "open file=") that legitimately recur
- * across the scenario, where a single-occurrence check would false-positive
- * on an earlier, unrelated occurrence of the same substring.
+ * Wait for a recurring server log without a fixed client-boot delay.
  */
 function waitForLogCount(
   getOutput: () => string,
@@ -345,7 +279,7 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
   requestedPort: number,
 ): Promise<void> {
   console.log(
-    "\n--- Scenario 2: generic reload (not SSE-triggered) with a slow /session/open reconnect must not finalize the stale partial draft ---",
+    "\n--- Scenario 2: generic reload with a slow /session/open reconnect keeps the draft local and the server alive ---",
   );
   const mdPath = join(workDir, "s2.md");
   writeFileSync(mdPath, fixtureContentTwoQuestions(1));
@@ -364,8 +298,8 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
         await route.continue();
         return;
       }
-      // Simulate a slow reconnect: well past the base 5s window, but
-      // within fix B's single 5s extension budget.
+      // Simulate a slow client boot. Closing never starts a submit deadline,
+      // so the reconnect may take arbitrarily longer than the former 5s timer.
       await new Promise((r) => setTimeout(r, 6000));
       await route.continue().catch(() => {});
     });
@@ -381,48 +315,20 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
 
     await page.evaluate(() => location.reload());
 
-    // Instead of sleeping a fixed duration timed relative to the base
-    // 5000ms window (a thin, flaky margin under CI load), observe the
-    // server's own "deferring close submit" log line — main.mbt logs this
-    // exactly when the base timer fires AND looks_like_reload_in_flight()
-    // grants the one-time extension. This directly proves the extension
-    // fired, rather than inferring it from elapsed wall-clock time.
-    const extended = await waitForLogLine(getOutput, "deferring close submit", 8000);
-    assert(
-      extended,
-      "リロード検知によりcloseの確定が延長される（サーバーログ 'deferring close submit' を観測）",
-      { outputTail: getOutput().slice(-1000) },
-    );
-    assert(
-      proc.exitCode === null,
-      "延長ログ観測の直後もサーバーはまだ生きている＝中途半端な下書きを確定していない",
-      { exitCode: proc.exitCode },
-    );
-    assert(
-      !getOutput().includes("auto submit after last tab close"),
-      "この時点で自動Submitは発火していない",
-    );
-
-    // Let the delayed /session/open (6000ms route delay) land. Note:
-    // handle_session_open (main.mbt) calls cancel_pending_close() — a
-    // direct clearTimeout(), logging nothing — BEFORE the extended timer
-    // ever gets a chance to fire and log "cancel close submit"; that log
-    // line only fires from inside the timer callback itself, which is a
-    // race this proactive cancel wins in practice. So the reliable signal
-    // for "the delayed reconnect landed" is the SECOND "open file=" log
-    // line (the first is the initial page load) rather than a log line
-    // that in practice never gets a chance to appear on this path.
+    // Let the delayed /session/open land. The second open log is the direct
+    // signal that the reloaded client finished booting.
     const reconnected = await waitForLogCount(getOutput, "open file=", 2, 8000);
     assert(
       reconnected,
-      "遅延reconnectが着地する（2回目の 'open file=' ログを観測＝cancel_pending_close()で延長タイマーが黙ってキャンセルされる）",
+      "6秒遅延したreconnectが着地する（2回目の 'open file=' ログを観測）",
       { outputTail: getOutput().slice(-1000) },
     );
     assert(
       proc.exitCode === null,
-      "遅延reconnect着地後もサーバーは生きている（自動Submitされていない）",
+      "遅延reconnect着地後もサーバーは生きている",
       { exitCode: proc.exitCode },
     );
+    assert(!/^action:/m.test(getOutput()), "リロードではverdictも通知も生成されない");
 
     // The reloaded page should show the recovery modal with the PARTIAL
     // draft (persisted live while typing, independent of the close path).
@@ -489,13 +395,13 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
   }
 }
 
-async function scenarioGenuineAbandonmentStillAutoSubmits(
+async function scenarioTabCloseWaitsForExplicitSubmit(
   browser: Browser,
   workDir: string,
   requestedPort: number,
 ): Promise<void> {
   console.log(
-    "\n--- Scenario 3 (regression guard): a genuinely-abandoned tab (no reconnect ever) still auto-submits within the base window ---",
+    "\n--- Scenario 3: closing the last tab preserves the draft and waits for explicit Submit Review ---",
   );
   const mdPath = join(workDir, "s3.md");
   writeFileSync(mdPath, fixtureContent(1));
@@ -515,13 +421,6 @@ async function scenarioGenuineAbandonmentStillAutoSubmits(
       .locator('.question-card[data-qid="q-freetext"] .q-answer')
       .fill(ABANDONED_TEXT);
 
-    // A real user reviews for at least a few seconds before abandoning —
-    // wait past the reload-correlation window so this close is NOT mistaken
-    // for a reload-in-flight (which would legitimately grant one 5s
-    // extension; that path is already covered by Scenario 2).
-    await page.waitForTimeout(4000);
-
-    const exitPromise = waitForExit(proc);
     // Headless Chromium's context.close()/page.close() tear the renderer
     // down WITHOUT running pagehide/beforeunload handlers (verified: no
     // /close request is ever observed that way), unlike a real browser tab
@@ -531,37 +430,29 @@ async function scenarioGenuineAbandonmentStillAutoSubmits(
     // that pagehide/beforeunload fired, not why.
     await page.goto("about:blank").catch(() => {});
 
-    const exitCode = await Promise.race([
-      exitPromise,
-      new Promise<null>((r) => setTimeout(() => r(null), 8000)),
-    ]);
+    await new Promise((resolve) => setTimeout(resolve, 5500));
+    const health = await fetch(`http://127.0.0.1:${port}/healthz`);
     assert(
-      exitCode === 0,
-      "本当に放棄されたタブは基本の待機窓（約5秒、延長なし）以内に自動Submitでサーバーが終了する",
-      { exitCode },
+      proc.exitCode === null && health.status === 200,
+      "最後のタブを閉じて旧5秒タイマーを越えてもサーバーは待機を続ける",
+      { exitCode: proc.exitCode, health: health.status },
     );
     const output = getOutput();
-    assert(
-      !output.includes("deferring close submit"),
-      "リロードのシグナルが無いため延長ロジックは発火しない（放棄検知が遅くならない）",
-    );
-    // Safe as a single-line `/m` match because `answers` is a JSON string
-    // (embedded newlines already encoded as literal `\n`) before
-    // yaml_escape_string() quotes it — see questions_answers.ts for the
-    // full explanation.
-    const match = output.match(/^answers: '(.*)'$/m);
-    const answersRaw = match ? match[1].replace(/''/g, "'") : "";
-    let parsed: Record<string, string> = {};
-    try {
-      parsed = JSON.parse(answersRaw);
-    } catch {
-      /* assertion below fails with detail */
-    }
-    assert(
-      parsed["q-freetext"] === ABANDONED_TEXT,
-      "自動Submitされた内容は離脱直前のドラフトと一致する（安全網としての既存挙動維持）",
-      { got: parsed["q-freetext"], expected: ABANDONED_TEXT },
-    );
+    assert(!/^action:/m.test(output), "タブcloseだけではverdictも通知も生成されない");
+
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#recovery-modal.visible", { timeout: 5000 });
+    await page.locator("#recovery-restore").click();
+    const restored = await page.locator('.question-card[data-qid="q-freetext"] .q-answer').inputValue();
+    assert(restored === ABANDONED_TEXT, "close前の下書きは再訪時に復元できる", { restored });
+    const closeBtn = page.locator("#yunomi-questions-close");
+    if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click();
+    await page.locator("#send-and-exit").click();
+    await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+    const exitPromise = waitForExit(proc);
+    await page.locator("#modal-request-changes").click();
+    const exitCode = await exitPromise;
+    assert(exitCode === 0, "明示Submit Review操作でのみサーバーが終了する", { exitCode });
     await context.close().catch(() => {});
   } finally {
     killIfAlive(proc);
@@ -663,7 +554,7 @@ async function main(): Promise<void> {
   try {
     await scenarioSelfTriggeredReloadNeverCloses(browser, workDir, 5941);
     await scenarioDelayedReconnectDoesNotLoseTypedAnswer(browser, workDir, 5942);
-    await scenarioGenuineAbandonmentStillAutoSubmits(browser, workDir, 5943);
+    await scenarioTabCloseWaitsForExplicitSubmit(browser, workDir, 5943);
     await scenarioRecoveryDiscardReopensQuestionsModal(browser, workDir, 5944);
   } finally {
     await browser.close();

@@ -10,17 +10,8 @@ struct ServerContext {
   sse_clients : Array[JsValue]
   active_tabs : Array[String]
   active_tab_instances : Map[String, String]
-  mut pending_close_timer : JsValue
   mut finished : Bool
   is_loop : Bool
-  // Epoch-ms timestamp of the most recent GET / (or /index.html) request —
-  // i.e. the browser fetching the page document itself. Updated on every
-  // such request, including reloads.
-  mut last_index_get_ms : Double
-  // Epoch-ms timestamp of the most recent close signal (last active tab
-  // reporting itself closed). Used to correlate a close against a nearby
-  // index GET to distinguish "tab reloading" from "tab genuinely abandoned".
-  mut last_close_signal_ms : Double
   notify_pane : String
 }
 
@@ -305,7 +296,10 @@ fn find_available_port(base : Int) -> Int {
     port = port + 1
     attempts = attempts + 1
   }
-  base // fallback
+  console_log(
+    "All \{max_port_attempts} candidate ports are locked; asking the OS for an ephemeral port",
+  )
+  0
 }
 
 ///|
@@ -1696,7 +1690,7 @@ fn inject_vim_key_config(html : String) -> String {
 ///|
 fn inject_share_readonly_ui(html : String) -> String {
   let fragment =
-    "<style>.share-readonly-banner{display:block;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:700}.share-readonly-banner span{color:var(--muted);font-weight:500;margin-left:8px}.submit-exit-btn,#pill-comments,#comment-card,.comment-list,#submit-modal,#recovery-modal{display:none!important}.has-comment{cursor:default!important}</style><div class=\"share-readonly-banner\">Read-only share<span>Comments and submit actions are disabled.</span></div><script>window.__YUNOMI_SHARE_READONLY__=true;</script>"
+    "<style>.share-readonly-banner{display:block;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:700}.share-readonly-banner span{color:var(--muted);font-weight:500;margin-left:8px}.submit-exit-btn,#pill-comments,.yunomi-inline-comment,.yunomi-comment-button,.comment-list,#submit-modal,#recovery-modal{display:none!important}.has-comment{cursor:default!important}</style><div class=\"share-readonly-banner\">Read-only share<span>Comments and submit actions are disabled.</span></div><script>window.__YUNOMI_SHARE_READONLY__=true;</script>"
   js_inject_before_body_end(html, fragment)
 }
 
@@ -1752,11 +1746,8 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     sse_clients: [],
     active_tabs: [],
     active_tab_instances: {},
-    pending_close_timer: js_null(),
     finished: false,
     is_loop: loop_mode.val,
-    last_index_get_ms: 0.0,
-    last_close_signal_ms: 0.0,
     notify_pane: resolve_notify_pane(),
   }
   active_servers.push(ctx)
@@ -1805,11 +1796,8 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     sse_clients: [],
     active_tabs: [],
     active_tab_instances: {},
-    pending_close_timer: js_null(),
     finished: false,
     is_loop: loop_mode.val,
-    last_index_get_ms: 0.0,
-    last_close_signal_ms: 0.0,
     notify_pane: resolve_notify_pane(),
   }
 }
@@ -1884,14 +1872,6 @@ fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit
   for ctx in active_servers {
     watch_share_file(ctx)
   }
-  let display_host = if bind_host.val == "0.0.0.0" {
-    "127.0.0.1"
-  } else {
-    bind_host.val
-  }
-  console_log(
-    "yunomi share token \{token} expires in 24h at http://\{display_host}:\{actual_port}/?share=\{token}",
-  )
   start_http_server(active_servers[0], no_open)
 }
 
@@ -2165,7 +2145,7 @@ fn index_of(s : String, target : Char) -> Int {
 
 ///|
 /// Max port retry attempts
-let max_port_attempts : Int = 10
+let max_port_attempts : Int = 50
 
 ///|
 fn start_http_server(ctx : ServerContext, no_open : Bool) -> Unit {
@@ -2202,15 +2182,16 @@ fn try_listen(
   attempt : Int,
   no_open : Bool,
 ) -> Unit {
-  if attempt >= max_port_attempts {
-    console_error(
-      "Failed to find available port after \{max_port_attempts} attempts",
+  if attempt >= max_port_attempts && port != 0 {
+    console_log(
+      "All \{max_port_attempts} candidate ports are busy; asking the OS for an ephemeral port",
     )
-    exit_process("no available port", 1)
+    try_listen(ctx, 0, attempt, no_open)
+    return
   }
   let server = create_server(fn(req, res) { handle_request(ctx, req, res) })
   server_on_error(server, fn(err) {
-    if error_code(err) == "EADDRINUSE" {
+    if error_code(err) == "EADDRINUSE" && port != 0 {
       console_log("Port \{port} in use, trying \{port + 1}...")
       try_listen(ctx, port + 1, attempt + 1, no_open)
     } else {
@@ -2220,14 +2201,24 @@ fn try_listen(
   })
   let host = bind_host.val
   server_listen(server, port, host, fn() {
-    ctx.port = port
-    write_lock(port, ctx.file_path)
+    let bound_port = server_bound_port(server)
+    ctx.port = bound_port
+    if review_mux_mode.val {
+      for active_ctx in active_servers {
+        active_ctx.port = bound_port
+      }
+    }
+    write_lock(bound_port, ctx.file_path)
     if ctx.file_path != "<stdin>" && !share_mode.val {
-      write_review_server(ctx.file_path, port, ctx.notify_pane)
+      write_review_server(ctx.file_path, bound_port, ctx.notify_pane)
     }
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
-    let url = "http://\{display_host}:\{port}"
+    let url = "http://\{display_host}:\{bound_port}"
     if share_mode.val {
+      update_share_token_port(share_token.val, bound_port)
+      console_log(
+        "yunomi share token \{share_token.val} expires in 24h at \{url}/?share=\{share_token.val}",
+      )
       console_log("yunomi sharing \{ctx.filename} read-only at \{url}")
     } else {
       console_log("yunomi serving \{ctx.filename} at \{url}")
@@ -2240,18 +2231,19 @@ fn try_listen(
       }
       open_browser(open_url)
     }
+    // Only the successfully bound server owns the SSE heartbeat. Failed
+    // EADDRINUSE candidates must not leave retry-count background timers.
+    ignore(
+      set_interval(
+        fn() {
+          for client in ctx.sse_clients {
+            sse_send(client, "ping", "")
+          }
+        },
+        25000,
+      ),
+    )
   })
-  // Heartbeat for SSE
-  ignore(
-    set_interval(
-      fn() {
-        for client in ctx.sse_clients {
-          sse_send(client, "ping", "")
-        }
-      },
-      25000,
-    ),
-  )
 }
 
 ///|
@@ -2259,16 +2251,6 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   let http_method = req_method(req)
   let url = req_url(req)
   let request_ctx = selected_context(ctx, url)
-  if
-    (http_method == "GET" || http_method == "HEAD") &&
-    is_index_url(url) {
-    // The browser is fetching the page document itself — the very first
-    // thing a reload does, well before any client JS can run. Recording
-    // this lets the close-abandonment timer tell "tab is reloading" apart
-    // from "tab genuinely gone" even when the reload's own JS boot (and
-    // therefore its /session/open re-registration) is slow to follow.
-    request_ctx.last_index_get_ms = now_ms()
-  }
   if http_method == "GET" && is_index_url(url) {
     if share_mode.val && parse_query_param(url, "share") != share_token.val {
       res_write_head(res, 403, "text/plain; charset=utf-8")
@@ -2633,14 +2615,6 @@ fn remove_active_tab(ctx : ServerContext, tab_id : String) -> Unit {
 }
 
 ///|
-fn cancel_pending_close(ctx : ServerContext) -> Unit {
-  if !js_is_nullish(ctx.pending_close_timer) {
-    clear_timeout(ctx.pending_close_timer)
-    ctx.pending_close_timer = js_null()
-  }
-}
-
-///|
 fn write_review_decision(
   file_path : String,
   line : Int,
@@ -2868,16 +2842,13 @@ fn handle_answer_event(ctx : ServerContext, body : String) -> Unit {
 ///|
 /// Returns true when this submission completed the review (all expected
 /// files reported in) and the process should exit — the caller decides
-/// WHEN to actually call exit_process(): the /exit HTTP route defers it
-/// until the response has finished sending (see handle_request), while the
-/// abandonment-timer path (arm_close_timer) has no response to wait for and
-/// exits immediately.
+/// when to call exit_process(). The explicit /exit HTTP route waits until
+/// its response has finished sending (see handle_request).
 fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   if ctx.finished {
     log_session_event("ignored submit for finished context file=\{ctx.filename}")
     return false
   }
-  cancel_pending_close(ctx)
   let summary = json_parse_string("summary", body)
   // Parse comments from JSON body
   let raw_comments = json_parse_comments(body)
@@ -3100,135 +3071,11 @@ fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
     log_session_event("ignored open missing id file=\{ctx.filename}")
     return
   }
-  cancel_pending_close(ctx)
   add_active_tab(ctx, tab_id)
   ctx.active_tab_instances.set(tab_id, instance_id)
   log_session_event(
     "open file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()}",
   )
-}
-
-///|
-/// Base wait before an abandoned tab's draft is auto-submitted.
-let close_submit_delay_ms : Int = 5000
-
-///|
-/// If a close is closely correlated in time with a fresh index-page GET
-/// (see `looks_like_reload_in_flight`), the browser is almost certainly
-/// reloading rather than truly abandoning the review — but its JS may still
-/// be booting (WASM parse/exec, slow network, contention) and hasn't
-/// reached /session/open yet. Grant exactly one extension so the
-/// re-registration has real breathing room, instead of confirming a
-/// mid-typing snapshot just because a fixed timeout elapsed.
-///
-/// task #19 initially tried raising this to a bounded multi-extension
-/// budget, on the theory that a burst of legitimate reloads (a busy
-/// multi-agent session editing the same reviewed file twice in a row) would
-/// exhaust a single extension. That theory didn't survive contact with
-/// schedule_close_submit(): every NEW /close signal already cancels
-/// whatever close-timer was pending and re-arms a completely fresh one
-/// (see its call `arm_close_timer(ctx, draft_body, close_submit_delay_ms,
-/// false)` — extension state always starts over at each genuinely new
-/// close event), so back-to-back reload cycles were never actually
-/// bottlenecked by "one extension per timer". Worse, looks_like_reload_in_
-/// flight() compares two FIXED timestamps that don't change between
-/// retries of the SAME timer — once true, it stays true on every
-/// subsequent check regardless of whether any new reload activity
-/// happened, so a bounded-but-plural budget just always burned through
-/// every available extension whenever the first check happened to
-/// correlate (confirmed by smoke.ts's close-flush test going from a
-/// reliable ~5-10s to occasionally exceeding its 12s budget). One extension
-/// is the right number here; the actual fix for symptom #3 (mid-typing
-/// answer getting finalized) is the seamless-restore + auto-close-
-/// suppression pair in app.mbt (check_recovery()/update_questions_badge()).
-let close_submit_extension_ms : Int = 5000
-
-///|
-/// Window (ms) used to correlate a close signal with a nearby index-page
-/// GET, in EITHER order: the reload's GET / and the closing tab's /close
-/// beacon are two independent requests fired around the same navigation
-/// instant, so which one the network delivers first is not guaranteed.
-let reload_correlation_window_ms : Double = 3000.0
-
-///|
-/// True when the most recent index-page GET happened close enough to the
-/// most recent close signal that it's overwhelmingly likely to be the same
-/// reload event (as opposed to an old page load from a session that was
-/// simply open for a while before really being abandoned).
-fn looks_like_reload_in_flight(ctx : ServerContext) -> Bool {
-  is_within_correlation_window(
-    ctx.last_index_get_ms,
-    ctx.last_close_signal_ms,
-    reload_correlation_window_ms,
-  )
-}
-
-///|
-/// Pure symmetric-window comparison, extracted out of
-/// `looks_like_reload_in_flight` so it can be unit-tested without
-/// constructing a full `ServerContext`. True when `a` and `b` are within
-/// `window_ms` of each other in EITHER direction (the index-GET and the
-/// close-signal timestamps can arrive in any order — see the doc comment
-/// on `reload_correlation_window_ms`).
-pub fn is_within_correlation_window(
-  a : Double,
-  b : Double,
-  window_ms : Double,
-) -> Bool {
-  (a - b).abs() <= window_ms
-}
-
-///|
-fn arm_close_timer(
-  ctx : ServerContext,
-  draft_body : String,
-  delay_ms : Int,
-  already_extended : Bool,
-) -> Unit {
-  ctx.pending_close_timer = set_timeout(
-    fn() {
-      ctx.pending_close_timer = js_null()
-      if ctx.finished || !ctx.active_tabs.is_empty() {
-        log_session_event(
-          "cancel close submit file=\{ctx.filename} finished=\{ctx.finished} active=\{ctx.active_tabs.length()}",
-        )
-        return
-      }
-      if !already_extended && looks_like_reload_in_flight(ctx) {
-        log_session_event(
-          "deferring close submit (reload signal detected) file=\{ctx.filename}",
-        )
-        arm_close_timer(ctx, draft_body, close_submit_extension_ms, true)
-        return
-      }
-      log_session_event("auto submit after last tab close file=\{ctx.filename}")
-      // No HTTP response is in flight for this path (it's the
-      // abandonment-timer safety net, not a live /exit request), so exit
-      // immediately when the review is complete — no response-flush to
-      // wait for, unlike the /exit route in handle_request.
-      if handle_submit(ctx, draft_body) {
-        exit_process("all reviews submitted", 0)
-      }
-    },
-    delay_ms,
-  )
-}
-
-///|
-fn schedule_close_submit(ctx : ServerContext, draft : String) -> Unit {
-  if ctx.finished {
-    log_session_event("ignored close scheduling for finished context file=\{ctx.filename}")
-    return
-  }
-  cancel_pending_close(ctx)
-  // Strip decision/action from close drafts — these should only come from explicit submit
-  let draft_body = if draft.length() > 0 {
-    json_strip_decision(draft)
-  } else {
-    "{\"summary\":\"\",\"comments\":[]}"
-  }
-  arm_close_timer(ctx, draft_body, close_submit_delay_ms, false)
-  log_session_event("scheduled close submit file=\{ctx.filename}")
 }
 
 ///|
@@ -3264,10 +3111,9 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   log_session_event(
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
-  if ctx.active_tabs.is_empty() {
-    ctx.last_close_signal_ms = now_ms()
-    schedule_close_submit(ctx, draft)
-  }
+  // Closing or navigating away only unregisters the tab. The browser has
+  // already persisted this draft to localStorage; only an explicit /exit
+  // request from the Submit Review dialog may finalize or stop the server.
 }
 
 ///|

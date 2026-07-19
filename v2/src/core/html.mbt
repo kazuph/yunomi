@@ -209,15 +209,27 @@ fn build_page_start(
     "<button class=\"theme-menu-toggle\" id=\"theme-menu-toggle\" title=\"Choose color scheme\" aria-label=\"Choose color scheme\" aria-expanded=\"false\">▼</button>",
   )
   buf.write_string("<div class=\"theme-menu\" id=\"theme-menu\" hidden>")
-  buf.write_string("<button data-color-scheme=\"primer\"><span>Primer</span><small>GitHub-like</small></button>")
-  buf.write_string("<button data-color-scheme=\"tokyo\"><span>Tokyo Night</span><small>sharp dark</small></button>")
-  buf.write_string("<button data-color-scheme=\"catppuccin\"><span>Catppuccin</span><small>soft pastel</small></button>")
-  buf.write_string("<button data-color-scheme=\"one-dark\"><span>Atom One</span><small>Light / Dark</small></button>")
-  buf.write_string("<button data-color-scheme=\"solarized\"><span>Solarized</span><small>Light / Dark</small></button>")
-  buf.write_string("<button data-color-scheme=\"gruvbox\"><span>Gruvbox</span><small>Light / Dark</small></button>")
+  buf.write_string(
+    "<button data-color-scheme=\"primer\"><span>Primer</span><small>GitHub-like</small></button>",
+  )
+  buf.write_string(
+    "<button data-color-scheme=\"tokyo\"><span>Tokyo Night</span><small>sharp dark</small></button>",
+  )
+  buf.write_string(
+    "<button data-color-scheme=\"catppuccin\"><span>Catppuccin</span><small>soft pastel</small></button>",
+  )
+  buf.write_string(
+    "<button data-color-scheme=\"one-dark\"><span>Atom One</span><small>Light / Dark</small></button>",
+  )
+  buf.write_string(
+    "<button data-color-scheme=\"solarized\"><span>Solarized</span><small>Light / Dark</small></button>",
+  )
+  buf.write_string(
+    "<button data-color-scheme=\"gruvbox\"><span>Gruvbox</span><small>Light / Dark</small></button>",
+  )
   buf.write_string("</div></div>")
   buf.write_string(
-    "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit &amp; Exit</button>",
+    "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit review</button>",
   )
   buf.write_string("</div></header>")
 }
@@ -230,52 +242,10 @@ pub fn build_review_loop_mount(buf : StringBuilder) -> Unit {
 }
 
 ///|
-fn build_comment_card(buf : StringBuilder) -> Unit {
-  buf.write_string("<div class=\"floating\" id=\"comment-card\">")
-  buf.write_string(
-    "<button class=\"card-close-x\" id=\"close-card\" title=\"Close\">&times;</button>",
-  )
-  buf.write_string("<header><h2 id=\"card-title\">Cell Comment</h2></header>")
-  buf.write_string(
-    "<div id=\"cell-preview\" style=\"font-size:12px; color: var(--muted); margin-bottom:4px;\"></div>",
-  )
-  buf.write_string("<div style=\"position:relative\">")
-  buf.write_string(
-    "<button class=\"icon-only copy-btn-float\" id=\"copy-selection\" title=\"Copy selected lines\">&#128203;</button>",
-  )
-  buf.write_string(
-    "<textarea id=\"comment-input\" placeholder=\"Enter your comment or note\"></textarea>",
-  )
-  buf.write_string("</div>")
-  buf.write_string(
-    "<div class=\"image-attach-area image-attach-small\" id=\"comment-image-area\">",
-  )
-  buf.write_string("<label>Image (Paste, max 1)</label>")
-  buf.write_string(
-    "<div class=\"image-preview-list\" id=\"comment-image-preview\"></div>",
-  )
-  buf.write_string("</div>")
-  buf.write_string("<div class=\"actions card-actions-split\">")
-  buf.write_string(
-    "<button class=\"danger-text\" id=\"clear-comment\">Delete</button>",
-  )
-  buf.write_string("<div class=\"card-actions-right\">")
-  buf.write_string(
-    "<button class=\"send-now-btn\" id=\"send-now-comment\">Send now</button>",
-  )
-  buf.write_string(
-    "<button class=\"primary\" id=\"save-comment\">Save</button>",
-  )
-  buf.write_string("</div>")
-  buf.write_string("</div>")
-  buf.write_string("</div>")
-}
-
-///|
 fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"submit-modal\">")
   buf.write_string("<div class=\"modal-dialog\">")
-  buf.write_string("<h3>Submit Review</h3>")
+  buf.write_string("<h3>Submit review</h3>")
   buf.write_string(
     "<div class=\"review-loop-submit-state\" id=\"review-loop-submit-state\"></div>",
   )
@@ -309,11 +279,15 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("</div>")
   buf.write_string("<div class=\"modal-actions modal-actions-decision\">")
   buf.write_string(
-    "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">" + icon_svg_approve + "Approve</button>",
+    "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">" +
+    icon_svg_approve +
+    "Approve</button>",
   )
   buf.write_string("<button id=\"modal-cancel\">Cancel</button>")
   buf.write_string(
-    "<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">" + icon_svg_request_changes + "Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>",
+    "<button class=\"decision-btn decision-request-changes\" id=\"modal-request-changes\" title=\"Request Changes\">" +
+    icon_svg_request_changes +
+    "Request Changes <kbd class=\"kbd-hint\">\u{2318}Enter</kbd></button>",
   )
   buf.write_string("</div></div></div>")
 }
@@ -324,7 +298,7 @@ fn build_comment_list_aside(buf : StringBuilder) -> Unit {
   buf.write_string("<h3>Comments</h3>")
   buf.write_string("<ol id=\"comment-list\"></ol>")
   buf.write_string(
-    "<p class=\"hint\">Click \"Submit &amp; Exit\" to send comments and stop the server.</p>",
+    "<p class=\"hint\">Click \"Submit review\" to send pending comments and stop the server.</p>",
   )
   buf.write_string("</aside>")
 }
@@ -656,7 +630,7 @@ fn build_script_footer(
       "var light={primaryColor:'#ddf4ff',primaryTextColor:'#24292f',primaryBorderColor:'#0969da',lineColor:'#0969da',secondaryColor:'#f6f8fa',secondaryBorderColor:'#8250df',tertiaryColor:'#ffffff',tertiaryBorderColor:'#d0d7de',edgeLabelBackground:'#ffffff',clusterBkg:'#f6f8fa',clusterBorder:'#d0d7de',mainBkg:'#ddf4ff',nodeBorder:'#0969da',background:'#ffffff'};",
     )
     buf.write_string(
-      "var dark={primaryColor:'#1f6feb33',primaryTextColor:'#e6edf3',primaryBorderColor:'#2f81f7',lineColor:'#58a6ff',secondaryColor:'#161b22',secondaryBorderColor:'#a371f7',tertiaryColor:'#0d1117',tertiaryBorderColor:'#30363d',edgeLabelBackground:'#161b22',clusterBkg:'#161b22',clusterBorder:'#30363d',mainBkg:'#1f6feb33',nodeBorder:'#2f81f7',background:'#0d1117'};",
+      "var dark={primaryColor:'#1f6feb33',primaryTextColor:'#e6edf3',primaryBorderColor:'#2f81f7',lineColor:'#79c0ff',textColor:'#e6edf3',signalColor:'#e6edf3',signalTextColor:'#e6edf3',actorTextColor:'#e6edf3',actorLineColor:'#8b949e',labelTextColor:'#e6edf3',loopTextColor:'#e6edf3',noteTextColor:'#e6edf3',secondaryColor:'#161b22',secondaryBorderColor:'#a371f7',tertiaryColor:'#0d1117',tertiaryBorderColor:'#30363d',edgeLabelBackground:'#161b22',clusterBkg:'#161b22',clusterBorder:'#30363d',mainBkg:'#1f6feb33',nodeBorder:'#2f81f7',background:'#0d1117'};",
     )
     buf.write_string(
       "return {startOnLoad:false,logLevel:0,theme:isLight?'default':'dark',securityLevel:'loose',themeVariables:isLight?light:dark};};",
@@ -762,7 +736,6 @@ pub fn build_csv_html(
     buf.write_string("</tr>")
   }
   buf.write_string("</tbody></table></div>")
-  build_comment_card(buf)
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
@@ -785,7 +758,9 @@ pub fn build_diff_html(
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
-  buf.write_string("<div class=\"diff-review-shell\"><aside class=\"diff-file-tree\" id=\"diff-file-tree\"><div class=\"diff-file-tree-title\">Files</div>")
+  buf.write_string(
+    "<div class=\"diff-review-shell\"><aside class=\"diff-file-tree\" id=\"diff-file-tree\"><div class=\"diff-file-tree-title\">Files</div>",
+  )
   for file in data.files {
     let display_path = if file.new_path.length() > 0 {
       file.new_path
@@ -794,11 +769,15 @@ pub fn build_diff_html(
     }
     buf.write_string("<div class=\"diff-file-tree-item\" data-file=\"")
     buf.write_string(escape_html(display_path))
-    buf.write_string("\"><label class=\"diff-viewed-control\"><input type=\"checkbox\" class=\"diff-viewed-checkbox\" data-file=\"")
+    buf.write_string(
+      "\"><label class=\"diff-viewed-control\"><input type=\"checkbox\" class=\"diff-viewed-checkbox\" data-file=\"",
+    )
     buf.write_string(escape_html(display_path))
     buf.write_string("\" aria-label=\"")
     buf.write_string(escape_html(display_path))
-    buf.write_string(" review state\"><span class=\"diff-viewed-state\">Unreviewed</span></label><button type=\"button\" class=\"diff-file-link\" data-file=\"")
+    buf.write_string(
+      " review state\"><span class=\"diff-viewed-state\">Unreviewed</span></label><button type=\"button\" class=\"diff-file-link\" data-file=\"",
+    )
     buf.write_string(escape_html(display_path))
     buf.write_string("\">")
     buf.write_string(escape_html(display_path))
@@ -806,7 +785,9 @@ pub fn build_diff_html(
   }
   buf.write_string("</aside><main class=\"diff-review-main\">")
   build_review_loop_mount(buf)
-  buf.write_string("<div class=\"diff-toolbar\" role=\"toolbar\" aria-label=\"Diff view\"><div class=\"diff-view-mode\" role=\"group\" aria-label=\"View mode\"><button type=\"button\" id=\"diff-unified-toggle\" data-mode=\"unified\">Unified</button><button type=\"button\" id=\"diff-split-toggle\" data-mode=\"split\">Split</button></div></div><div class=\"diff-view\">")
+  buf.write_string(
+    "<div class=\"diff-toolbar\" role=\"toolbar\" aria-label=\"Diff view\"><div class=\"diff-view-mode\" role=\"group\" aria-label=\"View mode\"><button type=\"button\" id=\"diff-unified-toggle\" data-mode=\"unified\">Unified</button><button type=\"button\" id=\"diff-split-toggle\" data-mode=\"split\">Split</button></div></div><div class=\"diff-view\">",
+  )
   for file in data.files {
     let display_path = if file.new_path.length() > 0 {
       file.new_path
@@ -897,7 +878,9 @@ pub fn build_diff_html(
           buf.write_string(old_num)
           buf.write_string("</span><span class=\"line-num new-num\">")
           buf.write_string(new_num)
-          buf.write_string("</span><span class=\"line-content unified-content\">")
+          buf.write_string(
+            "</span><span class=\"line-content unified-content\">",
+          )
           buf.write_string(escape_html(line.content))
           buf.write_string("</span><span class=\"split-content old-content\">")
           if line.kind != Addition {
@@ -917,7 +900,6 @@ pub fn build_diff_html(
     buf.write_string("</section>")
   }
   buf.write_string("</div></main></div>")
-  build_comment_card(buf)
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
@@ -950,7 +932,6 @@ pub fn build_text_html(
     buf.write_string("</span></div>")
   }
   buf.write_string("</div>")
-  build_comment_card(buf)
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)

@@ -84,7 +84,7 @@ async function cardState(page: Page): Promise<{
   preview: string;
 }> {
   return page.evaluate(() => {
-    const card = document.querySelector<HTMLElement>("#comment-card");
+    const card = document.querySelector<HTMLElement>(".yunomi-inline-comment-editor");
     return {
       visible: !!card && getComputedStyle(card).display !== "none",
       preview: document.querySelector("#cell-preview")?.textContent?.trim() || "",
@@ -102,7 +102,7 @@ async function selectedState(page: Page): Promise<{
   return page.evaluate(() => {
     const selected = Array.from(document.querySelectorAll<HTMLElement>(".md-right td.selected"));
     const highlighted = document.querySelector<HTMLElement>(".md-preview .preview-highlight");
-    const card = document.querySelector<HTMLElement>("#comment-card");
+    const card = document.querySelector<HTMLElement>(".yunomi-inline-comment-editor");
     const activeMedia = document.querySelector<HTMLElement>(".media-sidebar-thumb.active");
     return {
       previewText: highlighted?.textContent?.trim() || highlighted?.getAttribute("title") || "",
@@ -278,10 +278,37 @@ async function main(): Promise<void> {
     await closeCard(page);
     await page.evaluate(() => {
       const cells = Array.from(document.querySelectorAll<HTMLElement>("#md-preview table:not(.frontmatter-table) td"));
-      const codeCell = cells.find((el) => (el.textContent || "").includes("page.goto('/')"));
+      const codeCell = cells.find((el) =>
+        (el.textContent || "").includes("page.goto('/')") &&
+        !el.closest("details:not([open])") &&
+        el.offsetParent !== null &&
+        el.getBoundingClientRect().width > 0 &&
+        el.getBoundingClientRect().height > 0
+      );
       codeCell?.click();
     });
-    await page.waitForSelector("#comment-card", { state: "visible" });
+    try {
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+    } catch (error: unknown) {
+      const editorAncestors = await page.locator(".yunomi-inline-comment-editor").first().evaluate((editor) => {
+        const result = [];
+        for (let node: Element | null = editor; node; node = node.parentElement) {
+          const element = node as HTMLElement;
+          const style = getComputedStyle(element);
+          result.push({
+            tag: element.tagName,
+            id: element.id,
+            className: element.className,
+            display: style.display,
+            visibility: style.visibility,
+            offsetParent: element.offsetParent?.tagName || null,
+            open: element.matches("details") ? element.hasAttribute("open") : undefined,
+          });
+        }
+        return result;
+      });
+      throw new Error(`${String(error)}\neditor ancestors: ${JSON.stringify(editorAncestors)}`);
+    }
     const codeCellCard = await cardState(page);
     assert(codeCellCard.preview.includes("page.goto"), "提出値検証用にコード表セルのコメントカードが開く", codeCellCard);
     await page.locator("#comment-input").fill("table cell value check");

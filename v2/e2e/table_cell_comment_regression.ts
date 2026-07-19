@@ -3,8 +3,8 @@
 //      (narrow columns must not have their text overwritten by an icon).
 //   2. Non-cell commentable content (paragraphs, images, etc.) keeps a
 //      pencil, but it is invisible until hover/focus (opacity 0 -> 1).
-//   3. Clicking a table cell directly (no pencil needed) still opens the
-//      comment card, resolved to that specific cell (not the whole row).
+//   3. Clicking a table cell directly (no pencil needed) opens the inline
+//      editor resolved to that specific cell (not the whole row).
 //   4. Two different cells in the SAME source row get independent
 //      `.has-comment` indicators anchored to their own <td>, not to a
 //      single shared row-level element (the bug this phase fixes).
@@ -94,7 +94,7 @@ async function waitForHealth(port: number): Promise<void> {
 
 async function cardState(page: Page): Promise<{ visible: boolean; preview: string }> {
   return page.evaluate(() => {
-    const card = document.querySelector<HTMLElement>("#comment-card");
+    const card = document.querySelector<HTMLElement>(".yunomi-inline-comment-editor");
     return {
       visible: !!card && getComputedStyle(card).display !== "none",
       preview: document.querySelector("#cell-preview")?.textContent?.trim() || "",
@@ -263,11 +263,11 @@ async function main(): Promise<void> {
       );
       cells.find((el) => (el.textContent || "").includes("login.e2e.ts"))?.click();
     });
-    await page.waitForSelector("#comment-card", { state: "visible" });
+    await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
     const cell1Card = await cardState(page);
     assert(
       cell1Card.visible && cell1Card.preview.includes("login.e2e.ts"),
-      "セル1(login.e2e.ts)を直接クリックするとそのセルのコメントカードが開く",
+      "セル1(login.e2e.ts)を直接クリックするとそのセルのインライン編集が開く",
       cell1Card,
     );
     await page.locator("#comment-input").fill("cell1 comment: file name");
@@ -285,13 +285,13 @@ async function main(): Promise<void> {
         .find((el) => (el.textContent || "").trim() === "15")
         ?.click();
     });
-    await page.waitForSelector("#comment-card", { state: "visible" });
+    await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
     const cell2Card = await cardState(page);
     assert(
       cell2Card.visible &&
         cell2Card.preview.includes("15") &&
         !cell2Card.preview.includes("login.e2e.ts"),
-      "セル2(行番号 15、同じ行の別カラム)を直接クリックするとそのセルのコメントカードが開く",
+      "セル2(行番号 15、同じ行の別カラム)を直接クリックするとそのセルのインライン編集が開く",
       cell2Card,
     );
     await page.locator("#comment-input").fill("cell2 comment: line number");

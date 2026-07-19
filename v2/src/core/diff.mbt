@@ -79,7 +79,7 @@ pub fn parse_diff(input : String) -> DiffData {
       sorted_files.push(file)
     }
   }
-  DiffData::{ files: sorted_files, }
+  DiffData::{ files: sorted_files }
 }
 
 ///| Extract old_path and new_path from "diff --git a/X b/Y"

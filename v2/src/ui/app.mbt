@@ -6,22 +6,8 @@ struct AppComment {
   mut text : String
   mut image : String
   mut value : String
-}
-
-///|
-struct Rect {
-  left : Double
-  top : Double
-  width : Double
-  height : Double
-}
-
-///|
-struct CardPlacement {
-  left : Double
-  top : Double
-  overlap_area : Double
-  overflow_penalty : Double
+  mut pending : Bool
+  mut sent : Bool
 }
 
 ///|
@@ -29,8 +15,18 @@ struct CardPlacement {
 let comments : Map[String, AppComment] = {}
 
 ///|
-/// Currently active comment card target
+/// Currently active inline comment target
 let active_key : Ref[String] = Ref("")
+
+///|
+/// Values restored when an inline edit is cancelled.
+let active_original_text : Ref[String] = Ref("")
+
+///|
+let active_original_image : Ref[String] = Ref("")
+
+///|
+let active_was_new : Ref[Bool] = Ref(false)
 
 ///|
 /// Currently highlighted target for keyboard-driven comments
@@ -43,6 +39,7 @@ let selected_comment_col : Ref[Int] = Ref(0)
 let selected_comment_el : Ref[Element] = Ref(null_element())
 
 ///|
+
 ///|
 /// Scroll sync state
 let scroll_sync_raf : Ref[Int] = Ref(0)
@@ -115,10 +112,8 @@ let page_instance_id : Ref[String] = Ref("")
 /// the AI agent updated the file being reviewed while this tab was open).
 /// pagehide/beforeunload fire for this navigation exactly like a real tab
 /// close, but this reload is expected and imminent: the reloaded page will
-/// re-register via /session/open momentarily. Reporting it as a close would
-/// arm the server's abandonment timer for no reason and race that
-/// re-registration; skipping the /close beacon here removes the race
-/// entirely for this trigger instead of trying to out-run a timeout.
+/// re-register via /session/open momentarily. Skipping the redundant /close
+/// keeps the active-tab bookkeeping stable during that handoff.
 let intentional_reload_in_progress : Ref[Bool] = Ref(false)
 
 ///|
@@ -143,403 +138,71 @@ fn truncate(s : String, max : Int) -> String {
 }
 
 ///|
-fn rect_right(rect : Rect) -> Double {
-  rect.left + rect.width
-}
-
-///|
-fn rect_bottom(rect : Rect) -> Double {
-  rect.top + rect.height
-}
-
-///|
-fn viewport_rect() -> Rect {
-  Rect::{
-    left: 0.0,
-    top: 0.0,
-    width: window_inner_width().to_double(),
-    height: window_inner_height().to_double(),
-  }
-}
-
-///|
-fn rect_from_element(el : Element) -> Rect {
-  let rect = get_bounding_rect(el)
-  Rect::{ left: rect[0], top: rect[1], width: rect[2], height: rect[3] }
-}
-
-///|
-fn clamp_card_coord(
-  value : Double,
-  min_value : Double,
-  max_value : Double,
-) -> Double {
-  if value < min_value {
-    min_value
-  } else if value > max_value {
-    max_value
-  } else {
-    value
-  }
-}
-
-///|
-fn rect_intersection_area(a : Rect, b : Rect) -> Double {
-  let overlap_left = if a.left > b.left { a.left } else { b.left }
-  let overlap_top = if a.top > b.top { a.top } else { b.top }
-  let overlap_right = if rect_right(a) < rect_right(b) {
-    rect_right(a)
-  } else {
-    rect_right(b)
-  }
-  let overlap_bottom = if rect_bottom(a) < rect_bottom(b) {
-    rect_bottom(a)
-  } else {
-    rect_bottom(b)
-  }
-  let overlap_width = overlap_right - overlap_left
-  let overlap_height = overlap_bottom - overlap_top
-  if overlap_width > 0.0 && overlap_height > 0.0 {
-    overlap_width * overlap_height
-  } else {
-    0.0
-  }
-}
-
-///|
-fn rect_union(a : Rect, b : Rect) -> Rect {
-  let left = if a.left < b.left { a.left } else { b.left }
-  let top = if a.top < b.top { a.top } else { b.top }
-  let right = if rect_right(a) > rect_right(b) {
-    rect_right(a)
-  } else {
-    rect_right(b)
-  }
-  let bottom = if rect_bottom(a) > rect_bottom(b) {
-    rect_bottom(a)
-  } else {
-    rect_bottom(b)
-  }
-  Rect::{ left, top, width: right - left, height: bottom - top }
-}
-
-///|
-fn bounds_overflow_penalty(
-  rect : Rect,
-  bounds : Rect,
-  margin : Double,
-) -> Double {
-  let overflow_left = if rect.left < bounds.left + margin {
-    bounds.left + margin - rect.left
-  } else {
-    0.0
-  }
-  let overflow_top = if rect.top < bounds.top + margin {
-    bounds.top + margin - rect.top
-  } else {
-    0.0
-  }
-  let overflow_right = if rect_right(rect) > rect_right(bounds) - margin {
-    rect_right(rect) - (rect_right(bounds) - margin)
-  } else {
-    0.0
-  }
-  let overflow_bottom = if rect_bottom(rect) > rect_bottom(bounds) - margin {
-    rect_bottom(rect) - (rect_bottom(bounds) - margin)
-  } else {
-    0.0
-  }
-  overflow_left + overflow_top + overflow_right + overflow_bottom
-}
-
-///|
-fn make_card_candidate(
-  _anchor : Rect,
-  keepout : Rect,
-  bounds : Rect,
-  card_width : Double,
-  card_height : Double,
-  desired_left : Double,
-  desired_top : Double,
-  margin : Double,
-) -> CardPlacement {
-  let min_left = bounds.left + margin
-  let min_top = bounds.top + margin
-  let max_left = rect_right(bounds) - card_width - margin
-  let max_top = rect_bottom(bounds) - card_height - margin
-  let left = clamp_card_coord(
-    desired_left,
-    min_left,
-    if max_left > min_left {
-      max_left
-    } else {
-      min_left
-    },
-  )
-  let top = clamp_card_coord(
-    desired_top,
-    min_top,
-    if max_top > min_top {
-      max_top
-    } else {
-      min_top
-    },
-  )
-  let rect = Rect::{ left, top, width: card_width, height: card_height }
-  CardPlacement::{
-    left,
-    top,
-    overlap_area: rect_intersection_area(keepout, rect),
-    overflow_penalty: bounds_overflow_penalty(rect, bounds, margin),
-  }
-}
-
-///|
-fn placement_score(candidate : CardPlacement) -> Double {
-  candidate.overlap_area * 1000.0 + candidate.overflow_penalty
-}
-
-///|
-fn choose_card_placement(
-  anchor : Rect,
-  keepout : Rect,
-  bounds : Rect,
-  card_width : Double,
-  card_height : Double,
-  prefer_below : Bool,
-) -> CardPlacement {
-  let margin = 12.0
-  let mid_left = anchor.left + (anchor.width - card_width) / 2.0
-  let below = make_card_candidate(
-    anchor,
-    keepout,
-    bounds,
-    card_width,
-    card_height,
-    mid_left,
-    rect_bottom(anchor) + margin,
-    margin,
-  )
-  let above = make_card_candidate(
-    anchor,
-    keepout,
-    bounds,
-    card_width,
-    card_height,
-    mid_left,
-    anchor.top - card_height - margin,
-    margin,
-  )
-  let right_side = make_card_candidate(
-    anchor,
-    keepout,
-    bounds,
-    card_width,
-    card_height,
-    rect_right(anchor) + margin,
-    anchor.top,
-    margin,
-  )
-  let left_side = make_card_candidate(
-    anchor,
-    keepout,
-    bounds,
-    card_width,
-    card_height,
-    anchor.left - card_width - margin,
-    anchor.top,
-    margin,
-  )
-  let center = make_card_candidate(
-    anchor,
-    keepout,
-    bounds,
-    card_width,
-    card_height,
-    bounds.left + (bounds.width - card_width) / 2.0,
-    bounds.top + (bounds.height - card_height) / 2.0,
-    margin,
-  )
-  let candidates = if prefer_below {
-    [below, above, right_side, left_side, center]
-  } else {
-    [right_side, left_side, below, above, center]
-  }
-  let mut best = candidates[0]
-  let mut best_score = placement_score(best)
-  for candidate in candidates {
-    let score = placement_score(candidate)
-    if score < best_score {
-      best = candidate
-      best_score = score
-    }
-  }
-  best
-}
-
-///|
-fn choose_keepout_escape_placement(
-  keepout : Rect,
-  bounds : Rect,
-  card_width : Double,
-  card_height : Double,
-  fallback : CardPlacement,
-) -> CardPlacement {
-  if fallback.overlap_area == 0.0 {
-    return fallback
-  }
-  let margin = 12.0
-  let centered_left = keepout.left + (keepout.width - card_width) / 2.0
-  let centered_top = keepout.top + (keepout.height - card_height) / 2.0
-  let candidates = [
-    make_card_candidate(
-      keepout,
-      keepout,
-      bounds,
-      card_width,
-      card_height,
-      centered_left,
-      keepout.top - card_height - margin,
-      margin,
-    ),
-    make_card_candidate(
-      keepout,
-      keepout,
-      bounds,
-      card_width,
-      card_height,
-      centered_left,
-      rect_bottom(keepout) + margin,
-      margin,
-    ),
-    make_card_candidate(
-      keepout,
-      keepout,
-      bounds,
-      card_width,
-      card_height,
-      keepout.left - card_width - margin,
-      centered_top,
-      margin,
-    ),
-    make_card_candidate(
-      keepout,
-      keepout,
-      bounds,
-      card_width,
-      card_height,
-      rect_right(keepout) + margin,
-      centered_top,
-      margin,
-    ),
-    fallback,
-  ]
-  let mut best = candidates[0]
-  let mut best_score = placement_score(best)
-  for candidate in candidates {
-    let score = placement_score(candidate)
-    if score < best_score {
-      best = candidate
-      best_score = score
-    }
-  }
-  best
-}
-
-///|
-fn position_comment_card_for_rects(
-  card : Element,
-  anchor : Rect,
-  keepout : Rect,
-  bounds : Rect,
-  prefer_below : Bool,
-) -> Unit {
-  set_style(card, "display", "block")
-  set_style(card, "visibility", "hidden")
-  let card_width = get_bounding_rect_width(card)
-  let card_height = get_bounding_rect_height(card)
-  let placement = choose_card_placement(
-    anchor, keepout, bounds, card_width, card_height, prefer_below,
-  )
-  let resolved = choose_keepout_escape_placement(
-    keepout, bounds, card_width, card_height, placement,
-  )
-  set_style(card, "top", "\{resolved.top.to_int()}px")
-  set_style(card, "left", "\{resolved.left.to_int()}px")
-  set_style(card, "visibility", "visible")
-}
-
-///|
-fn position_comment_card(
-  card : Element,
-  target : Element,
-  prefer_below : Bool,
-) -> Unit {
-  let anchor = rect_from_element(target)
-  let bounds = viewport_rect()
-  position_comment_card_for_rects(card, anchor, anchor, bounds, prefer_below)
-}
-
-///|
-fn rect_union_of_elements(elements : Array[Element]) -> Rect? {
-  let mut union_rect : Rect? = None
-  for el in elements {
-    if !is_null(el) {
-      let rect = rect_from_element(el)
-      union_rect = match union_rect {
-        Some(existing) => Some(rect_union(existing, rect))
-        None => Some(rect)
-      }
-    }
-  }
-  union_rect
-}
-
-///|
-fn populate_comment_card(
+fn open_inline_comment_editor(
   target : Element,
   key : String,
   row : Int,
   col : Int,
-  textarea : Element,
 ) -> Unit {
+  if get_tag_name(target) == "SUMMARY" {
+    let details = closest(target, "details")
+    if !is_null(details) {
+      set_attribute(details, "open", "")
+    }
+  }
   active_key.val = key
-  let card_title = query("#card-title")
-  let cell_preview = query("#cell-preview")
-  if !is_null(card_title) {
-    if col > 0 {
-      set_text_content(card_title, "Comment on R\{row} C\{col}")
-    } else if row > 0 {
-      set_text_content(card_title, "Comment on line \{row}")
-    } else {
-      set_text_content(card_title, "Cell Comment")
-    }
-  }
-  if !is_null(cell_preview) {
-    let content = resolve_comment_target_preview(target)
-    if content.length() > 0 {
-      let preview = if col > 0 {
-        "Cell value: " + truncate(content, 80)
-      } else {
-        truncate(content, 80)
-      }
-      set_text_content(cell_preview, preview)
-    } else {
-      set_text_content(cell_preview, "(empty)")
-    }
-  }
+  selected_comment_row.val = row
+  selected_comment_col.val = col
+  selected_comment_el.val = target
+  let editor_text = Ref("")
+  let comment_value = build_comment_value(target, row, col)
   match comments.get(key) {
     Some(comment) => {
-      comment.value = build_comment_value(target, row, col)
-      set_value(textarea, comment.text)
+      comment.value = comment_value
+      active_original_text.val = comment.text
+      active_original_image.val = comment.image
+      active_was_new.val = false
+      editor_text.val = comment.text
       current_comment_image.val = comment.image
     }
     None => {
-      set_value(textarea, "")
+      active_original_text.val = ""
+      active_original_image.val = ""
+      active_was_new.val = true
       current_comment_image.val = ""
-      comments.set(key, { row, col, text: "", image: "", value: build_comment_value(target, row, col) })
+      comments.set(key, {
+        row,
+        col,
+        text: "",
+        image: "",
+        value: comment_value,
+        pending: true,
+        sent: false,
+      })
     }
   }
+  show_inline_comment_editor(
+    target,
+    key,
+    row,
+    col,
+    editor_text.val,
+    if comment_value.has_prefix("Video ") {
+      comment_value
+    } else {
+      resolve_comment_target_preview(target)
+    },
+    if pending_comment_count() == 0 {
+      "Start a review"
+    } else {
+      "Add review comment"
+    },
+    "Add single comment",
+    fn() { save_comment() },
+    fn() { send_now_comment() },
+    fn() { cancel_inline_comment_edit() },
+    fn() { sync_active_comment_draft() },
+  )
   render_comment_image_preview()
 }
 
@@ -676,27 +339,6 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
 }
 
 ///|
-fn show_comment_card_in_rects(
-  target : Element,
-  key : String,
-  row : Int,
-  col : Int,
-  anchor : Rect,
-  keepout : Rect,
-  bounds : Rect,
-  prefer_below : Bool,
-) -> Unit {
-  let card = query("#comment-card")
-  let textarea = query("#comment-input")
-  if is_null(card) || is_null(textarea) {
-    return
-  }
-  populate_comment_card(target, key, row, col, textarea)
-  position_comment_card_for_rects(card, anchor, keepout, bounds, prefer_below)
-  focus_element(textarea)
-}
-
-///|
 /// Get localStorage key for comment storage (cli.cjs compatible)
 fn get_storage_key() -> String {
   let filename = get_yunomi_filename()
@@ -714,6 +356,7 @@ pub fn init_app() -> Unit {
   if saved_theme.length() > 0 {
     set_theme(saved_theme)
     toggle_hljs_theme(saved_theme)
+    rerender_mermaid(saved_theme)
     update_theme_button(saved_theme)
   }
   init_color_scheme_menu()
@@ -725,11 +368,13 @@ pub fn init_app() -> Unit {
       if current == "dark" {
         set_theme("light")
         toggle_hljs_theme("light")
+        rerender_mermaid("light")
         local_storage_set("yunomi:theme", "light")
         update_theme_button("light")
       } else {
         set_theme("dark")
         toggle_hljs_theme("dark")
+        rerender_mermaid("dark")
         local_storage_set("yunomi:theme", "dark")
         update_theme_button("dark")
       }
@@ -739,60 +384,6 @@ pub fn init_app() -> Unit {
   let submit_btn = query("#send-and-exit")
   if !is_null(submit_btn) {
     on(submit_btn, "click", fn(_e) { show_submit_modal() })
-  }
-  // Setup comment card buttons
-  let close_btn = query("#close-card")
-  if !is_null(close_btn) {
-    on(close_btn, "click", fn(_e) { hide_comment_card() })
-  }
-  let clear_btn = query("#clear-comment")
-  if !is_null(clear_btn) {
-    on(clear_btn, "click", fn(_e) {
-      let textarea = query("#comment-input")
-      if !is_null(textarea) {
-        set_value(textarea, "")
-      }
-      save_comment()
-    })
-  }
-  let save_btn = query("#save-comment")
-  if !is_null(save_btn) {
-    on(save_btn, "click", fn(_e) { save_comment() })
-  }
-  let send_now_btn = query("#send-now-comment")
-  if !is_null(send_now_btn) {
-    on(send_now_btn, "click", fn(_e) { send_now_comment() })
-  }
-  let comment_input = query("#comment-input")
-  if !is_null(comment_input) {
-    // A source update may arrive while the reviewer is still composing. Keep
-    // this unsaved text in the draft on every keystroke, not only on Save.
-    on(comment_input, "input", fn(_e) { sync_active_comment_draft() })
-    on(comment_input, "keydown", fn(e) {
-      if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
-        prevent_default(e)
-        stop_propagation(e)
-        save_comment()
-      }
-    })
-  }
-  // Copy selection button (cli.cjs compatible)
-  let copy_btn = query("#copy-selection")
-  if !is_null(copy_btn) {
-    on(copy_btn, "click", fn(_e) {
-      let cell_preview = query("#cell-preview")
-      let text = if !is_null(cell_preview) {
-        get_text_content(cell_preview)
-      } else {
-        ""
-      }
-      if text.length() > 0 {
-        copy_to_clipboard(text)
-        show_toast("Copied!")
-      } else {
-        show_toast("No content to copy")
-      }
-    })
   }
   // Setup modal buttons
   let modal_cancel = query("#modal-cancel")
@@ -838,11 +429,8 @@ pub fn init_app() -> Unit {
   on_doc("keydown", fn(e) {
     if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
       prevent_default(e)
-      // If the comment input is focused, save the current comment.
-      let card = query("#comment-card")
       let active = get_active_element()
-      if !is_null(card) &&
-        !is_element_hidden(card) &&
+      if inline_comment_editor_open() &&
         get_attr(active, "id") == "comment-input" {
         save_comment()
         return
@@ -862,7 +450,9 @@ pub fn init_app() -> Unit {
       }
     }
     if event_key(e) == "Escape" {
-      hide_comment_card()
+      if inline_comment_editor_open() {
+        cancel_inline_comment_edit()
+      }
       hide_submit_modal()
     }
   })
@@ -891,7 +481,7 @@ pub fn init_app() -> Unit {
   }
   // Setup click handlers based on mode
   match mode {
-    "csv" => {
+    "csv" | "tsv" => {
       setup_csv_clicks()
       init_csv_resizers_and_filters()
     }
@@ -955,10 +545,10 @@ fn load_review_loop_state() -> Unit {
 }
 
 ///|
-fn draft_comment_count() -> Int {
+fn pending_comment_count() -> Int {
   let count = Ref(0)
   comments.each(fn(_key, comment) {
-    if comment_has_content(comment) {
+    if comment_has_content(comment) && comment.pending {
       count.val = count.val + 1
     }
   })
@@ -969,9 +559,7 @@ fn draft_comment_count() -> Int {
 fn setup_task_decision_checkboxes() -> Unit {
   let boxes = query_all(".task-decision-checkbox")
   for box in boxes {
-    on(box, "click", fn(e) {
-      stop_propagation(e)
-    })
+    on(box, "click", fn(e) { stop_propagation(e) })
     on(box, "change", fn(e) {
       stop_propagation(e)
       let target = event_target(e)
@@ -995,9 +583,15 @@ fn send_decision_to_server(
   }
   let url = location_origin() + "/decision"
   let checked_json = if checked { "true" } else { "false" }
-  let body = "{\"file\":\"" + get_yunomi_filename() + "\",\"line\":" +
-    line.to_string() + ",\"text\":" + json_encode_string(text) + ",\"checked\":" +
-    checked_json + "}"
+  let body = "{\"file\":\"" +
+    get_yunomi_filename() +
+    "\",\"line\":" +
+    line.to_string() +
+    ",\"text\":" +
+    json_encode_string(text) +
+    ",\"checked\":" +
+    checked_json +
+    "}"
   fetch_post(url, body, fn(response) {
     if response == "error" {
       set_checked(box, !checked)
@@ -1018,7 +612,7 @@ fn setup_csv_clicks() -> Unit {
       let row_str = get_attr(target, "data-row")
       let col_str = get_attr(target, "data-col")
       let key = "\{row_str}:\{col_str}"
-      show_comment_card(target, key, str_to_int(row_str), str_to_int(col_str))
+      show_inline_comment(target, key, str_to_int(row_str), str_to_int(col_str))
     })
     on(cell, "mousedown", fn(e) {
       let target = event_target(e)
@@ -1034,14 +628,16 @@ fn setup_csv_clicks() -> Unit {
 ///|
 fn setup_diff_clicks() -> Unit {
   let lines = query_all(".diff-line")
-  for line in lines {
+  for i, line in lines {
+    let row = i + 1
+    set_attribute(line, "data-row", row.to_string())
     on(line, "click", fn(e) {
       let target = closest(event_target(e), ".diff-line")
       if !is_null(target) {
         let file = get_attr(target, "data-file")
         let content = get_text_content(target)
         let key = "\{file}:\{truncate(content, 20)}"
-        show_comment_card(target, key, 0, 0)
+        show_inline_comment(target, key, row, 0)
       }
     })
   }
@@ -1059,7 +655,7 @@ fn setup_text_clicks() -> Unit {
       if !is_null(target) {
         let row_str = get_attr(target, "data-row")
         let key = "\{row_str}:0"
-        show_comment_card(target, key, str_to_int(row_str), 0)
+        show_inline_comment(target, key, str_to_int(row_str), 0)
       }
     })
     on(line, "mousedown", fn(e) {
@@ -1143,7 +739,9 @@ fn restore_comments() -> Unit {
         let text = entry[3]
         let value = if entry.length() > 4 { entry[4] } else { "" }
         if text.length() > 0 {
-          comments.set(k, { row, col, text, image: "", value })
+          let pending = entry.length() > 5 && entry[5] == "true"
+          let sent = entry.length() <= 6 || entry[6] == "true"
+          comments.set(k, { row, col, text, image: "", value, pending, sent })
         }
       }
     }
@@ -1181,15 +779,17 @@ fn restore_comments() -> Unit {
         let key = active[0]
         let row = str_to_int(active[1])
         let col = str_to_int(active[2])
-        ignore(set_timeout(fn() {
-          let mut target = query("[data-row=\"\{row}\"][data-col=\"\{col}\"]")
-          if is_null(target) {
-            target = query("[data-row=\"\{row}\"]")
-          }
-          if !is_null(target) {
-            show_comment_card(target, key, row, col)
-          }
-        }, 0))
+        ignore(
+          set_timeout(
+            fn() {
+              let target = resolve_restored_comment_target(key, row, col)
+              if !is_null(target) {
+                show_inline_comment(target, key, row, col)
+              }
+            },
+            0,
+          ),
+        )
       }
     }
     // hide_recovery_modal() re-checks for unanswered questions once the
@@ -1252,31 +852,18 @@ fn hide_recovery_modal() -> Unit {
 }
 
 ///|
-fn show_comment_card(
+fn show_inline_comment(
   target : Element,
   key : String,
   row : Int,
   col : Int,
 ) -> Unit {
-  let card = query("#comment-card")
-  let textarea = query("#comment-input")
-  if is_null(card) || is_null(textarea) {
-    return
-  }
-  selected_comment_row.val = row
-  selected_comment_col.val = col
-  selected_comment_el.val = target
-  populate_comment_card(target, key, row, col, textarea)
-  position_comment_card(card, target, true)
-  focus_element(textarea)
+  open_inline_comment_editor(target, key, row, col)
 }
 
 ///|
-fn hide_comment_card() -> Unit {
-  let card = query("#comment-card")
-  if !is_null(card) {
-    set_style(card, "display", "none")
-  }
+fn close_inline_comment() -> Unit {
+  close_inline_comment_editor()
   blur_active_element()
   active_key.val = ""
   // Clear preview highlight and source selection
@@ -1288,6 +875,28 @@ fn hide_comment_card() -> Unit {
   for el in old_selected {
     remove_class(el, "selected")
   }
+}
+
+///|
+fn cancel_inline_comment_edit() -> Unit {
+  let key = active_key.val
+  if key.length() > 0 {
+    if active_was_new.val {
+      ignore(comments.remove(key))
+    } else {
+      match comments.get(key) {
+        Some(comment) => {
+          comment.text = active_original_text.val
+          comment.image = active_original_image.val
+        }
+        None => ()
+      }
+    }
+  }
+  current_comment_image.val = ""
+  close_inline_comment()
+  update_comment_indicators()
+  persist_draft()
 }
 
 ///|
@@ -1325,6 +934,10 @@ fn resolve_comment_indicator_target(comment : AppComment) -> Element {
   let text_line = query(".text-line[data-row=\"\{comment.row}\"]")
   if !is_null(text_line) {
     return text_line
+  }
+  let diff_line = query(".diff-line[data-row=\"\{comment.row}\"]")
+  if !is_null(diff_line) {
+    return diff_line
   }
   null_element()
 }
@@ -1384,7 +997,7 @@ fn render_comment_list() -> Unit {
           let comment_target = resolve_comment_indicator_target(comment)
           if !is_null(comment_target) {
             scroll_into_view(comment_target)
-            show_comment_card(comment_target, key, comment.row, comment.col)
+            show_inline_comment(comment_target, key, comment.row, comment.col)
           }
         }
         None => ()
@@ -1422,6 +1035,8 @@ fn send_now_comment() -> Unit {
     Some(comment) => {
       comment.text = text
       comment.image = current_comment_image.val
+      comment.pending = false
+      comment.sent = true
       send_comment_to_server(
         comment.row,
         comment.col,
@@ -1431,7 +1046,7 @@ fn send_now_comment() -> Unit {
         current_comment_image.val.length() > 0,
       )
       current_comment_image.val = ""
-      hide_comment_card()
+      close_inline_comment()
       update_comment_indicators()
       persist_draft()
       render_comment_list()
@@ -1461,36 +1076,39 @@ fn save_comment() -> Unit {
   if key.length() > 0 {
     match comments.get(key) {
       Some(comment) => {
-        // Send real-time comment to server
-        send_comment_to_server(
-          comment.row,
-          comment.col,
-          text,
-          if is_delete {
-            "delete"
-          } else {
-            "comment"
-          },
-          key,
-          current_comment_image.val.length() > 0,
-        )
+        if is_delete && comment.sent {
+          send_comment_to_server(
+            comment.row,
+            comment.col,
+            "",
+            "delete",
+            key,
+            false,
+          )
+        }
         comment.text = text
         comment.image = current_comment_image.val
+        comment.pending = true
       }
-      None =>
-        // New comment that's being deleted immediately — still send delete
-        if is_delete {
-          send_comment_to_server(0, 0, "", "delete", key, false)
-        }
+      None => ()
     }
     if is_delete {
       ignore(comments.remove(key))
     }
   }
   current_comment_image.val = ""
-  hide_comment_card()
+  close_inline_comment()
   update_comment_indicators()
   persist_draft()
+}
+
+///|
+/// Fullscreen viewers own keyboard focus while visible. Commit an open editor
+/// as a local pending draft before transferring that ownership.
+fn close_inline_comment_before_fullscreen() -> Unit {
+  if inline_comment_editor_open() {
+    save_comment()
+  }
 }
 
 ///|
@@ -1582,7 +1200,9 @@ fn update_comment_indicators() -> Unit {
         comment.row,
         comment.col,
         comment.text,
+        comment.image,
         comment.value,
+        comment.pending,
       )
     }
   })
@@ -1591,6 +1211,11 @@ fn update_comment_indicators() -> Unit {
   if !is_null(count_el) {
     set_text_content(count_el, count.to_string())
   }
+  bind_inline_saved_comments(fn(key, target, row, col) {
+    if !is_null(target) {
+      show_inline_comment(target, key, row, col)
+    }
+  })
   render_comment_list()
 }
 
@@ -1607,7 +1232,7 @@ fn show_submit_modal() -> Unit {
   }
   let buf = StringBuilder::new()
   comments.each(fn(key, comment) {
-    if comment.text.length() > 0 {
+    if comment.text.length() > 0 && comment.pending {
       buf.write_string("<li><span class=\"location\">")
       buf.write_string(@core.escape_html(key))
       buf.write_string("</span>: ")
@@ -1629,9 +1254,7 @@ fn show_submit_modal() -> Unit {
     set_disabled(approve, has_unresolved_threads)
     if has_unresolved_threads {
       set_attribute(
-        approve,
-        "title",
-        "Resolve all open review threads before approving",
+        approve, "title", "Resolve all open review threads before approving",
       )
     } else {
       set_attribute(approve, "title", "Approve")
@@ -1731,13 +1354,9 @@ fn sync_active_comment_draft() -> Unit {
     Some(comment) => {
       comment.text = text
       comment.image = current_comment_image.val
-      if text.length() == 0 && current_comment_image.val.length() == 0 {
-        ignore(comments.remove(key))
-      }
     }
     None => ()
   }
-  update_comment_indicators()
   persist_draft()
 }
 
@@ -1752,7 +1371,7 @@ fn build_review_payload() -> String {
   buf.write_string(",\"comments\":[")
   let first = Ref(true)
   comments.each(fn(_key, comment) {
-    if comment.text.length() > 0 {
+    if comment.text.length() > 0 && comment.pending {
       if !first.val {
         buf.write_char(',')
       }
@@ -1825,10 +1444,7 @@ fn report_tab_closed(_port : Int) -> Unit {
   }
   if intentional_reload_in_progress.val {
     // A self-triggered reload (file change -> SSE "reload") is not a real
-    // close: don't report it as one. The reloaded page re-registers via
-    // /session/open on its own; reporting a phantom close here would arm
-    // the server's abandonment timer against a re-registration that has no
-    // deadline pressure to race.
+    // close. The reloaded page re-registers via /session/open on its own.
     close_report_sent.val = true
     return
   }
@@ -1912,14 +1528,7 @@ fn update_theme_button(theme : String) -> Unit {
   }
   let label = query("#theme-label")
   if !is_null(label) {
-    set_inner_html(
-      label,
-      if theme == "dark" {
-        "Dark"
-      } else {
-        "Light"
-      },
-    )
+    set_inner_html(label, if theme == "dark" { "Dark" } else { "Light" })
   }
   let btn = query("#theme-toggle")
   if !is_null(btn) {
@@ -2021,12 +1630,14 @@ fn set_sse_status(state : String, label : String) -> Unit {
 /// Track whether SSE was previously connected (to show "Reconnected")
 let sse_was_connected : Ref[Bool] = Ref(false)
 
-///| Server instance id from the first SSE hello; a different id on reconnect
+///|
+/// Server instance id from the first SSE hello; a different id on reconnect
 /// means a NEW server reused this port. A lingering old tab must not join the
 /// new review, otherwise closing one tab can make other stale tabs reappear.
 let sse_server_instance : Ref[String] = Ref("")
 
-///| Reply events update the current DOM directly. The server also emits a
+///|
+/// Reply events update the current DOM directly. The server also emits a
 /// `round` event for compatibility with older clients/tests; suppress the
 /// next round-triggered reload only for that paired reply update.
 let suppress_next_round_reload : Ref[Bool] = Ref(false)
@@ -2035,7 +1646,14 @@ let suppress_next_round_reload : Ref[Bool] = Ref(false)
 fn apply_live_comment_event(data : String) -> Unit {
   let event_type = json_extract_field(data, "type")
   let key_raw = json_extract_field(data, "key")
-  let row = str_to_int(json_extract_field(data, "row"))
+  let received_row = str_to_int(json_extract_field(data, "row"))
+  // CLI locations are user-facing 1-based lines (`file.md:3`), while browser
+  // comments and DOM data-row values are 0-based.
+  let row = if key_raw.has_prefix("cli-") && received_row > 0 {
+    received_row - 1
+  } else {
+    received_row
+  }
   let col = str_to_int(json_extract_field(data, "col"))
   let text = json_extract_field(data, "text")
   let key = if key_raw.length() > 0 {
@@ -2047,19 +1665,34 @@ fn apply_live_comment_event(data : String) -> Unit {
     ignore(comments.remove(key))
   } else if text.length() > 0 {
     match comments.get(key) {
-      Some(existing) => {
-        comments.set(
-          key,
-          {
-            row: if row > 0 { row } else { existing.row },
-            col: if col > 0 { col } else { existing.col },
-            text,
-            image: existing.image,
-            value: existing.value,
+      Some(existing) =>
+        comments.set(key, {
+          row: if row > 0 {
+            row
+          } else {
+            existing.row
           },
-        )
-      }
-      None => comments.set(key, { row, col, text, image: "", value: "" })
+          col: if col > 0 {
+            col
+          } else {
+            existing.col
+          },
+          text,
+          image: existing.image,
+          value: existing.value,
+          pending: false,
+          sent: true,
+        })
+      None =>
+        comments.set(key, {
+          row,
+          col,
+          text,
+          image: "",
+          value: "",
+          pending: false,
+          sent: true,
+        })
     }
   }
   update_comment_indicators()
@@ -2101,12 +1734,8 @@ fn setup_sse(_port : Int) -> Unit {
     suppress_next_round_reload.val = true
     apply_comment_reply_event(get_yunomi_filename(), sse_event_data(e))
   })
-  sse_on(es, "comment", fn(e) {
-    apply_live_comment_event(sse_event_data(e))
-  })
-  sse_on(es, "send-now", fn(e) {
-    mark_send_now_event(sse_event_data(e))
-  })
+  sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
+  sse_on(es, "send-now", fn(e) { mark_send_now_event(sse_event_data(e)) })
   sse_on(es, "hello", fn(e) {
     let id = sse_event_data(e)
     if sse_server_instance.val == "" {
@@ -2154,13 +1783,17 @@ fn persist_draft() -> Unit {
     buf.write_string(comment.row.to_string())
     buf.write_string(",\"col\":")
     buf.write_string(comment.col.to_string())
-      buf.write_string(",\"text\":")
-      buf.write_string(json_encode_string(comment.text))
-      if comment.value.length() > 0 {
-        buf.write_string(",\"value\":")
-        buf.write_string(json_encode_string(comment.value))
-      }
-      buf.write_char('}')
+    buf.write_string(",\"text\":")
+    buf.write_string(json_encode_string(comment.text))
+    if comment.value.length() > 0 {
+      buf.write_string(",\"value\":")
+      buf.write_string(json_encode_string(comment.value))
+    }
+    buf.write_string(",\"pending\":")
+    buf.write_string(if comment.pending { "true" } else { "false" })
+    buf.write_string(",\"sent\":")
+    buf.write_string(if comment.sent { "true" } else { "false" })
+    buf.write_char('}')
     first.val = false
   })
   buf.write_string("},\"summary\":")
@@ -2171,11 +1804,7 @@ fn persist_draft() -> Unit {
   buf.write_string(collect_yunomi_draft_answers())
   buf.write_string(",\"step\":")
   buf.write_string(question_step_index.val.to_string())
-  let card = query("#comment-card")
-  // The floating card is position:fixed, whose offsetParent is null even
-  // while visible. Use its actual display state when deciding whether a
-  // preview refresh must reopen the reviewer surface.
-  let comment_open = !is_null(card) && get_computed_style(card, "display") != "none" && active_key.val.length() > 0
+  let comment_open = inline_comment_editor_open() && active_key.val.length() > 0
   let active_comment = comments.get(active_key.val)
   let active_row = match active_comment {
     Some(comment) => comment.row
@@ -2384,17 +2013,12 @@ fn json_extract_field(json : String, field : String) -> String {
 fn setup_paste_handler() -> Unit {
   on_paste_image(fn(base64) {
     let submit_modal = query("#submit-modal")
-    let comment_card = query("#comment-card")
     let submit_visible = !is_null(submit_modal) &&
       (
         get_attr(submit_modal, "class").contains("visible") ||
         get_computed_style(submit_modal, "display") != "none"
       )
-    let comment_visible = !is_null(comment_card) &&
-      (
-        get_attr(comment_card, "class").contains("visible") ||
-        get_computed_style(comment_card, "display") != "none"
-      )
+    let comment_visible = inline_comment_editor_open()
     if submit_visible {
       if submit_images.length() < submit_image_limit {
         submit_images.push(base64)
@@ -2739,7 +2363,7 @@ fn update_drag(row : Int) -> Unit {
 }
 
 ///|
-/// Drag selection: finish and open comment card
+/// Drag selection: finish and open an inline comment editor
 fn finish_drag() -> Unit {
   if !is_dragging.val {
     return
@@ -2765,7 +2389,7 @@ fn finish_drag() -> Unit {
     "[data-row=\"" + start.to_string() + "\"]:not(#md-preview *)",
   )
   if !is_null(target_el) {
-    show_comment_card(target_el, key, start, 0)
+    show_inline_comment(target_el, key, start, 0)
   }
 }
 
@@ -3431,34 +3055,18 @@ fn normalize_preview_block_target(block : Element) -> Element {
 }
 
 ///|
-fn get_comment_bounds_rect(source_hidden : Bool) -> Rect {
-  if source_hidden {
-    // In preview-only mode the card must never cover the selected preview target,
-    // so allow it to escape to the full viewport instead of trapping it in the pane.
-    viewport_rect()
-  } else {
-    let md_right = query(".md-right")
-    if !is_null(md_right) && !is_element_hidden(md_right) {
-      rect_from_element(md_right)
-    } else {
-      viewport_rect()
-    }
-  }
-}
 
 ///|
-fn get_selected_source_rect() -> Rect? {
-  rect_union_of_elements(query_all(".md-right td.selected"))
-}
-
-///|
-/// Select source range and open comment card (mirrors cli.cjs selectSourceRange)
+/// Select a source range and open its inline editor.
 fn select_source_range(
   start_row : Int,
   end_row : Int,
   preview_el : Element,
   col? : Int = 0,
 ) -> Unit {
+  if fullscreen_overlay_visible() {
+    return
+  }
   // Disable scroll sync for 2 seconds
   scroll_sync_disabled_until.val = date_now() + 2000.0
   // Cancel pending RAF
@@ -3512,58 +3120,41 @@ fn select_source_range(
       )
     }
   }
-  // Open comment card
+  // Open the editor directly below the clicked preview block. Source-only
+  // modes use their source row as the anchor.
+  let anchor_tag = get_tag_name(preview_el).to_lower()
+  let needs_tag_key = col == 0 &&
+    (
+      anchor_tag == "ul" ||
+      anchor_tag == "ol" ||
+      anchor_tag == "table" ||
+      anchor_tag == "tr" ||
+      anchor_tag == "details" ||
+      anchor_tag == "video" ||
+      (anchor_tag == "div" && has_class(preview_el, "markdown-html-block"))
+    )
   let key = if start_row == actual_end {
-    (start_row - 1).to_string() + ":" + col.to_string()
+    let base = (start_row - 1).to_string() + ":" + col.to_string()
+    if needs_tag_key {
+      base + ":" + anchor_tag
+    } else {
+      base
+    }
   } else {
     (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
   }
   selected_comment_row.val = start_row - 1
   selected_comment_col.val = col
   selected_comment_el.val = preview_el
-  let source_target = query(
-    "td[data-row=\"\{start_row - 1}\"][data-col=\"1\"]:not(#md-preview *)",
-  )
-  // Position card: check if source is hidden (preview-only mode)
-  let is_source_hidden = !is_null(md_right) && is_element_hidden(md_right)
-  if is_source_hidden && !is_null(preview_el) {
-    let preview_rect = rect_from_element(preview_el)
-    let bounds = get_comment_bounds_rect(true)
-    show_comment_card_in_rects(
-      preview_el,
-      key,
-      start_row - 1,
-      col,
-      preview_rect,
-      preview_rect,
-      bounds,
-      true,
-    )
+  let target = if !is_null(preview_el) {
+    preview_el
   } else {
-    let target = if !is_null(source_target) {
-      source_target
-    } else if !is_null(preview_el) {
-      preview_el
-    } else {
-      source_target
-    }
-    if !is_null(target) {
-      let keepout = match get_selected_source_rect() {
-        Some(rect) => rect
-        None => rect_from_element(target)
-      }
-      let bounds = get_comment_bounds_rect(false)
-      show_comment_card_in_rects(
-        target,
-        key,
-        start_row - 1,
-        col,
-        keepout,
-        keepout,
-        bounds,
-        true,
-      )
-    }
+    query(
+      "td[data-row=\"\{start_row - 1}\"][data-col=\"1\"]:not(#md-preview *)",
+    )
+  }
+  if !is_null(target) {
+    open_inline_comment_editor(target, key, start_row - 1, col)
   }
   // Re-enable scroll sync after 500ms
   ignore(
@@ -3574,27 +3165,6 @@ fn select_source_range(
       },
       500,
     ),
-  )
-}
-
-///|
-/// Show comment card below element (for preview-only mode)
-fn _show_comment_card_below(
-  target : Element,
-  key : String,
-  row : Int,
-  col : Int,
-) -> Unit {
-  let target_rect = rect_from_element(target)
-  show_comment_card_in_rects(
-    target,
-    key,
-    row,
-    col,
-    target_rect,
-    target_rect,
-    viewport_rect(),
-    true,
   )
 }
 
@@ -3672,7 +3242,7 @@ fn open_selected_comment_target() -> Bool {
 ///|
 fn open_or_select_preview_comment_target(
   raw_target : Element,
-  open_card : Bool,
+  open_editor : Bool,
 ) -> Bool {
   if is_null(raw_target) {
     return false
@@ -3681,9 +3251,40 @@ fn open_or_select_preview_comment_target(
   if is_null(target) {
     return false
   }
+  let source_anchor = closest(
+    target, "[data-source-line],[data-source-start-line]",
+  )
+  if !is_null(source_anchor) {
+    let direct_line = str_to_int(get_attr(source_anchor, "data-source-line"))
+    let start_line = if direct_line > 0 {
+      direct_line
+    } else {
+      str_to_int(get_attr(source_anchor, "data-source-start-line"))
+    }
+    let stored_end = str_to_int(get_attr(source_anchor, "data-source-end-line"))
+    let end_line = if stored_end >= start_line {
+      stored_end
+    } else {
+      start_line
+    }
+    if start_line > 0 {
+      let tag = get_tag_name(target)
+      let cell_col = if tag == "TD" || tag == "TH" {
+        get_cell_index(target) + 1
+      } else {
+        0
+      }
+      if open_editor {
+        select_source_range(start_line, end_line, target, col=cell_col)
+      } else {
+        select_comment_target_only(start_line, end_line, target, col=cell_col)
+      }
+      return true
+    }
+  }
   let mermaid_range = get_mermaid_source_range(target)
   if mermaid_range.0 > 0 {
-    if open_card {
+    if open_editor {
       select_source_range(
         mermaid_range.0,
         mermaid_range.1,
@@ -3707,7 +3308,7 @@ fn open_or_select_preview_comment_target(
       let h_line = get_heading_source_line(heading)
       let line = find_image_source_line(get_attr(video, "src"), h_line)
       if line > 0 {
-        if open_card {
+        if open_editor {
           select_source_range(line, line, timeline)
         } else {
           select_comment_target_only(line, line, timeline)
@@ -3723,7 +3324,7 @@ fn open_or_select_preview_comment_target(
     let h_line = get_heading_source_line(heading)
     let line = find_image_source_line(src, h_line)
     if line > 0 {
-      if open_card {
+      if open_editor {
         select_source_range(line, line, target)
       } else {
         select_comment_target_only(line, line, target)
@@ -3736,7 +3337,7 @@ fn open_or_select_preview_comment_target(
     let h_line = get_heading_source_line(heading)
     let line = find_image_source_line(get_attr(target, "src"), h_line)
     if line > 0 {
-      if open_card {
+      if open_editor {
         select_source_range(line, line, target)
       } else {
         select_comment_target_only(line, line, target)
@@ -3749,7 +3350,7 @@ fn open_or_select_preview_comment_target(
     let code_text = get_text_content(pre)
     let range = find_code_block_range(code_text)
     if range.0 > 0 {
-      if open_card {
+      if open_editor {
         select_source_range(range.0, range.1, pre)
       } else {
         select_comment_target_only(range.0, range.1, pre)
@@ -3764,7 +3365,7 @@ fn open_or_select_preview_comment_target(
     let media_line = find_media_source_line_in_block(block, h_line)
     if media_line > 0 {
       let media_anchor = resolve_preview_media_anchor(block)
-      if open_card {
+      if open_editor {
         select_source_range(media_line, media_line, media_anchor)
       } else {
         select_comment_target_only(media_line, media_line, media_anchor)
@@ -3787,7 +3388,7 @@ fn open_or_select_preview_comment_target(
       } else {
         0
       }
-      if open_card {
+      if open_editor {
         select_source_range(line, line, block, col=cell_col)
       } else {
         select_comment_target_only(line, line, block, col=cell_col)
@@ -3810,6 +3411,27 @@ fn setup_preview_click() -> Unit {
     if is_null(target) {
       return
     }
+    // Media owns its direct-click fullscreen behavior. Its dedicated comment
+    // button stops propagation and opens the inline editor instead.
+    let tag = get_tag_name(target)
+    let summary = closest(target, "summary")
+    if !is_null(summary) && !has_class(summary, "heading-summary") {
+      prevent_default(e)
+      let details = closest(summary, "details")
+      if !is_null(details) {
+        if has_attribute(details, "open") {
+          remove_attribute(details, "open")
+        } else {
+          set_attribute(details, "open", "")
+        }
+      }
+      return
+    }
+    if tag == "IMG" ||
+      tag == "VIDEO" ||
+      !is_null(closest(target, ".mermaid-container")) {
+      return
+    }
     ignore(open_or_select_preview_comment_target(target, true))
   })
 }
@@ -3826,15 +3448,24 @@ fn setup_preview_comment_buttons() -> Unit {
 }
 
 ///|
+fn fullscreen_overlay_visible() -> Bool {
+  !is_null(
+    query(
+      "#image-fullscreen.visible,#mermaid-fullscreen.visible,#video-fullscreen.visible",
+    ),
+  )
+}
+
+///|
 fn app_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
   let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
-  let comment = query("#comment-card")
   (!is_null(submit) && has_class(submit, "visible")) ||
   (!is_null(recovery) && has_class(recovery, "visible")) ||
   (!is_null(questions) && has_class(questions, "visible")) ||
-  (!is_null(comment) && get_computed_style(comment, "display") != "none")
+  fullscreen_overlay_visible() ||
+  inline_comment_editor_open()
 }
 
 ///|
@@ -3869,7 +3500,11 @@ fn select_preview_target_by_delta(delta : Int) -> Bool {
   }
   let current_idx = index_of_comment_target(targets, selected_comment_el.val)
   let next_idx = if current_idx < 0 {
-    if delta < 0 { targets.length() - 1 } else { 0 }
+    if delta < 0 {
+      targets.length() - 1
+    } else {
+      0
+    }
   } else {
     let candidate = current_idx + delta
     if candidate < 0 {
@@ -3884,7 +3519,10 @@ fn select_preview_target_by_delta(delta : Int) -> Bool {
 }
 
 ///|
-fn select_table_neighbor_or_delta(direction : String, fallback_delta : Int) -> Bool {
+fn select_table_neighbor_or_delta(
+  direction : String,
+  fallback_delta : Int,
+) -> Bool {
   let neighbor = table_cell_neighbor(selected_comment_el.val, direction)
   if !is_null(neighbor) {
     return open_or_select_preview_comment_target(neighbor, false)
@@ -4681,6 +4319,7 @@ fn open_mermaid_fullscreen_moonbit(
   fs_wrapper : Element,
   fs_zoom_info : Element,
 ) -> Unit {
+  close_inline_comment_before_fullscreen()
   // Destroy previous viewer
   if fs_mermaid_zpv.val is Some(_) {
     destroy_zoom_pan_viewer(fs_mermaid_zpv.val.unwrap())
@@ -4891,6 +4530,7 @@ fn show_image_fullscreen_moonbit(
   if index < 0 || index >= images.length() {
     return
   }
+  close_inline_comment_before_fullscreen()
   current_image_index.val = index
   // Destroy previous viewer
   if fs_image_zpv.val is Some(_) {
@@ -5262,6 +4902,7 @@ fn show_video_fullscreen_moonbit(
   if index < 0 || index >= videos.length() {
     return
   }
+  close_inline_comment_before_fullscreen()
   current_video_index.val = index
   // Cleanup previous timeline
   if fs_video_timeline.val is Some(_) {

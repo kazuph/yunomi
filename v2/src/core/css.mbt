@@ -116,7 +116,7 @@ fn build_css() -> String {
     #|header .actions { display: flex; gap: 6px; align-items: center; flex: 0 1 auto; min-width: 0; }
     #|header h1 { display: flex; flex-direction: column; margin: 0; line-height: 1.3; }
     #|header h1 { min-width: 0; }
-    #|header h1 .title-path { display: none; }
+    #|header h1 .title-path { display: block; max-width: min(48vw, 560px); overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
     #|header h1 .title-file { font-size: 16px; font-weight: 700; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(48vw, 560px); }
     #|.review-file-switcher {
     #|  display: flex;
@@ -517,97 +517,55 @@ fn build_css() -> String {
     #|  background: var(--badge);
     #|  box-shadow: 0 0 0 4px rgba(77, 157, 99, 0.18);
     #|}
-    #|.floating {
-    #|  position: fixed;
-    #|  z-index: 120;
-    #|  background: var(--card-bg);
+    #|.yunomi-inline-comment {
+    #|  margin: 6px 0 12px;
     #|  border: 1px solid var(--border);
-    #|  border-radius: var(--radius-lg);
-    #|  padding: 16px;
-    #|  width: min(440px, calc(100vw - 32px));
-    #|  box-shadow: var(--shadow-card);
-    #|  backdrop-filter: blur(24px);
-    #|  -webkit-backdrop-filter: blur(24px);
-    #|  display: none;
-    #|  transition: background 240ms ease, border-color 240ms ease;
-    #|}
-    #|.card-close-x {
-    #|  position: absolute;
-    #|  top: 8px;
-    #|  right: 8px;
-    #|  width: 28px;
-    #|  height: 28px;
-    #|  padding: 0;
-    #|  background: transparent;
-    #|  border: none;
-    #|  color: var(--muted);
-    #|  font-size: 20px;
-    #|  line-height: 1;
-    #|  cursor: pointer;
-    #|  display: flex;
-    #|  align-items: center;
-    #|  justify-content: center;
-    #|  border-radius: 6px;
-    #|  transition: background 120ms ease, color 120ms ease;
-    #|}
-    #|.card-close-x:hover { background: var(--border); color: var(--text);
-    #|}
-    #|.floating header {
-    #|  position: static;
-    #|  background: transparent;
-    #|  backdrop-filter: none;
-    #|  border: none;
-    #|  padding: 0 0 8px 0;
-    #|  display: flex;
-    #|  justify-content: space-between;
-    #|  align-items: center;
-    #|}
-    #|.floating h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--text); letter-spacing: 0; }
-    #|.floating button {
-    #|  margin-left: 8px;
-    #|  background: var(--accent);
-    #|  color: var(--text-inverse);
-    #|  border: 1px solid var(--accent);
-    #|  padding: 7px 12px;
+    #|  border-left: 3px solid var(--accent);
     #|  border-radius: var(--radius-sm);
-    #|  font-size: 12px;
-    #|  font-weight: 600;
+    #|  background: var(--panel);
+    #|  color: var(--text);
+    #|  font-family: var(--font-ui);
+    #|  box-shadow: var(--shadow-soft);
+    #|}
+    #|tr.yunomi-inline-comment > td { padding: 8px 12px; background: var(--panel); }
+    #|.yunomi-inline-comment-view {
+    #|  all: unset;
+    #|  box-sizing: border-box;
+    #|  display: grid;
+    #|  gap: 4px;
+    #|  width: 100%;
+    #|  padding: 9px 12px;
     #|  cursor: pointer;
-    #|  transition: background 160ms ease, opacity 160ms ease, transform 120ms ease;
     #|}
-    #|.floating button.icon-only {
-    #|  width: 32px;
-    #|  height: 32px;
-    #|  padding: 0;
-    #|  display: inline-flex;
-    #|  align-items: center;
-    #|  justify-content: center;
-    #|  font-size: 14px;
-    #|  line-height: 1;
+    #|.yunomi-inline-comment-view:hover { background: var(--hover-bg); }
+    #|.yunomi-inline-comment-view:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.yunomi-inline-comment-label { color: var(--muted); font-size: 11px; font-weight: 700; }
+    #|.yunomi-inline-comment-pending { display: inline-flex; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); color: var(--accent-strong); font-size: 10px; }
+    #|.yunomi-inline-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
+    #|.yunomi-inline-comment-image { display: block; max-width: 180px; max-height: 120px; object-fit: contain; border-radius: var(--radius-sm); }
+    #|.yunomi-inline-comment-editor { padding: 10px; }
+    #|tr.yunomi-inline-comment-editor-mount { padding: 0; }
+    #|tr.yunomi-inline-comment-editor-mount > td { padding: 8px 12px; }
+    #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
+    #|.yunomi-inline-comment-editor-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
+    #|.yunomi-inline-comment-context { min-width: 0; max-width: 70%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    #|.yunomi-inline-comment-editor textarea {
+    #|  box-sizing: border-box;
+    #|  width: 100%;
+    #|  min-height: 82px;
+    #|  resize: vertical;
+    #|  border: 1px solid var(--border);
+    #|  border-radius: var(--radius-sm);
+    #|  background: var(--input-bg);
+    #|  color: var(--text);
+    #|  padding: 9px 10px;
+    #|  font: inherit;
     #|}
-    #|.floating button:hover { opacity: 0.85; }
-    #|.copy-btn-float {
-    #|  position: absolute;
-    #|  top: 4px;
-    #|  right: 4px;
-    #|  z-index: 2;
-    #|  background: var(--panel-solid) !important;
-    #|  border: 1px solid var(--border) !important;
-    #|  color: var(--muted) !important;
-    #|  opacity: 0.7;
-    #|}
-    #|.copy-btn-float:hover { opacity: 1 !important; }
-    #|.card-actions-split {
-    #|  display: flex;
-    #|  justify-content: space-between !important;
-    #|  align-items: center;
-    #|  margin-top: 8px;
-    #|}
-    #|.card-actions-right {
-    #|  display: inline-flex;
-    #|  align-items: center;
-    #|  gap: 8px;
-    #|}
+    #|.yunomi-inline-comment-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+    #|.yunomi-inline-comment-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+    #|.yunomi-inline-comment-actions .icon-only { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); cursor: pointer; }
+    #|.yunomi-inline-comment-actions .primary { background: var(--accent); color: var(--text-inverse); border-color: var(--accent); }
+    #|.yunomi-inline-comment-actions .comment-action { min-height: 32px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; }
     #|.send-now-btn {
     #|  border: 1px solid var(--border);
     #|  background: var(--button-bg);
@@ -630,45 +588,9 @@ fn build_css() -> String {
     #|  padding: 4px 8px;
     #|}
     #|.danger-text:hover { color: #dc2626 !important; text-decoration: underline; }
-    #|.floating textarea {
-    #|  width: 100%;
-    #|  min-height: 70px;
-    #|  resize: vertical;
-    #|  border-radius: 8px;
-    #|  border: 1px solid var(--border);
-    #|  background: var(--input-bg);
-    #|  color: var(--text);
-    #|  padding: 10px;
-    #|  font-size: 13px;
-    #|  line-height: 1.4;
-    #|  transition: background 200ms ease, border-color 200ms ease;
-    #|}
-    #|.floating textarea:focus {
-    #|  outline: none;
-    #|  border-color: var(--accent);
-    #|}
-    #|.floating .actions {
-    #|  display: flex;
-    #|  gap: 8px;
-    #|  justify-content: flex-end;
-    #|  margin-top: 10px;
-    #|}
-    #|.floating .actions button.primary {
-    #|  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-    #|  color: var(--text-inverse);
-    #|  border: none;
-    #|  padding: 8px 18px;
-    #|  font-weight: 700;
-    #|  letter-spacing: 0.01em;
-    #|  box-shadow: var(--shadow-soft);
-    #|}
-    #|.floating .actions button.primary:hover {
-    #|  background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 100%);
-    #|  box-shadow: var(--shadow-card);
-    #|}
     #|.comment-list {
     #|  position: fixed;
-    #|  right: 14px;
+    #|  right: calc(var(--media-sidebar-offset, 0px) + 14px);
     #|  bottom: 14px;
     #|  width: 320px;
     #|  max-height: 60vh;
@@ -763,35 +685,6 @@ fn build_css() -> String {
     #|.review-loop-diff { margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
     #|.review-loop-submit-state { display: none; margin: 0 0 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; }
     #|.review-loop-submit-state.ready { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
-    #|.review-comment-inline {
-    #|  margin: 6px 20px 10px;
-    #|  max-width: min(760px, calc(100% - 40px));
-    #|  padding: 7px 10px;
-    #|  border: 1px solid var(--border);
-    #|  border-left: 4px solid var(--accent);
-    #|  border-radius: var(--radius-sm);
-    #|  background: var(--panel);
-    #|  color: var(--text);
-    #|  box-shadow: var(--shadow-soft);
-    #|  font-size: 13px;
-    #|  line-height: 1.45;
-    #|}
-    #|.diff-line + .review-comment-inline {
-    #|  margin: 6px 20px 10px 67px;
-    #|  font-family: var(--font-ui);
-    #|  white-space: normal;
-    #|}
-    #|body.diff-split .diff-line + .review-comment-inline {
-    #|  margin: 6px 20px 10px;
-    #|  max-width: calc(100% - 40px);
-    #|}
-    #|.review-comment-inline-label {
-    #|  color: var(--muted);
-    #|  font-size: 11px;
-    #|  font-weight: 700;
-    #|  margin-bottom: 2px;
-    #|}
-    #|.review-comment-inline-text { overflow-wrap: anywhere; }
     #|.comment-list.collapsed {
     #|  opacity: 0;
     #|  pointer-events: none;
@@ -2436,7 +2329,7 @@ fn build_css() -> String {
     #|  header { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 6px; padding: 8px 12px; align-items: center; }
     #|  header .meta { width: 100%; gap: 8px; }
     #|  header h1 { display: block; flex: 1 1 auto; min-width: 0; }
-    #|  header h1 .title-path { display: none; }
+    #|  header h1 .title-path { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #|  header h1 .title-file { display: block; max-width: none; }
     #|  header .actions { width: 100%; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; min-height: 34px; }
     #|  header .actions::-webkit-scrollbar { display: none; }
@@ -3015,7 +2908,9 @@ fn build_css() -> String {
     #|}
     #|.video-overlay-wrapper {
     #|  position: relative;
-    #|  display: inline-block;
+    #|  display: block;
+    #|  width: fit-content;
+    #|  max-width: 100%;
     #|}
     #|.video-fs-overlay-btn {
     #|  position: absolute;

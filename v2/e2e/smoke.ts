@@ -692,16 +692,27 @@ console.log("\n--- Session Close Ordering ---");
     const staleHealth = await httpGet(sessionPort, "/healthz");
     assert(staleHealth.status === 200, "Session Close: stale close from previous instance does not terminate the server");
 
-    const exitResult = waitForProcessExit(sessionProc, 12000);
     await httpPost(sessionPort, "/close", JSON.stringify({
       tabId,
       instanceId: newInstance,
       draft: JSON.stringify({ summary: "fresh close", comments: [{ row: 2, col: 0, text: "fresh comment" }] }),
     }));
-    const closed = await exitResult;
-    assert(closed.exited === true, "Session Close: latest instance close terminates the server");
-    assert(sessionStdout.includes("fresh comment"), "Session Close: latest instance draft is the one that gets flushed");
+    await sleep(5500);
+    const latestHealth = await httpGet(sessionPort, "/healthz");
+    assert(latestHealth.status === 200, "Session Close: latest instance close leaves the server waiting");
+    assert(!sessionStdout.includes("fresh comment"), "Session Close: close does not finalize or print the latest draft");
     assert(!sessionStdout.includes("stale comment"), "Session Close: stale instance draft is ignored");
+
+    const explicitExit = waitForProcessExit(sessionProc, 8000);
+    await httpPost(sessionPort, "/exit", JSON.stringify({
+      action: "final_request_changes",
+      decision: "request_changes",
+      summary: "explicit submit",
+      comments: [{ row: 2, col: 0, text: "explicit comment" }],
+    }));
+    const submitted = await explicitExit;
+    assert(submitted.exited === true, "Session Close: explicit Submit request terminates the server");
+    assert(sessionStdout.includes("explicit comment"), "Session Close: only the explicit Submit payload is finalized");
   } catch (err: unknown) {
     failed++;
     console.error(`  FAIL: Session close ordering test: ${(err as Error).message}`);
@@ -928,12 +939,8 @@ if (playwrightAvailable) {
     });
     assert(xssCheck.scriptTags === 0, "Browser: no <script> tags in preview (XSS safe)");
 
-    // --- Comment card image preview container exists ---
-    const imgPreview = await page.evaluate(() => !!document.getElementById("comment-image-preview"));
-    assert(imgPreview, "Browser: comment image preview container exists");
-
     // --- Comment image paste flow E2E ---
-    // In markdown mode, comment card opens via mousedown+mouseup (drag flow), not click
+    // In markdown mode, the inline editor opens via mousedown+mouseup (drag flow), not click
     // Use Playwright's mouse API to simulate the full drag interaction
     // Default view is preview-only, so reveal the source panel first
     const layoutIsPreviewOnly = await page.evaluate(() => {
@@ -947,27 +954,27 @@ if (playwrightAvailable) {
     await sourceCell.waitFor({ state: "visible", timeout: 5000 });
     const box = await sourceCell.boundingBox();
 
-    // mousedown on the cell triggers begin_drag, mouseup triggers finish_drag -> show_comment_card
+    // mousedown on the cell triggers begin_drag, mouseup triggers finish_drag
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await page.mouse.down();
     await page.mouse.up();
 
-    // Wait for comment card to become visible (display: block)
+    // Wait for the inline editor to become visible.
     await page.waitForFunction(() => {
-      const card = document.getElementById("comment-card");
+      const card = document.querySelector(".yunomi-inline-comment-editor");
       return card && getComputedStyle(card).display !== "none";
     }, { timeout: 5000 });
 
     const commentFlowResult = await page.evaluate(() => {
-      const card = document.getElementById("comment-card");
+      const card = document.querySelector(".yunomi-inline-comment-editor");
       const preview = document.getElementById("comment-image-preview");
       return {
         cardVisible: card && getComputedStyle(card).display !== "none",
         previewInCard: !!preview,
       };
     });
-    assert(commentFlowResult.cardVisible === true, "Browser: comment card opens on mousedown+mouseup");
-    assert(commentFlowResult.previewInCard === true, "Browser: comment card has image preview area");
+    assert(commentFlowResult.cardVisible === true, "Browser: inline editor opens on mousedown+mouseup");
+    assert(commentFlowResult.previewInCard === true, "Browser: inline editor has image preview area");
 
     // Dispatch a synthetic paste event with an image blob to trigger the paste handler
     const pasteResult = await page.evaluate(`(async () => {
@@ -1002,12 +1009,6 @@ if (playwrightAvailable) {
     assert(saveResult.indicatorCount >= 1, "Browser: saved comment with image shows indicator");
 
     // --- Submit via UI: click Submit & Exit, verify server receives data ---
-    // Close comment card first
-    await page.evaluate(() => {
-      const card = document.getElementById("comment-card");
-      if (card) card.style.display = "none";
-    });
-
     // Type a comment in global summary
     const globalComment = page.locator("#global-comment");
     if (await globalComment.isVisible().catch(() => false)) {
@@ -1068,7 +1069,7 @@ if (playwrightAvailable) {
     assert(bStdout.includes("image_path:") && bStdout.includes(".png"),
       "Browser Submit: per-comment image is saved and referenced by image_path");
 
-    // --- Close detection: reload must not terminate, final close must flush draft and exit ---
+    // --- Close detection: neither reload nor tab close may submit or exit ---
     const closeProc = spawn("node", [SERVER_JS, "--no-open", "--port", String(BASE_PORT + 51), TEST_MD], {
       stdio: ["ignore", "pipe", "pipe"],
       env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: LOCK_DIR, YUNOMI_REVIEW_DIR: freshReviewDir() },
@@ -1128,21 +1129,27 @@ if (playwrightAvailable) {
     await closePage.mouse.down();
     await closePage.mouse.up();
     await closePage.waitForFunction(() => {
-      const card = document.getElementById("comment-card");
+      const card = document.querySelector(".yunomi-inline-comment-editor");
       return card && getComputedStyle(card).display !== "none";
     }, { timeout: 5000 });
     await closePage.locator("#comment-input").fill("Close draft comment");
 
-    // Match close_race_regression: wait past the reload-correlation window so
-    // this final navigation is tested as a real abandon, not as the reload that
-    // happened above.
-    await closePage.waitForTimeout(4000);
-    const closedResult = waitForProcessExit(closeProc, 12000);
     await closePage.goto("about:blank", { waitUntil: "load", timeout: 30000 });
     await closePage.close();
-    const closed = await closedResult;
-    assert(closed.exited === true, "Browser Close: closing the page exits the server");
-    assert(closeStdout.includes("Close draft comment"), "Browser Close: closing flushes the in-progress draft");
+    await sleep(5500);
+    const closeHealth = await httpGet(closePort, "/healthz");
+    assert(closeHealth.status === 200, "Browser Close: closing the page leaves the server waiting");
+    assert(!closeStdout.includes("Close draft comment"), "Browser Close: closing does not finalize the in-progress draft");
+
+    const explicitCloseExit = waitForProcessExit(closeProc, 8000);
+    await httpPost(closePort, "/exit", JSON.stringify({
+      action: "final_request_changes",
+      decision: "request_changes",
+      summary: "explicit browser-close cleanup",
+      comments: [{ row: 1, col: 0, text: "Explicit browser close submit" }],
+    }));
+    const closed = await explicitCloseExit;
+    assert(closed.exited === true, "Browser Close: explicit Submit request exits the server");
 
     await browser.close();
     try { browserProc.kill("SIGKILL"); } catch (_: unknown) {}

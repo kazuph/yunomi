@@ -49,14 +49,12 @@ test "csv compat: quoted fields" {
     result[1][0],
     content=(
       #|"John Doe"
-
     ),
   )
   debug_inspect(
     result[1][1],
     content=(
       #|"A simple description"
-
     ),
   )
 }
@@ -76,14 +74,12 @@ test "csv compat: escaped quotes rfc4180" {
     result[1][0],
     content=(
       #|"He said \"Hello\""
-
     ),
   )
   debug_inspect(
     result[2][0],
     content=(
       #|"Normal text"
-
     ),
   )
 }
@@ -149,14 +145,12 @@ test "csv compat: newlines in quoted fields" {
     result[1][1],
     content=(
       #|"123 Main St\nApt 4"
-
     ),
   )
   debug_inspect(
     result[2][1],
     content=(
       #|"456 Oak Ave"
-
     ),
   )
 }
@@ -251,14 +245,12 @@ test "csv compat: comma in quoted field" {
     result[1][0],
     content=(
       #|"Smith, John"
-
     ),
   )
   debug_inspect(
     result[2][0],
     content=(
       #|"Doe, Jane"
-
     ),
   )
 }
@@ -359,7 +351,6 @@ test "csv compat: complex escaped quotes" {
     result[1][0],
     content=(
       #|"He said \"Hello\" and then \"Goodbye\""
-
     ),
   )
 }
@@ -379,14 +370,12 @@ test "csv compat: tab separator with quoted fields" {
     result[1][0],
     content=(
       #|"John Doe"
-
     ),
   )
   debug_inspect(
     result[1][1],
     content=(
       #|"A\ttab\tin\ttext"
-
     ),
   )
   debug_inspect(

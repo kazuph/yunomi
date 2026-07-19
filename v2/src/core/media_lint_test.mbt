@@ -8,14 +8,12 @@ test "plain media link is a violation" {
     v[0].snippet,
     content=(
       #|"[demo](videos/demo.webm)"
-
     ),
   )
   debug_inspect(
     v[0].fixed,
     content=(
       #|"![demo](videos/demo.webm)"
-
     ),
   )
 }
@@ -48,7 +46,6 @@ test "link with query and fragment still detected" {
     v[0].fixed,
     content=(
       #|"![v](movie.mp4?t=10#frag)"
-
     ),
   )
 }

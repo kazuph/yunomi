@@ -264,28 +264,22 @@ try {
     await withPage(BASE_PORT + 8, async (page) => {
       const line0 = page.locator('.text-line[data-row="0"]');
       await line0.click();
-      await page.waitForSelector("#comment-card", { state: "visible" });
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
       const previewText = (await page.locator("#cell-preview").textContent()) || "";
-      await page.locator("#copy-selection").click();
-      const copiedToast = await page.waitForFunction(
-        () => Array.from(document.body.children).some((el) => el.textContent === "Copied!"),
-        undefined,
-        { timeout: 3000 },
-      ).then(() => true).catch(() => false);
       await page.locator("#comment-input").fill("comment lifecycle");
       await page.locator("#save-comment").click();
       await page.waitForTimeout(150);
       const saved = await page.locator('.text-line[data-row="0"].has-comment').count();
       const countAfterSave = await page.locator("#comment-count").textContent();
       await line0.click();
-      await page.waitForSelector("#comment-card", { state: "visible" });
-      await page.locator("#clear-comment").click();
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      await page.locator("#comment-input").fill("");
+      await page.locator("#save-comment").click();
       await page.waitForTimeout(150);
       const deleted = await page.locator('.text-line[data-row="0"].has-comment').count();
       const countAfterDelete = await page.locator("#comment-count").textContent();
-      assert(previewText.length > 0 && copiedToast && saved === 1 && countAfterSave === "1" && deleted === 0 && countAfterDelete === "0", "コメントの保存・コピー・削除が機能する", {
+      assert(previewText.length > 0 && saved === 1 && countAfterSave === "1" && deleted === 0 && countAfterDelete === "0", "コメントの保存・空保存削除が機能する", {
         previewText,
-        copiedToast,
         saved,
         countAfterSave,
         deleted,
@@ -303,9 +297,9 @@ try {
       await page.mouse.move(third.x + 20, third.y + third.height / 2, { steps: 6 });
       const selectedDuringDrag = await page.locator(".text-line.selected").count();
       await page.mouse.up();
-      await page.waitForSelector("#comment-card", { state: "visible" });
-      const cardVisible = await page.locator("#comment-card").isVisible();
-      assert(selectedDuringDrag >= 2 && cardVisible, "ドラッグ選択で複数行が選択されコメントカードが開く", {
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      const cardVisible = await page.locator(".yunomi-inline-comment-editor").isVisible();
+      assert(selectedDuringDrag >= 2 && cardVisible, "ドラッグ選択で複数行が選択されインライン編集が開く", {
         selectedDuringDrag,
         cardVisible,
       });

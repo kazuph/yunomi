@@ -27,14 +27,12 @@ test "diff compat: simple unified diff with all metadata" {
     data.files[0].old_path,
     content=(
       #|"file.txt"
-
     ),
   )
   debug_inspect(
     data.files[0].new_path,
     content=(
       #|"file.txt"
-
     ),
   )
   debug_inspect(
@@ -104,7 +102,6 @@ test "diff compat: new file detection" {
     data.files[0].new_path,
     content=(
       #|"newfile.txt"
-
     ),
   )
   debug_inspect(
@@ -161,7 +158,6 @@ test "diff compat: deleted file detection" {
     data.files[0].old_path,
     content=(
       #|"deleted.txt"
-
     ),
   )
   debug_inspect(
@@ -225,7 +221,6 @@ test "diff compat: hunk context extraction" {
     data.files[0].hunks[0].context,
     content=(
       #|" function example() {"
-
     ),
   )
 }
@@ -248,7 +243,6 @@ test "diff compat: binary file detection" {
     data.files[0].new_path,
     content=(
       #|"image.png"
-
     ),
   )
   debug_inspect(
@@ -294,14 +288,12 @@ test "diff compat: multiple files with git prefix" {
     data.files[0].new_path,
     content=(
       #|"file1.txt"
-
     ),
   )
   debug_inspect(
     data.files[1].new_path,
     content=(
       #|"file2.txt"
-
     ),
   )
   debug_inspect(
@@ -346,14 +338,12 @@ test "diff compat: japanese characters" {
     data.files[0].hunks[0].lines[1].content,
     content=(
       #|"古いテキスト"
-
     ),
   )
   debug_inspect(
     data.files[0].hunks[0].lines[2].content,
     content=(
       #|"新しいテキスト"
-
     ),
   )
 }
@@ -468,14 +458,12 @@ test "diff compat: file paths with spaces" {
     data.files[0].old_path,
     content=(
       #|"path with spaces/file.txt"
-
     ),
   )
   debug_inspect(
     data.files[0].new_path,
     content=(
       #|"path with spaces/file.txt"
-
     ),
   )
 }
