@@ -175,24 +175,23 @@ async function main(): Promise<void> {
       cellButtonInfo,
     );
 
-    // --- 2. Non-cell pencils are hover/focus-only (opacity 0 -> 1) ---
+    // --- 2. Image pencils are hover/focus-only (opacity 0 -> 1) ---
     const hostForHover = page
       .locator(
-        "#md-preview p.yunomi-commentable:has(> .yunomi-comment-button), " +
-          "#md-preview li.yunomi-commentable:has(> .yunomi-comment-button)",
+        "#md-preview .yunomi-media-comment-host:has(> img):has(> .yunomi-comment-button)",
       )
       .first();
     await hostForHover.scrollIntoViewIfNeeded();
     const hoveredHost = await hostForHover.elementHandle();
-    if (!hoveredHost) throw new Error("commentable paragraph is missing");
+    if (!hoveredHost) throw new Error("commentable image host is missing");
     const paragraphButton = await hoveredHost.$(":scope > .yunomi-comment-button");
-    if (!paragraphButton) throw new Error("commentable paragraph button is missing");
+    if (!paragraphButton) throw new Error("commentable image button is missing");
     const paragraphOpacityBefore = await paragraphButton.evaluate(
       (button) => getComputedStyle(button).opacity,
     );
     assert(
       paragraphOpacityBefore === "0",
-      "段落等の鉛筆はデフォルトで非表示(opacity:0)",
+      "画像の鉛筆はデフォルトで非表示(opacity:0)",
       { paragraphOpacityBefore },
     );
     const hoverRulePresent = await page.evaluate(() =>
@@ -208,7 +207,7 @@ async function main(): Promise<void> {
     );
     assert(
       hoverRulePresent,
-      "段落等の鉛筆にはhoverで表示するCSS規則が配信される",
+      "画像の鉛筆にはhoverで表示するCSS規則が配信される",
       { hoverRulePresent },
     );
     await paragraphButton.focus();
@@ -219,7 +218,7 @@ async function main(): Promise<void> {
     );
     assert(
       paragraphOpacityFocus === "1",
-      "段落等の鉛筆はキーボードfocusでopacity:1になる",
+      "画像の鉛筆はキーボードfocusでopacity:1になる",
       { paragraphOpacityFocus },
     );
 

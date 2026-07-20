@@ -2824,6 +2824,8 @@ fn build_css() -> String {
     #|.yunomi-commentable {
     #|  position: relative;
     #|}
+    #|.yunomi-media-comment-host { display: inline-block; max-width: 100%; line-height: 0; position: relative; vertical-align: top; }
+    #|.yunomi-media-comment-host > img { display: block; max-width: 100%; }
     #|.yunomi-comment-button {
     #|  position: absolute;
     #|  top: 6px;
@@ -2852,6 +2854,8 @@ fn build_css() -> String {
     #|  transform: translateY(-1px);
     #|  background: #fff;
     #|}
+    #|.yunomi-media-comment-host:hover > .yunomi-comment-button,
+    #|.yunomi-media-comment-host > .yunomi-comment-button:focus { transform: none; }
     #|.md-preview .video-timeline .timeline-thumb-wrapper.yunomi-commentable {
     #|  position: relative;
     #|}

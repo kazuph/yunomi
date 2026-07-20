@@ -156,13 +156,12 @@ async function main(): Promise<void> {
       const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("#md-preview .yunomi-comment-button"));
       const normalHosts = buttons.filter((button) => {
         const host = button.parentElement;
-        return !host?.matches(".video-overlay-wrapper,.mermaid-container,.timeline-thumb-wrapper") &&
-          !host?.querySelector(":scope > img:not(.timeline-thumb)");
+        return !host?.matches(".yunomi-media-comment-host,.video-overlay-wrapper,.mermaid-container,.timeline-thumb-wrapper");
       });
       return {
         markdown: normalHosts.length > 0,
         normalHosts: normalHosts.map((button) => button.parentElement?.outerHTML.slice(0, 180) || ""),
-        image: !!document.querySelector("#md-preview img:not(.timeline-thumb)")?.parentElement?.querySelector(":scope > .yunomi-comment-button"),
+        image: !!document.querySelector("#md-preview .yunomi-media-comment-host > img:not(.timeline-thumb)")?.parentElement?.querySelector(":scope > .yunomi-comment-button"),
         video: !!document.querySelector("#md-preview .video-overlay-wrapper > .yunomi-comment-button"),
         mermaid: !!document.querySelector("#md-preview .mermaid-container > .yunomi-comment-button"),
         mermaidFullscreenButtons: document.querySelectorAll("#md-preview .mermaid-fullscreen-btn").length,
@@ -185,6 +184,19 @@ async function main(): Promise<void> {
     });
     const imageCard = await cardState(page);
     assert(imageCard.visible && imageCard.preview.length > 0, "画像右上のコメントアイコンでコメントカードが開く", imageCard);
+    const imageButtonGeometry = await page.locator("#md-preview .yunomi-media-comment-host > img:not(.timeline-thumb)").first().evaluate((img) => {
+      const button = img.parentElement?.querySelector<HTMLElement>(":scope > .yunomi-comment-button");
+      const image = img.getBoundingClientRect();
+      const host = img.parentElement?.getBoundingClientRect();
+      const control = button?.getBoundingClientRect();
+      return {
+        inside: !!control && control.left >= image.left && control.top >= image.top && control.right <= image.right && control.bottom <= image.bottom,
+        image: { left: image.left, top: image.top, right: image.right, bottom: image.bottom },
+        host: host && { left: host.left, top: host.top, right: host.right, bottom: host.bottom },
+        control: control && { left: control.left, top: control.top, right: control.right, bottom: control.bottom },
+      };
+    });
+    assert(imageButtonGeometry.inside, "画像のコメントアイコンは画像本体の右上に収まり、親段落や表セルへは広がらない", imageButtonGeometry);
     await closeCard(page);
 
     await page.locator("#md-preview .mermaid-container > .yunomi-comment-button").first().click();

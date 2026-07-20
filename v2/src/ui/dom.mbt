@@ -1564,6 +1564,8 @@ extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|  }
   #|  const timeline = el.closest?.(".timeline-thumb-wrapper");
   #|  if (timeline) return timeline;
+  #|  const image = el.closest?.("img:not(.timeline-thumb)");
+  #|  if (image?.parentElement?.classList.contains("yunomi-media-comment-host")) return image.parentElement;
   #|  const media = el.closest?.("img:not(.timeline-thumb),video.video-preview,.mermaid-container,td,th");
   #|  if (media?.closest?.("[data-source-line],[data-source-start-line]")) return media;
   #|  return el.closest?.("[data-source-line],[data-source-start-line]");
@@ -1633,7 +1635,18 @@ extern "js" fn install_preview_comment_buttons(
   #|    if (!target) return null;
   #|    if (target.classList?.contains("timeline-thumb-wrapper")) return target;
   #|    if (target.matches?.("video.video-preview")) return target.closest(".video-overlay-wrapper") || target.parentElement;
-  #|    if (target.matches?.("img:not(.timeline-thumb)")) return target.parentElement;
+  #|    if (target.matches?.("img:not(.timeline-thumb)")) {
+  #|      if (target.parentElement?.classList.contains("yunomi-media-comment-host")) return target.parentElement;
+  #|      const host = document.createElement("span");
+  #|      host.className = "yunomi-media-comment-host";
+  #|      ["data-source-line", "data-source-start-line", "data-source-end-line"].forEach((name) => {
+  #|        const value = target.getAttribute(name);
+  #|        if (value) host.setAttribute(name, value);
+  #|      });
+  #|      target.parentNode?.insertBefore(host, target);
+  #|      host.appendChild(target);
+  #|      return host;
+  #|    }
   #|    return target;
   #|  };
   #|  const decorate = () => {
