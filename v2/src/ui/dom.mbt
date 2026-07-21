@@ -1167,6 +1167,27 @@ extern "js" fn get_active_element() -> Element =
   #|() => document.activeElement
 
 ///|
+extern "js" fn comment_target_description(target : Element) -> String =
+  #|(target) => {
+  #|  if (!target) return "";
+  #|  const image = target.matches?.("img:not(.timeline-thumb)")
+  #|    ? target
+  #|    : target.querySelector?.("img:not(.timeline-thumb)")
+  #|      || target.closest?.(".yunomi-media-comment-host")?.querySelector("img:not(.timeline-thumb)");
+  #|  if (image) return `image (alt="${image.getAttribute("alt") || ""}" src="${image.getAttribute("src") || ""}")`;
+  #|  const video = target.matches?.("video.video-preview")
+  #|    ? target
+  #|    : target.querySelector?.("video.video-preview") || target.closest?.(".video-overlay-wrapper")?.querySelector("video.video-preview");
+  #|  if (video) return `video (title="${video.getAttribute("title") || ""}" src="${video.getAttribute("src") || ""}")`;
+  #|  if (target.matches?.(".timeline-thumb-wrapper") || target.closest?.(".timeline-thumb-wrapper")) {
+  #|    const thumb = target.matches?.(".timeline-thumb-wrapper") ? target : target.closest(".timeline-thumb-wrapper");
+  #|    return `video frame (${thumb?.textContent?.trim() || "unknown time"})`;
+  #|  }
+  #|  if (target.matches?.(".mermaid-container") || target.closest?.(".mermaid-container")) return "Mermaid diagram";
+  #|  return "";
+  #|}
+
+///|
 extern "js" fn blur_active_element() -> Unit =
   #|() => document.activeElement?.blur?.()
 

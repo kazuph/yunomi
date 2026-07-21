@@ -151,6 +151,13 @@ async function main(): Promise<void> {
     });
     await page.goto(`http://127.0.0.1:${port}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#md-preview .yunomi-comment-button", { timeout: 10000 });
+    await page.evaluate(() => {
+      const events: string[] = [];
+      const stream = new EventSource(`${location.origin}/sse`);
+      stream.addEventListener("send-now", (event) => events.push((event as MessageEvent).data));
+      (window as unknown as { __imageCommentEvents: string[]; __imageCommentStream: EventSource }).__imageCommentEvents = events;
+      (window as unknown as { __imageCommentEvents: string[]; __imageCommentStream: EventSource }).__imageCommentStream = stream;
+    });
 
     const buttonSummary = await page.evaluate(() => {
       const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("#md-preview .yunomi-comment-button"));
@@ -221,7 +228,18 @@ async function main(): Promise<void> {
       };
     });
     assert(imageButtonGeometry.inside, "画像のコメントアイコンは画像本体の右上に収まり、親段落や表セルへは広がらない", imageButtonGeometry);
-    await closeCard(page);
+    await page.locator(".yunomi-inline-comment-editor #comment-input").fill("image payload check");
+    await page.locator("#send-now-comment").click();
+    await page.waitForFunction(() => ((window as unknown as { __imageCommentEvents?: string[] }).__imageCommentEvents || []).length > 0);
+    const imagePayload = await page.evaluate(() => {
+      const events = (window as unknown as { __imageCommentEvents: string[] }).__imageCommentEvents;
+      return JSON.parse(events[events.length - 1]);
+    });
+    assert(
+      imagePayload.target === 'image (alt="Before" src="./assets/screenshot-before.png")',
+      "画像コメントの即時送信は画像種別・alt・URLをSSEへ含める",
+      imagePayload,
+    );
 
     await page.locator("#md-preview .mermaid-container > .yunomi-comment-button").first().click();
     const mermaidCard = await cardState(page);

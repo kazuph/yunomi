@@ -1149,6 +1149,11 @@ fn send_comment_to_server(
   buf.write_string(json_encode_string(text))
   buf.write_string(",\"key\":")
   buf.write_string(json_encode_string(key))
+  let target = comment_target_description(selected_comment_el.val)
+  if target.length() > 0 {
+    buf.write_string(",\"target\":")
+    buf.write_string(json_encode_string(target))
+  }
   if has_image {
     buf.write_string(",\"hasImage\":true")
   }

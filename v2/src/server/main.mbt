@@ -2775,6 +2775,11 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     buf.write_string(json_encode_value(author))
   }
   let has_image = json_parse_string("hasImage", body)
+  let target = json_parse_string("target", body)
+  if target.length() > 0 {
+    buf.write_string(",\"target\":")
+    buf.write_string(json_encode_value(target))
+  }
   if has_image == "true" {
     buf.write_string(",\"hasImage\":true")
   }
@@ -2783,7 +2788,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   if text.length() > 0 && event_type == "send-now" && ctx.file_path != "<stdin>" {
     let line = json_parse_int_field("row", body) + 1
     let id = if key.length() > 0 { key } else { "draft" }
-    update_review_on_send_now(ctx.file_path, id, line, text)
+    update_review_on_send_now(ctx.file_path, id, line, text, target)
   }
   if text.length() > 0 && event_type == "comment" && key.has_prefix("cli-") &&
     ctx.file_path != "<stdin>" {
@@ -2796,11 +2801,12 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     let round = if ctx.file_path == "<stdin>" { 1 } else { current_review_round(ctx.file_path) }
     let id = if key.length() > 0 { key } else { "draft" }
     let label = if event_type == "send-now" { "send-now" } else { "comment" }
+    let target_suffix = if target.length() > 0 { " target=" + target } else { "" }
     notify_reviewer(
       ctx,
       "[yunomi] " + label + " " + ctx.filename + ":" + line.to_string() +
       " id=" + id + " round=" + round.to_string() + " " +
-      json_encode_value(text) + " url=" + review_url(ctx),
+      json_encode_value(text) + target_suffix + " url=" + review_url(ctx),
     )
   }
   // Notify SSE clients about the comment event

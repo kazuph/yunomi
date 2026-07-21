@@ -1670,8 +1670,9 @@ extern "js" fn js_review_send_now_update(
   context_before : String,
   context_after : String,
   round : Int,
+  target : String,
 ) -> String =
-  #|(json, file, id, line, text, snippet, before, after, round) => {
+  #|(json, file, id, line, text, snippet, before, after, round, target) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -1694,6 +1695,7 @@ extern "js" fn js_review_send_now_update(
   #|    selector: "",
   #|    bounds: "",
   #|    element_text: String(snippet || ""),
+  #|    target: String(target || ""),
   #|    attachments: []
   #|  };
   #|  if (existing) {
@@ -1727,7 +1729,7 @@ extern "js" fn js_review_send_now_update(
   #|}
 
 ///|
-fn update_review_on_send_now(file_path : String, id : String, line : Int, text : String) -> Unit {
+fn update_review_on_send_now(file_path : String, id : String, line : Int, text : String, target : String) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
   let source_lines = @core.split_to_lines(read_file_safe(file_path))
@@ -1747,6 +1749,7 @@ fn update_review_on_send_now(file_path : String, id : String, line : Int, text :
       before,
       after,
       current_review_round(file_path),
+      target,
     ),
   )
 }
