@@ -187,7 +187,7 @@ fn open_inline_comment_editor(
     row,
     col,
     editor_text.val,
-    if comment_value.has_prefix("Video ") {
+    if comment_value.has_prefix("Video ") || comment_value.has_prefix("Image alt=") {
       comment_value
     } else {
       resolve_comment_target_preview(target)
@@ -317,6 +317,16 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
   let wrapped_video = query_in(target, "video.video-preview")
   if !is_null(wrapped_video) {
     return build_comment_value(wrapped_video, row, col)
+  }
+  let image = if tag == "IMG" {
+    target
+  } else {
+    query_in(target, "img:not(.timeline-thumb)")
+  }
+  if !is_null(image) {
+    let alt = get_attr(image, "alt")
+    let src = get_attr(image, "src")
+    return "Image alt=\"" + alt + "\" src=\"" + src + "\" | source: " + source_line
   }
   if col > 0 {
     let cell_text = resolve_comment_target_preview(target)

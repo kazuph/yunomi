@@ -214,7 +214,31 @@ async function main(): Promise<void> {
       img.parentElement?.querySelector<HTMLButtonElement>(":scope > .yunomi-comment-button")?.click();
     });
     const imageCard = await cardState(page);
-    assert(imageCard.visible && imageCard.preview.length > 0, "画像右上のコメントアイコンでコメントカードが開く", imageCard);
+    assert(
+      imageCard.visible && imageCard.preview.includes('Image alt="Before" src="./assets/screenshot-before.png"'),
+      "画像右上のコメントカードは画像種別・alt・URLを示す",
+      imageCard,
+    );
+    await page.keyboard.type("keyboard image comment");
+    const imageEditorInput = await page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>(".yunomi-inline-comment-editor #comment-input");
+      const editor = input?.closest<HTMLElement>(".yunomi-inline-comment-editor");
+      const image = document.querySelector<HTMLElement>("#md-preview img[alt='Before']");
+      const editorRect = editor?.getBoundingClientRect();
+      const imageRect = image?.getBoundingClientRect();
+      return {
+        focus: document.activeElement?.id || "",
+        value: input?.value || "",
+        editorBelowImage: !!editorRect && !!imageRect && editorRect.top >= imageRect.bottom,
+      };
+    });
+    assert(
+      imageEditorInput.focus === "comment-input" &&
+        imageEditorInput.value === "keyboard image comment" &&
+        imageEditorInput.editorBelowImage,
+      "画像コメントのエディタは画像直下でフォーカスを受け、実キーボード入力できる",
+      imageEditorInput,
+    );
     const imageButtonGeometry = await page.locator("#md-preview .yunomi-media-comment-host > img:not(.timeline-thumb)").first().evaluate((img) => {
       const button = img.parentElement?.querySelector<HTMLElement>(":scope > .yunomi-comment-button");
       const image = img.getBoundingClientRect();
