@@ -1286,6 +1286,7 @@ fn is_allowed_tag(tag : String) -> Bool {
     | "i"
     | "em"
     | "strong"
+    | "mark"
     | "code"
     | "br"
     | "a"

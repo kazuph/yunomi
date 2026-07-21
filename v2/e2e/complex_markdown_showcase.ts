@@ -158,6 +158,19 @@ try {
   });
   assert(missingAnchors.length === 0, "every rendered showcase block has a source-line anchor", missingAnchors);
 
+  const rawHtmlState = await page.evaluate(() => {
+    const block = document.querySelector<HTMLElement>("#md-preview .markdown-html-block");
+    return {
+      markText: block?.querySelector("mark")?.textContent || "",
+      escapedMarkIsVisible: block?.textContent?.includes("<mark>") || false,
+    };
+  });
+  assert(
+    rawHtmlState.markText === "highlight" && !rawHtmlState.escapedMarkIsVisible,
+    "raw HTML inline mark renders as highlighted content instead of source text",
+    rawHtmlState,
+  );
+
   const closedSummary = page.locator('#md-preview summary:not(.heading-summary):has-text("Closed: 任意で開く詳細")');
   await closedSummary.click();
   const nativeSummaryState = {

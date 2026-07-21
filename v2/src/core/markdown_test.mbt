@@ -744,7 +744,7 @@ test "markdown coverage: table rows and cells carry source anchors" {
 ///|
 test "markdown coverage: details, raw html, media, unicode, and sanitization" {
   let md = parse_markdown(
-    "<details>\n<summary>詳細</summary>\n\n本文 🐈\n</details>\n\n<div class=\"note\">raw</div>\n\n![画像](cat.png)\n\n<script>alert('x')</script>",
+    "<details>\n<summary>詳細</summary>\n\n本文 🐈\n</details>\n\n<div class=\"note\"><p>raw <mark>highlight</mark></p></div>\n\n![画像](cat.png)\n\n<script>alert('x')</script>",
   )
   debug_inspect(
     md.html.contains(
@@ -762,6 +762,8 @@ test "markdown coverage: details, raw html, media, unicode, and sanitization" {
     ),
     content="true",
   )
+  debug_inspect(md.html.contains("raw <mark>highlight</mark>"), content="true")
+  debug_inspect(md.html.contains("&lt;mark&gt;"), content="false")
   debug_inspect(
     md.html.contains(
       "<p data-source-start-line=\"9\" data-source-end-line=\"9\"><img",
