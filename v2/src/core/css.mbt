@@ -2855,23 +2855,6 @@ fn build_css() -> String {
     #|  justify-content: center;
     #|  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
     #|}
-    #|.yunomi-comment-button-label {
-    #|  position: absolute;
-    #|  top: calc(100% + 6px);
-    #|  right: 0;
-    #|  padding: 4px 6px;
-    #|  border-radius: 4px;
-    #|  background: rgba(20, 26, 36, 0.92);
-    #|  color: #fff;
-    #|  font-size: 12px;
-    #|  font-weight: 600;
-    #|  line-height: 1.2;
-    #|  white-space: nowrap;
-    #|  pointer-events: none;
-    #|  opacity: 0;
-    #|  transform: translateY(-2px);
-    #|  transition: opacity 0.12s ease, transform 0.12s ease;
-    #|}
     #|.yunomi-commentable:hover > .yunomi-comment-button,
     #|.yunomi-comment-button:focus {
     #|  opacity: 1;
@@ -2880,11 +2863,6 @@ fn build_css() -> String {
     #|}
     #|.yunomi-media-comment-host:hover > .yunomi-comment-button,
     #|.yunomi-media-comment-host > .yunomi-comment-button:focus { transform: none; }
-    #|.yunomi-commentable:hover > .yunomi-comment-button .yunomi-comment-button-label,
-    #|.yunomi-comment-button:focus .yunomi-comment-button-label {
-    #|  opacity: 1;
-    #|  transform: translateY(0);
-    #|}
     #|.md-preview .video-timeline .timeline-thumb-wrapper.yunomi-commentable {
     #|  position: relative;
     #|}

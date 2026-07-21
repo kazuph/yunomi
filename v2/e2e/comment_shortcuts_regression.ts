@@ -188,25 +188,18 @@ async function main(): Promise<void> {
 
     const imageButton = page.locator("#md-preview .yunomi-media-comment-host > img:not(.timeline-thumb)").first().locator("..").locator(":scope > .yunomi-comment-button");
     await imageButton.hover();
-    await page.waitForFunction(() => {
-      const label = document.querySelector<HTMLElement>("#md-preview .yunomi-media-comment-host > .yunomi-comment-button .yunomi-comment-button-label");
-      return !!label && getComputedStyle(label).opacity === "1";
-    });
     const imageAffordance = await imageButton.evaluate((button) => {
-      const label = button.querySelector<HTMLElement>(".yunomi-comment-button-label");
       return {
         ariaLabel: button.getAttribute("aria-label"),
         title: button.getAttribute("title"),
-        caption: label?.textContent,
-        visible: !!label && getComputedStyle(label).opacity === "1",
+        captions: button.querySelectorAll(".yunomi-comment-button-label").length,
       };
     });
     assert(
       imageAffordance.ariaLabel === "Comment on image" &&
-        imageAffordance.title === "Comment on image" &&
-        imageAffordance.caption === "Comment on image" &&
-        imageAffordance.visible,
-      "画像ホバー時に画像コメントだと分かるラベルを表示する",
+        imageAffordance.title === null &&
+        imageAffordance.captions === 0,
+      "画像コメントの対象名は支援技術だけに提供し、画面には重ねて表示しない",
       imageAffordance,
     );
 

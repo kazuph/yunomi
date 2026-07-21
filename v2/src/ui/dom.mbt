@@ -1693,12 +1693,7 @@ extern "js" fn install_preview_comment_buttons(
   #|            ? "diagram"
   #|            : "video frame";
   #|      const label = `Comment on ${subject}`;
-  #|      btn.title = label;
   #|      btn.setAttribute("aria-label", label);
-  #|      const caption = document.createElement("span");
-  #|      caption.className = "yunomi-comment-button-label";
-  #|      caption.textContent = label;
-  #|      btn.appendChild(caption);
   #|      btn.__yunomiCommentTarget = target;
   #|      btn.addEventListener("click", (e) => {
   #|        e.preventDefault();
