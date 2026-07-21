@@ -1664,8 +1664,20 @@ extern "js" fn install_preview_comment_buttons(
   #|      btn.type = "button";
   #|      btn.className = "yunomi-comment-button";
   #|      btn.textContent = "✎";
-  #|      btn.title = "Comment";
-  #|      btn.setAttribute("aria-label", "Comment");
+  #|      const subject = target.matches?.("img:not(.timeline-thumb)")
+  #|        ? "image"
+  #|        : target.matches?.("video.video-preview")
+  #|          ? "video"
+  #|          : target.classList?.contains("mermaid-container")
+  #|            ? "diagram"
+  #|            : "video frame";
+  #|      const label = `Comment on ${subject}`;
+  #|      btn.title = label;
+  #|      btn.setAttribute("aria-label", label);
+  #|      const caption = document.createElement("span");
+  #|      caption.className = "yunomi-comment-button-label";
+  #|      caption.textContent = label;
+  #|      btn.appendChild(caption);
   #|      btn.__yunomiCommentTarget = target;
   #|      btn.addEventListener("click", (e) => {
   #|        e.preventDefault();

@@ -479,6 +479,10 @@ pub fn init_app() -> Unit {
   if !is_null(pill_comments) {
     on(pill_comments, "click", fn(_e) { toggle_comment_list_panel() })
   }
+  let comment_list_minimize = query("#comment-list-minimize")
+  if !is_null(comment_list_minimize) {
+    on(comment_list_minimize, "click", fn(_e) { hide_comment_list_panel() })
+  }
   // Setup click handlers based on mode
   match mode {
     "csv" | "tsv" => {
@@ -1016,6 +1020,14 @@ fn toggle_comment_list_panel() -> Unit {
   if has_class(panel, "collapsed") {
     remove_class(panel, "collapsed")
   } else {
+    add_class(panel, "collapsed")
+  }
+}
+
+///|
+fn hide_comment_list_panel() -> Unit {
+  let panel = query(".comment-list")
+  if !is_null(panel) {
     add_class(panel, "collapsed")
   }
 }

@@ -166,6 +166,37 @@ test "parse markdown links" {
 }
 
 ///|
+test "parse markdown reference links and footnotes" {
+  let md = parse_markdown(
+    "See [Yunomi][yunomi] with a note[^design].\n\n[^design]: Keeps source anchors stable.\n\n[yunomi]: https://github.com/kazuph/yunomi",
+  )
+  debug_inspect(
+    md.html.contains("<a href=\"https://github.com/kazuph/yunomi\">Yunomi</a>"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains("href=\"#footnote-design\">[design]</a>"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    md.html.contains("<section class=\"footnotes\""),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    !md.html.contains("[yunomi]: https://github.com/kazuph/yunomi"),
+    content=(
+      #|true
+    ),
+  )
+}
+
+///|
 test "parse markdown images" {
   let md = parse_markdown("![alt text](image.png)")
   debug_inspect(

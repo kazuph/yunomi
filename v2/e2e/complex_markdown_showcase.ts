@@ -150,6 +150,7 @@ try {
     if (!preview) return ["missing #md-preview"];
     return Array.from(preview.querySelectorAll<HTMLElement>(`:scope :is(${selector})`))
       .filter((element) => !element.closest(".markdown-html-block") || element.classList.contains("markdown-html-block"))
+      .filter((element) => !element.closest(".footnotes"))
       .filter((element) => !element.closest(".fullscreen-overlay,.image-fullscreen-overlay,.video-fullscreen-overlay"))
       .filter((element) => !element.matches("details.heading-toggle,summary.heading-summary"))
       .filter((element) => !element.hasAttribute("data-source-line") && !element.hasAttribute("data-source-start-line"))
@@ -183,6 +184,21 @@ try {
     const opened = await openAndCancelEditor(page, selector);
     assert(opened, `${name} accepts an inline comment`);
   }
+  const footnoteState = await page.evaluate(() => ({
+    reference: Array.from(document.querySelectorAll<HTMLAnchorElement>('#md-preview a[href="https://github.com/kazuph/yunomi"]'))
+      .find((link) => link.textContent === "Yunomi")?.textContent || "",
+    footnoteReference: document.querySelector('#md-preview .footnote-ref a[href="#footnote-design"]')?.textContent || "",
+    footnoteText: document.querySelector("#md-preview .footnotes")?.textContent || "",
+    rawDefinition: Array.from(document.querySelectorAll("#md-preview p")).some((paragraph) => paragraph.textContent?.includes("[yunomi]:")),
+  }));
+  assert(
+    footnoteState.reference === "Yunomi" &&
+      footnoteState.footnoteReference === "[design]" &&
+      footnoteState.footnoteText.includes("行番号はMarkdown生成時に") &&
+      !footnoteState.rawDefinition,
+    "reference links and footnotes render as links instead of source syntax",
+    footnoteState,
+  );
   await page.waitForFunction(() => document.querySelectorAll("#md-preview .video-timeline .timeline-thumb-wrapper").length >= 2, undefined, { timeout: 20_000 });
   const videoState = await page.evaluate(() => {
     const video = document.querySelector<HTMLVideoElement>("#md-preview video.video-preview");

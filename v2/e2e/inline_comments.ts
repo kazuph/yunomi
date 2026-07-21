@@ -234,6 +234,11 @@ try {
     return { panelRight: panelRect.right, sidebarLeft: sidebarRect.left, cssOffset: getComputedStyle(document.documentElement).getPropertyValue("--media-sidebar-offset") };
   });
   assert(expandedLayout !== null && expandedLayout.panelRight <= expandedLayout.sidebarLeft, "Comments panel stays clear of the expanded media sidebar", expandedLayout);
+  await page.locator("#comment-list-minimize").click();
+  assert(await page.locator(".comment-list.collapsed").count() === 1, "Comments panel can be minimized without deleting comments");
+  await page.locator("#pill-comments").click();
+  await page.waitForSelector(".comment-list:not(.collapsed)", { state: "visible" });
+  assert(await page.locator("#comment-list li[data-key]").count() > 0, "Minimized Comments panel restores its existing comments");
   if (EVIDENCE_DIR) {
     await page.screenshot({ path: join(EVIDENCE_DIR, "04-comments-clear-media-sidebar.png"), fullPage: true });
   }

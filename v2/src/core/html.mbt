@@ -295,7 +295,7 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
 ///|
 fn build_comment_list_aside(buf : StringBuilder) -> Unit {
   buf.write_string("<aside class=\"comment-list collapsed\">")
-  buf.write_string("<h3>Comments</h3>")
+  buf.write_string("<div class=\"comment-list-header\"><h3>Comments</h3><button type=\"button\" class=\"comment-list-minimize\" id=\"comment-list-minimize\" title=\"Minimize comments\" aria-label=\"Minimize comments\">Minimize</button></div>")
   buf.write_string("<ol id=\"comment-list\"></ol>")
   buf.write_string(
     "<p class=\"hint\">Click \"Submit review\" to send pending comments and stop the server.</p>",

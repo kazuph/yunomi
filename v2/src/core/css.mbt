@@ -603,7 +603,10 @@ fn build_css() -> String {
     #|  backdrop-filter: blur(6px);
     #|  transition: opacity 120ms ease, transform 120ms ease, background 200ms ease;
     #|}
-    #|.comment-list h3 { margin: 0 0 8px 0; font-size: 13px; color: var(--muted); }
+    #|.comment-list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    #|.comment-list h3 { margin: 0; font-size: 13px; color: var(--muted); }
+    #|.comment-list-minimize { border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; padding: 3px 5px; }
+    #|.comment-list-minimize:hover, .comment-list-minimize:focus-visible { background: var(--hover-bg); color: var(--text); }
     #|.comment-list ol {
     #|  margin: 0;
     #|  padding-left: 18px;
@@ -707,6 +710,10 @@ fn build_css() -> String {
     #|  padding: 0;
     #|  box-shadow: none;
     #|}
+    #|.md-preview .footnotes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.92em; }
+    #|.md-preview .footnotes ol { margin: 0; padding-left: 22px; }
+    #|.md-preview .footnotes li { margin: 6px 0; }
+    #|.md-preview .footnote-ref { margin-left: 2px; font-size: 0.78em; }
     #|.md-layout {
     #|  display: flex;
     #|  gap: 16px;
@@ -2848,6 +2855,23 @@ fn build_css() -> String {
     #|  justify-content: center;
     #|  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
     #|}
+    #|.yunomi-comment-button-label {
+    #|  position: absolute;
+    #|  top: calc(100% + 6px);
+    #|  right: 0;
+    #|  padding: 4px 6px;
+    #|  border-radius: 4px;
+    #|  background: rgba(20, 26, 36, 0.92);
+    #|  color: #fff;
+    #|  font-size: 12px;
+    #|  font-weight: 600;
+    #|  line-height: 1.2;
+    #|  white-space: nowrap;
+    #|  pointer-events: none;
+    #|  opacity: 0;
+    #|  transform: translateY(-2px);
+    #|  transition: opacity 0.12s ease, transform 0.12s ease;
+    #|}
     #|.yunomi-commentable:hover > .yunomi-comment-button,
     #|.yunomi-comment-button:focus {
     #|  opacity: 1;
@@ -2856,6 +2880,11 @@ fn build_css() -> String {
     #|}
     #|.yunomi-media-comment-host:hover > .yunomi-comment-button,
     #|.yunomi-media-comment-host > .yunomi-comment-button:focus { transform: none; }
+    #|.yunomi-commentable:hover > .yunomi-comment-button .yunomi-comment-button-label,
+    #|.yunomi-comment-button:focus .yunomi-comment-button-label {
+    #|  opacity: 1;
+    #|  transform: translateY(0);
+    #|}
     #|.md-preview .video-timeline .timeline-thumb-wrapper.yunomi-commentable {
     #|  position: relative;
     #|}
