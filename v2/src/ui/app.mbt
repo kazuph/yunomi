@@ -4291,7 +4291,7 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
           return
         }
         open_mermaid_fullscreen_moonbit(
-          svg, overlay, fs_content, fs_wrapper, fs_zoom_info,
+          svg, container, overlay, fs_content, fs_wrapper, fs_zoom_info,
         )
         stop_propagation(e)
       }
@@ -4342,6 +4342,7 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
 /// Open mermaid diagram in fullscreen with pure MoonBit ZoomPanViewer
 fn open_mermaid_fullscreen_moonbit(
   svg : Element,
+  container : Element,
   overlay : Element,
   fs_content : Element,
   fs_wrapper : Element,
@@ -4363,12 +4364,15 @@ fn open_mermaid_fullscreen_moonbit(
   set_style(cloned, "width", nw.to_string() + "px")
   set_style(cloned, "height", nh.to_string() + "px")
   append_child(fs_wrapper, cloned)
+  let source_background = get_computed_style(container, "background-color")
+  set_style(fs_content, "background-color", source_background)
   // Hide wrapper until fitToViewport positions it
   set_visibility(fs_wrapper, false)
   // Setup minimap: clone SVG into minimap-content
   let minimap_content = query("#fs-minimap-content")
   let minimap_viewport = query("#fs-minimap-viewport")
   if !is_null(minimap_content) {
+    set_style(query("#fs-minimap"), "background-color", source_background)
     clear_children(minimap_content)
     let minimap_svg = clone_node_deep(svg)
     append_child(minimap_content, minimap_svg)
