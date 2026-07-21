@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.3.1 - 2026-07-21
+
+### Fixed
+
+- Markdown comments now render inline at their source anchor across Markdown, diff, CSV, TSV, plain text, and HTML preview modes. Pending comments follow GitHub's review lifecycle and survive reloads.
+- Media comment controls are limited to images, video, Mermaid diagrams, and timeline thumbnails; image comments now retain image identity in the immediate agent payload.
+- Closing a browser tab now preserves the draft and keeps Yunomi running until an explicit Submit Review action. Default port discovery now scans 50 ports and falls back to an OS-assigned port.
+- Raw HTML preserves safe `mark` inline markup instead of displaying its source text.
+
 ## v2.3.0 - 2026-07-14
 
 ### Added

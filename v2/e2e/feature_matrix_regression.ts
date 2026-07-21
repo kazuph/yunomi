@@ -348,7 +348,7 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.3.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが本体と同じ2.3.0版とskill非同梱方針を明記している", {
+  assert(pluginManifest.version === "2.3.1" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが本体と同じ2.3.1版とskill非同梱方針を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
