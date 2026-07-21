@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.2 - 2026-07-22
+
+### Fixed
+
+- Mermaid fullscreen diagrams and their minimaps now preserve the preview background color, keeping black lines and text readable on diagrams designed for a light canvas.
+
 ## v2.3.1 - 2026-07-21
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "yunomi-plugin",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "yunomi CLI integration - review workflow hooks and report generation agents. Workflow skills (do/done/tiny-do etc.) are provided by dotfiles/claude/skills, not by this plugin. Supports web, backend, and mobile projects.",
   "author": {
     "name": "kazuph",

@@ -2404,7 +2404,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!msg || !msg.method) return;
   #|    try {
   #|      if (msg.method === "initialize") {
-  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.3.1" } } });
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.3.2" } } });
   #|      } else if (msg.method === "tools/list") {
   #|        send({ jsonrpc: "2.0", id: msg.id, result: { tools } });
   #|      } else if (msg.method === "tools/call") {
