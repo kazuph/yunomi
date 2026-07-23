@@ -400,6 +400,23 @@ pub fn init_app() -> Unit {
   if !is_null(modal_cancel) {
     on(modal_cancel, "click", fn(_e) { hide_submit_modal() })
   }
+  let review_unresolved_action = query("#review-unresolved-action")
+  if !is_null(review_unresolved_action) {
+    on(review_unresolved_action, "click", fn(_e) {
+      let resolve = query(".review-loop-resolve")
+      let comment = closest(resolve, ".review-loop-comment")
+      if !is_null(comment) {
+        let details = closest(comment, "details")
+        if !is_null(details) {
+          set_attribute(details, "open", "")
+        }
+        hide_submit_modal()
+        set_attribute(comment, "tabindex", "-1")
+        scroll_into_view(comment)
+        focus_element(comment)
+      }
+    })
+  }
   let submit_modal = query("#submit-modal")
   if !is_null(submit_modal) {
     on(submit_modal, "click", fn(e) {
@@ -1276,15 +1293,70 @@ fn show_submit_modal() -> Unit {
     set_inner_html(list, html)
   }
   let approve = query("#modal-approve")
+  let blocked_reason = query("#approve-blocked-reason")
   if !is_null(approve) {
-    let has_unresolved_threads = review_loop_unresolved_count.val > 0
+    let unresolved_count = review_loop_unresolved_count.val
+    let has_unresolved_threads = unresolved_count > 0
     set_disabled(approve, has_unresolved_threads)
     if has_unresolved_threads {
-      set_attribute(
-        approve, "title", "Resolve all open review threads before approving",
-      )
+      let japanese = is_japanese_locale()
+      if japanese {
+        set_attribute(
+          approve,
+          "title",
+          "未解決の確認項目をすべて解決してから承認してください",
+        )
+      } else {
+        set_attribute(
+          approve, "title", "Resolve all open review threads before approving",
+        )
+      }
+      set_attribute(approve, "aria-describedby", "approve-blocked-reason")
+      if !is_null(blocked_reason) {
+        let message = query(
+          "#approve-blocked-reason .approve-blocked-message",
+        )
+        if !is_null(message) {
+          if japanese {
+            set_text_content(
+              message,
+              "未解決の確認項目が " +
+              unresolved_count.to_string() +
+              " 件あるため、承認できません。",
+            )
+          } else {
+            let item_label = if unresolved_count == 1 {
+              " review item remains"
+            } else {
+              " review items remain"
+            }
+            set_text_content(
+              message,
+              "Approval is unavailable while " +
+              unresolved_count.to_string() +
+              item_label +
+              " unresolved.",
+            )
+          }
+        }
+        let action = query("#review-unresolved-action")
+        if !is_null(action) {
+          if japanese {
+            set_text_content(action, "未解決の確認項目を見る")
+          } else if unresolved_count == 1 {
+            set_text_content(action, "Review unresolved item")
+          } else {
+            set_text_content(action, "Review unresolved items")
+          }
+        }
+        set_style(blocked_reason, "display", "flex")
+      }
     } else {
       set_attribute(approve, "title", "Approve")
+      remove_attribute(approve, "aria-describedby")
+      if !is_null(blocked_reason) {
+        set_style(blocked_reason, "display", "none")
+      }
     }
   }
   let loop_state = query("#review-loop-submit-state")

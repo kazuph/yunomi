@@ -277,6 +277,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
     "<div class=\"image-preview-list\" id=\"submit-image-preview\"></div>",
   )
   buf.write_string("</div>")
+  buf.write_string(
+    "<div class=\"approve-blocked-reason\" id=\"approve-blocked-reason\" role=\"status\"><span class=\"approve-blocked-message\"></span><button type=\"button\" id=\"review-unresolved-action\">Review unresolved item</button></div>",
+  )
   buf.write_string("<div class=\"modal-actions modal-actions-decision\">")
   buf.write_string(
     "<button class=\"decision-btn decision-approve\" id=\"modal-approve\" title=\"Approve\">" +

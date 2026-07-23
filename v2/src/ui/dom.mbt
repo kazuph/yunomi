@@ -1092,6 +1092,10 @@ extern "js" fn get_review_loop_status_text() -> String =
   #|() => String(window.__YUNOMI_REVIEW_LOOP_STATUS__ || "")
 
 ///|
+extern "js" fn is_japanese_locale() -> Bool =
+  #|() => /^ja\b/i.test(navigator.language || "")
+
+///|
 /// Paste event handler for images
 extern "js" fn on_paste_image(handler : (String) -> Unit) -> Unit =
   #|(handler) => {

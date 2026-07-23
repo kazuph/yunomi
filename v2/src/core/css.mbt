@@ -668,6 +668,7 @@ fn build_css() -> String {
     #|.review-loop-body { display: grid; gap: 10px; }
     #|.review-loop-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 0; color: var(--text); font-size: 13px; line-height: 1.45; }
     #|.review-loop-comment { border-top: 0; border-bottom: 1px solid var(--border); padding: 12px 0; display: grid; gap: 10px; background: transparent; }
+    #|.review-loop-comment:focus { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-sm); }
     #|.review-loop-comment:last-child { border-bottom: 0; padding-bottom: 0; }
     #|.review-loop-comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12px; }
     #|.review-loop-comment-head strong { color: var(--text); font-size: 12px; font-weight: 800; }
@@ -2070,6 +2071,11 @@ fn build_css() -> String {
     #|.decision-request-changes:hover { background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 100%); }
     #|[data-theme="light"] .decision-approve { background: rgba(77, 157, 99, 0.14); color: var(--success); border-color: rgba(77, 157, 99, 0.38); }
     #|[data-theme="light"] .decision-approve:hover { background: rgba(77, 157, 99, 0.22); }
+    #|.decision-btn:disabled, .decision-btn:disabled:hover { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; background: var(--panel); color: var(--muted); border-color: var(--border); }
+    #|.approve-blocked-reason { display: none; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; color: var(--text); font-size: 13px; line-height: 1.45; }
+    #|.approve-blocked-message { color: var(--warning); font-weight: 600; }
+    #|#review-unresolved-action { margin-left: auto; padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); cursor: pointer; font: inherit; font-weight: 600; }
+    #|#review-unresolved-action:hover { background: var(--hover-bg); border-color: var(--accent); }
     #|.comment-sent-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
     #|.comment-sent-badge.sent { background: #166534; color: #bbf7d0; }
     #|.comment-sent-badge.failed { background: #7f1d1d; color: #fecaca; }

@@ -368,6 +368,50 @@ async function main(): Promise<void> {
       }
     }
 
+    await page.click("#send-and-exit");
+    const blockedApproval = await page.evaluate(() => {
+      const modal = document.querySelector<HTMLElement>("#submit-modal");
+      const approve = document.querySelector<HTMLButtonElement>("#modal-approve");
+      const reason = document.querySelector<HTMLElement>("#approve-blocked-reason");
+      if (!modal || !approve || !reason) return null;
+      const style = getComputedStyle(approve);
+      return {
+        modalVisible: modal.classList.contains("visible"),
+        disabled: approve.disabled,
+        describedBy: approve.getAttribute("aria-describedby"),
+        reasonVisible: getComputedStyle(reason).display !== "none",
+        reasonText: reason.textContent,
+        cursor: style.cursor,
+        opacity: Number.parseFloat(style.opacity),
+      };
+    });
+    assert.ok(blockedApproval, "blocked approval state is available");
+    assert.equal(blockedApproval?.modalVisible, true, "submit modal opens while approval is blocked");
+    assert.equal(blockedApproval?.disabled, true, "approve is disabled while review items remain unresolved");
+    assert.equal(blockedApproval?.describedBy, "approve-blocked-reason", "approve exposes its blocked reason to assistive technology");
+    assert.equal(blockedApproval?.reasonVisible, true, "blocked approval reason is visible");
+    assert.match(blockedApproval?.reasonText || "", /1 review item remains unresolved/, "blocked reason includes the unresolved count");
+    assert.equal(blockedApproval?.cursor, "not-allowed", "blocked approve uses a disabled cursor");
+    assert.ok((blockedApproval?.opacity || 1) < 1, "blocked approve is visually distinct from an enabled action");
+
+    await page.click("#review-unresolved-action");
+    const recoveryNavigation = await page.evaluate(() => {
+      const modal = document.querySelector<HTMLElement>("#submit-modal");
+      const resolve = document.querySelector<HTMLElement>(".review-loop-resolve");
+      const comment = resolve?.closest<HTMLElement>(".review-loop-comment");
+      const rect = comment?.getBoundingClientRect();
+      return {
+        modalVisible: modal?.classList.contains("visible"),
+        targetFocused: document.activeElement === comment,
+        targetVisible: !!rect && rect.bottom > 0 && rect.top < window.innerHeight,
+        detailsOpen: comment?.closest("details")?.hasAttribute("open"),
+      };
+    });
+    assert.equal(recoveryNavigation.modalVisible, false, "recovery action closes the submit modal");
+    assert.equal(recoveryNavigation.targetFocused, true, "recovery action focuses the first unresolved review item");
+    assert.equal(recoveryNavigation.targetVisible, true, "recovery action brings the unresolved review item into view");
+    assert.equal(recoveryNavigation.detailsOpen, true, "recovery action expands the unresolved review item container");
+
     const jaContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ja-JP" });
     try {
       const jaPage = await jaContext.newPage();
@@ -377,6 +421,9 @@ async function main(): Promise<void> {
       assert.match(jaOverviewText || "", /確認項目/, "Japanese review loop overview uses a neutral review items title");
       assert.doesNotMatch(jaOverviewText || "", /Round \d+ の確認項目/, "Japanese review loop overview does not expose the internal round number as its title");
       assert.doesNotMatch(jaOverviewText || "", /Round \d+ 提出時/, "Japanese review loop diff label does not expose the internal round number");
+      await jaPage.click("#send-and-exit");
+      assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /未解決の確認項目が 1 件あるため、承認できません。/, "Japanese submit modal explains why approval is blocked");
+      assert.equal(await jaPage.locator("#review-unresolved-action").textContent(), "未解決の確認項目を見る", "Japanese submit modal labels the recovery action");
     } finally {
       await jaContext.close().catch(() => {});
     }
@@ -394,6 +441,19 @@ async function main(): Promise<void> {
 
   const resolve = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "c-1-1" }));
   assert.equal(resolve.status, 200);
+
+  const resolvedBrowser = await chromium.launch({ headless: true });
+  try {
+    const resolvedPage = await resolvedBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await resolvedPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await resolvedPage.waitForSelector("#review-loop-panel", { timeout: 10000 });
+    await resolvedPage.click("#send-and-exit");
+    assert.equal(await resolvedPage.locator("#modal-approve").isEnabled(), true, "approve is enabled after all review items are resolved");
+    assert.equal(await resolvedPage.locator("#approve-blocked-reason").isVisible(), false, "blocked reason is hidden after all review items are resolved");
+    assert.equal(await resolvedPage.locator("#modal-approve").getAttribute("aria-describedby"), null, "approve drops the blocked description after recovery");
+  } finally {
+    await resolvedBrowser.close().catch(() => {});
+  }
 
   const finalApprove = await request(
     port,
