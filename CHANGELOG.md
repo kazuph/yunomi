@@ -1,5 +1,25 @@
 # Changelog
 
+## v2.4.0 - 2026-07-29
+
+### Added
+
+- Inline review threads now keep human and AI replies, image attachments, resolve state, Herdr notifications, and API replies at the reviewed source location.
+- Global review conversation is available from a responsive, minimizable chat with durable replies and new-conversation creation.
+
+### Changed
+
+- Saved review threads and unsubmitted local drafts now have separate labels and counts; the Drafts control stays hidden when empty.
+- Review counts and approval gating are scoped to the file currently being reviewed instead of stale comments from other files in the same branch store.
+
+### Fixed
+
+- Comment and checkbox notifications include the target-line quote, decision IDs remain unique by file and line, and decision paths use repository-relative files.
+- Checkbox decisions update in place without reloading or moving the document scroll position.
+- Inline editors stay clear of the expanded chat, use a visible Cancel action, preserve valid list markup, and keep focus outlines visible on all four sides.
+- Signed read-only shares now require the share token for review state, history, UI assets, document media, and conversation attachments.
+- npm, Claude Code plugin, and MCP server metadata now report version 2.4.0 consistently.
+
 ## v2.3.2 - 2026-07-22
 
 ### Fixed
