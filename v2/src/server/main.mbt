@@ -11,6 +11,7 @@ struct ServerContext {
   active_tabs : Array[String]
   active_tab_instances : Map[String, String]
   mut finished : Bool
+  mut decision_source_change_pending : Bool
   is_loop : Bool
   notify_pane : String
 }
@@ -58,10 +59,12 @@ let notify_pane_arg : Ref[String] = Ref("")
 ///|
 let review_mux_mode : Ref[Bool] = Ref(false)
 
-///| Read-only sharing mode. Explicitly enabled only by `yunomi share`.
+///|
+/// Read-only sharing mode. Explicitly enabled only by `yunomi share`.
 let share_mode : Ref[Bool] = Ref(false)
 
-///| Current read-only share token for the running share server.
+///|
+/// Current read-only share token for the running share server.
 let share_token : Ref[String] = Ref("")
 
 ///|
@@ -78,7 +81,11 @@ fn resolve_notify_pane() -> String {
 
 ///|
 fn review_url(ctx : ServerContext) -> String {
-  let host = if bind_host.val == "0.0.0.0" { "127.0.0.1" } else { bind_host.val }
+  let host = if bind_host.val == "0.0.0.0" {
+    "127.0.0.1"
+  } else {
+    bind_host.val
+  }
   "http://\{host}:\{ctx.port}"
 }
 
@@ -124,7 +131,9 @@ fn verdict_notify_message(
   comment_count : Int,
 ) -> String {
   let normalized_decision = normalized_decision_for_notify(decision, action)
-  let normalized_action = normalized_action_for_notify(normalized_decision, action)
+  let normalized_action = normalized_action_for_notify(
+    normalized_decision, action,
+  )
   let buf = StringBuilder::new()
   buf.write_string("[yunomi] verdict ")
   buf.write_string(ctx.filename)
@@ -346,11 +355,7 @@ fn main {
       no_open,
       server_instance_id.val,
       fn(body) {
-        persist_external_review(
-          review_json_path_for_cwd(),
-          args[1],
-          body,
-        )
+        persist_external_review(review_json_path_for_cwd(), args[1], body)
       },
     )
     return
@@ -366,7 +371,10 @@ fn main {
       handle_meta_stats(parse_meta_json_flag(args))
       exit_process("stats command", 0)
     } else if args[0] == "cleanup" {
-      handle_meta_cleanup(parse_meta_json_flag(args), parse_cleanup_older_than(args))
+      handle_meta_cleanup(
+        parse_meta_json_flag(args),
+        parse_cleanup_older_than(args),
+      )
       exit_process("cleanup command", 0)
     } else if args[0] == "init" {
       handle_init_command(args)
@@ -554,7 +562,10 @@ fn git_result(args : Array[String]) -> (Int, String, String) {
 }
 
 ///|
-fn command_result(command : String, args : Array[String]) -> (Int, String, String) {
+fn command_result(
+  command : String,
+  args : Array[String],
+) -> (Int, String, String) {
   let executable = resolve_command(command)
   if executable.length() == 0 {
     (1, "", command + " command not found")
@@ -598,12 +609,13 @@ fn git_stdout_or_empty(args : Array[String]) -> String {
 ///|
 fn default_review_base() -> String {
   let upstream = git_stdout_or_empty([
-    "rev-parse",
-    "--abbrev-ref",
-    "--symbolic-full-name",
-    "@{upstream}",
+    "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}",
   ])
-  if upstream.length() > 0 { upstream } else { "main" }
+  if upstream.length() > 0 {
+    upstream
+  } else {
+    "main"
+  }
 }
 
 ///|
@@ -648,7 +660,11 @@ pub fn summary_image_filename(
 ///|
 fn review_git_changed_files(root : String, base_ref : String) -> Array[String] {
   let files : Array[String] = []
-  let base = if base_ref.length() > 0 { base_ref } else { default_review_base() }
+  let base = if base_ref.length() > 0 {
+    base_ref
+  } else {
+    default_review_base()
+  }
   let committed = git_result([
     "diff",
     "--name-only",
@@ -672,7 +688,9 @@ fn review_git_changed_files(root : String, base_ref : String) -> Array[String] {
       push_unique(files, file)
     }
   }
-  let staged = git_result(["diff", "--cached", "--name-only", "--diff-filter=ACMR"])
+  let staged = git_result([
+    "diff", "--cached", "--name-only", "--diff-filter=ACMR",
+  ])
   if staged.0 == 0 {
     for file in paths_from_vcs_output(root, staged.1) {
       push_unique(files, file)
@@ -701,7 +719,10 @@ fn review_jj_changed_files(root : String, base_ref : String) -> Array[String] {
 }
 
 ///|
-fn review_sapling_changed_files(root : String, base_ref : String) -> Array[String] {
+fn review_sapling_changed_files(
+  root : String,
+  base_ref : String,
+) -> Array[String] {
   let args : Array[String] = ["status", "-ma"]
   if base_ref.length() > 0 {
     args.push("--rev")
@@ -735,9 +756,14 @@ fn review_changed_files(base_ref : String) -> Array[String] {
   }
   let sapling_root = command_result("sl", ["root"])
   if sapling_root.0 == 0 {
-    return review_sapling_changed_files(sapling_root.1.trim().to_owned(), base_ref)
+    return review_sapling_changed_files(
+      sapling_root.1.trim().to_owned(),
+      base_ref,
+    )
   }
-  console_error("yunomi review: not a git repository, jj workspace, or Sapling repository")
+  console_error(
+    "yunomi review: not a git repository, jj workspace, or Sapling repository",
+  )
   exit_process("review not repository", 1)
   []
 }
@@ -839,7 +865,13 @@ fn handle_pr_sync_command(mode : String, args : Array[String]) -> Unit {
       exit_process("github review not found", 1)
     }
   }
-  let result = js_github_pr_sync(mode, review_path, process_cwd(), pr, iso_now())
+  let result = js_github_pr_sync(
+    mode,
+    review_path,
+    process_cwd(),
+    pr,
+    iso_now(),
+  )
   if json_parse_string("ok", result) != "true" {
     let error = json_parse_string("error", result)
     let detail = if error.length() > 0 { error } else { result }
@@ -905,7 +937,11 @@ pub fn sanitize_branch_name(branch : String) -> String {
     }
   }
   let out = buf.to_string()
-  if out.length() > 0 { out } else { "detached" }
+  if out.length() > 0 {
+    out
+  } else {
+    "detached"
+  }
 }
 
 ///|
@@ -920,13 +956,21 @@ fn main_git_stdout(args_json : String) -> String {
 ///|
 fn repo_root() -> String {
   let root = main_git_stdout("[\"rev-parse\",\"--show-toplevel\"]")
-  if root.length() > 0 { root } else { process_cwd() }
+  if root.length() > 0 {
+    root
+  } else {
+    process_cwd()
+  }
 }
 
 ///|
 fn current_branch() -> String {
   let branch = main_git_stdout("[\"branch\",\"--show-current\"]")
-  if branch.length() > 0 { branch } else { "detached" }
+  if branch.length() > 0 {
+    branch
+  } else {
+    "detached"
+  }
 }
 
 ///|
@@ -941,34 +985,43 @@ fn ensure_parent_dir(file_path : String) -> Unit {
 fn review_file_path() -> String {
   let root = repo_root()
   path_join(
-    path_join(
-      path_join(root, ".yunomi"),
-      "reviews",
-    ),
+    path_join(path_join(root, ".yunomi"), "reviews"),
     path_join(sanitize_branch_name(current_branch()), "review.json"),
   )
 }
 
 ///|
-fn source_context(file_path : String, line : Int) -> (String, String, String) {
+fn source_context(
+  file_path : String,
+  line : Int,
+) -> (String, String, String, String) {
   let abs = path_resolve(file_path)
   let content = read_file_safe(abs)
   if content.length() == 0 {
-    return ("", "", "")
+    return ("", "", "", "")
   }
   let lines = @core.split_to_lines(content)
   let idx = line - 1
+  let quote = @core.quote_source_line(lines, idx)
   let snippet = comment_snippet(lines, idx)
   let before = comment_context_before(lines, idx)
   let after = comment_context_after(lines, idx)
-  (snippet, before, after)
+  (quote, snippet, before, after)
 }
 
 ///|
-fn join_line_window(lines : Array[String], start : Int, end_exclusive : Int) -> String {
+fn join_line_window(
+  lines : Array[String],
+  start : Int,
+  end_exclusive : Int,
+) -> String {
   let buf = StringBuilder::new()
   let mut i = if start < 0 { 0 } else { start }
-  let last = if end_exclusive > lines.length() { lines.length() } else { end_exclusive }
+  let last = if end_exclusive > lines.length() {
+    lines.length()
+  } else {
+    end_exclusive
+  }
   let mut first = true
   while i < last {
     if first {
@@ -1007,7 +1060,11 @@ fn comment_context_after(lines : Array[String], row : Int) -> String {
 }
 
 ///|
-fn write_review_comment(target : CommentTarget, text : String, author : String) -> String {
+fn write_review_comment(
+  target : CommentTarget,
+  text : String,
+  author : String,
+) -> String {
   let path = review_file_path()
   ensure_parent_dir(path)
   let existing = read_file_safe(path)
@@ -1019,9 +1076,10 @@ fn write_review_comment(target : CommentTarget, text : String, author : String) 
     target.line,
     text,
     author,
-    ctx.0,
     ctx.1,
+    ctx.0,
     ctx.2,
+    ctx.3,
     iso_now(),
   )
   write_file_sync(path, updated)
@@ -1067,20 +1125,17 @@ fn post_comment_to_running_servers(
       continue
     }
     candidates = candidates + 1
-    let result = spawn_sync_status_args(
-      curl,
-      [
-        "-sS",
-        "-f",
-        "-X",
-        "POST",
-        "-H",
-        "Content-Type: application/json",
-        "--data-binary",
-        body,
-        "http://127.0.0.1:\{port}/comment",
-      ],
-    )
+    let result = spawn_sync_status_args(curl, [
+      "-sS",
+      "-f",
+      "-X",
+      "POST",
+      "-H",
+      "Content-Type: application/json",
+      "--data-binary",
+      body,
+      "http://127.0.0.1:\{port}/comment",
+    ])
     if result.0 == 0 {
       return ""
     }
@@ -1088,7 +1143,8 @@ fn post_comment_to_running_servers(
     last_error = if detail.length() > 0 {
       "POST http://127.0.0.1:\{port}/comment failed: " + detail
     } else {
-      "POST http://127.0.0.1:\{port}/comment failed with exit " + result.0.to_string()
+      "POST http://127.0.0.1:\{port}/comment failed with exit " +
+      result.0.to_string()
     }
   }
   if candidates == 0 {
@@ -1128,7 +1184,9 @@ fn handle_comment_command(args : Array[String]) -> Unit {
     console_log("Posted comment to running yunomi server")
     return
   }
-  console_error("yunomi comment: falling back to offline review.json: " + fallback_reason)
+  console_error(
+    "yunomi comment: falling back to offline review.json: " + fallback_reason,
+  )
   let path = write_review_comment(target, text, author)
   console_log("Added comment to " + path)
 }
@@ -1149,12 +1207,42 @@ fn install_base_path(agent : String, global : Bool) -> String {
   let home = os_homedir()
   let cwd = process_cwd()
   match agent {
-    "claude" => if global { path_join(path_join(home, ".claude"), "skills") } else { path_join(path_join(cwd, ".claude"), "skills") }
-    "codex" => if global { path_join(path_join(home, ".agents"), "skills") } else { path_join(path_join(cwd, ".agents"), "skills") }
-    "cursor" => if global { path_join(path_join(home, ".cursor"), "skills") } else { path_join(path_join(cwd, ".cursor"), "skills") }
-    "opencode" => if global { path_join(path_join(home, ".config"), path_join("opencode", "skills")) } else { path_join(path_join(cwd, ".opencode"), "skills") }
-    "cline" => if global { path_join(path_join(home, ".cline"), "rules") } else { path_join(path_join(cwd, ".cline"), "rules") }
-    "gemini" => if global { path_join(path_join(home, ".gemini"), "skills") } else { path_join(path_join(cwd, ".gemini"), "skills") }
+    "claude" =>
+      if global {
+        path_join(path_join(home, ".claude"), "skills")
+      } else {
+        path_join(path_join(cwd, ".claude"), "skills")
+      }
+    "codex" =>
+      if global {
+        path_join(path_join(home, ".agents"), "skills")
+      } else {
+        path_join(path_join(cwd, ".agents"), "skills")
+      }
+    "cursor" =>
+      if global {
+        path_join(path_join(home, ".cursor"), "skills")
+      } else {
+        path_join(path_join(cwd, ".cursor"), "skills")
+      }
+    "opencode" =>
+      if global {
+        path_join(path_join(home, ".config"), path_join("opencode", "skills"))
+      } else {
+        path_join(path_join(cwd, ".opencode"), "skills")
+      }
+    "cline" =>
+      if global {
+        path_join(path_join(home, ".cline"), "rules")
+      } else {
+        path_join(path_join(cwd, ".cline"), "rules")
+      }
+    "gemini" =>
+      if global {
+        path_join(path_join(home, ".gemini"), "skills")
+      } else {
+        path_join(path_join(cwd, ".gemini"), "skills")
+      }
     _ => ""
   }
 }
@@ -1166,7 +1254,8 @@ pub fn install_target_path(agent : String, global : Bool) -> String {
     return ""
   }
   match agent {
-    "claude" | "codex" | "cursor" | "gemini" => path_join(path_join(base, "yunomi"), "SKILL.md")
+    "claude" | "codex" | "cursor" | "gemini" =>
+      path_join(path_join(base, "yunomi"), "SKILL.md")
     "opencode" | "cline" => path_join(base, "yunomi.md")
     _ => ""
   }
@@ -1174,8 +1263,12 @@ pub fn install_target_path(agent : String, global : Bool) -> String {
 
 ///|
 fn is_supported_agent(agent : String) -> Bool {
-  agent == "claude" || agent == "codex" || agent == "cursor" ||
-  agent == "opencode" || agent == "cline" || agent == "gemini"
+  agent == "claude" ||
+  agent == "codex" ||
+  agent == "cursor" ||
+  agent == "opencode" ||
+  agent == "cline" ||
+  agent == "gemini"
 }
 
 ///|
@@ -1217,7 +1310,9 @@ fn handle_install_command(args : Array[String]) -> Unit {
     return
   }
   if !is_supported_agent(agent) {
-    console_error("Usage: yunomi install <claude|codex|cursor|opencode|cline|gemini> [--global|--project] [--list]")
+    console_error(
+      "Usage: yunomi install <claude|codex|cursor|opencode|cline|gemini> [--global|--project] [--list]",
+    )
     exit_process("install usage", 1)
   }
   let target = install_target_path(agent, global)
@@ -1258,10 +1353,11 @@ fn print_skill_doc_text() -> String {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Serve it in the FOREGROUND with loop mode and wait:
+    #|3. Serve it through Herdr from the repository root. `herdr run` keeps
+    #|   the caller pane available for live comment notifications:
     #|
     #|   ```bash
-    #|   npx yunomi REPORT.md --loop
+    #|   herdr run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop
     #|   ```
     #|
     #|4. If the human submits `request_changes`, the server stays alive.
@@ -1275,9 +1371,9 @@ fn print_skill_doc_text() -> String {
     #|5. The browser updates to the next round at the same URL, showing the
     #|   previous submitted REPORT.md versus the current REPORT.md diff.
     #|   Comments remain unresolved until the human clicks Resolve.
-    #|6. When yunomi sends you a live comment notification, fix the exact
-    #|   referenced location immediately. If useful, report what you changed
-    #|   back into the thread without resolving it yourself:
+    #|6. When yunomi sends a live line comment or sidebar conversation
+    #|   notification through Herdr, act on it immediately. Reply to the exact
+    #|   `c-...` or `r-...` thread id without resolving it yourself:
     #|
     #|   ```bash
     #|   npx yunomi reply c-2-3 'Fixed the Japanese error message wording.'
@@ -1327,6 +1423,39 @@ fn print_skill_doc_text() -> String {
     #|  that notification, replace the hearing item with `- ✅️ Use OAuth`
     #|  (the decided wording). Do not leave accepted decisions as `- [ ]`.
     #|
+    #|## Decision checkboxes（人間に判断させるチェックボックス）
+    #|
+    #|Write `- [ ] A choice or confirmation` in REPORT.md and yunomi renders
+    #|it as a checkbox the human can press, with the same direct checklist
+    #|feel as Linear. Use one decision per line at a granularity the human can
+    #|answer, for example `- [ ] Proceed with A` or `- [ ] Proceed with B`.
+    #|
+    #|The instant the human presses it, yunomi (a) rewrites the source
+    #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
+    #|agent through `herdr agent send` when a Herdr pane is available, or
+    #|`YUNOMI_NOTIFY_CMD` when it is configured, and (c) records the decision
+    #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
+    #|or multiple-choice direction, implementation agreement, and a pre-release
+    #|checklist without waiting for Submit.
+    #|
+    #|```text
+    #|[yunomi] decision REPORT.md:5 checked=true
+    #|> - [x] Use OAuth
+    #|url=http://127.0.0.1:5599
+    #|```
+    #|
+    #|Comment notifications use the same multi-line form:
+    #|
+    #|```text
+    #|[yunomi] comment REPORT.md:12 id=c-probe round=2
+    #|> The source line the human pointed at
+    #|human: The explanation needs evidence.
+    #|url=http://127.0.0.1:5599
+    #|```
+    #|
+    #|Do not trust the line number alone: use the quoted source line to
+    #|re-identify the target before changing it.
+    #|
     #|## Verdict schema (stdout YAML, printed when the human submits)
     #|
     #|```yaml
@@ -1339,6 +1468,7 @@ fn print_skill_doc_text() -> String {
     #|    col: 0
     #|    end_row: 12
     #|    end_col: 0
+    #|    quote: the source line the human pointed at
     #|    text: the human's comment
     #|    value: the line content it refers to
     #|    snippet: the target plus nearby source lines
@@ -1378,9 +1508,10 @@ fn print_skill_doc_text() -> String {
     #|  ],
     #|  "comments": [
     #|    { "id": "c-<round>-<seq>", "file": "REPORT.md", "line": 42, "round": 1,
-    #|      "text": "string", "author": "human|agent|cli",
+    #|      "quote": "the source line", "text": "string", "author": "human|agent|cli",
     #|      "status": "unresolved|resolved",
-    #|      "replies": [ { "author": "agent", "round": 2, "text": "string" } ],
+    #|      "replies": [ { "author": "agent", "round": 2, "text": "string",
+    #|                     "attachments": ["./comment-attachments/file.png"] } ],
     #|      "anchor": { "snippet": "string", "context_before": "string", "context_after": "string" } }
     #|  ]
     #|}
@@ -1681,16 +1812,14 @@ fn inject_vim_key_config(html : String) -> String {
     html
   } else {
     js_inject_before_body_end(
-      html,
-      "<script>window.__YUNOMI_VIM_KEYS_DISABLED__=true;</script>",
+      html, "<script>window.__YUNOMI_VIM_KEYS_DISABLED__=true;</script>",
     )
   }
 }
 
 ///|
 fn inject_share_readonly_ui(html : String) -> String {
-  let fragment =
-    "<style>.share-readonly-banner{display:block;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:700}.share-readonly-banner span{color:var(--muted);font-weight:500;margin-left:8px}.submit-exit-btn,#pill-comments,.yunomi-inline-comment,.yunomi-comment-button,.comment-list,#submit-modal,#recovery-modal{display:none!important}.has-comment{cursor:default!important}</style><div class=\"share-readonly-banner\">Read-only share<span>Comments and submit actions are disabled.</span></div><script>window.__YUNOMI_SHARE_READONLY__=true;</script>"
+  let fragment = "<style>.share-readonly-banner{display:block;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--accent-soft);color:var(--accent-strong);font-size:13px;font-weight:700}.share-readonly-banner span{color:var(--muted);font-weight:500;margin-left:8px}.submit-exit-btn,#pill-comments,.yunomi-inline-comment,.yunomi-comment-button,.comment-list,#submit-modal,#recovery-modal{display:none!important}.has-comment{cursor:default!important}</style><div class=\"share-readonly-banner\">Read-only share<span>Comments and submit actions are disabled.</span></div><script>window.__YUNOMI_SHARE_READONLY__=true;</script>"
   js_inject_before_body_end(html, fragment)
 }
 
@@ -1711,7 +1840,9 @@ fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
   }
   let active_idx = context_index(ctx)
   let nav = StringBuilder::new()
-  nav.write_string("<nav id=\"review-file-switcher\" class=\"review-file-switcher\" aria-label=\"Review files\"><span class=\"review-file-switcher-label\">Review files</span><div class=\"review-file-switcher-tabs\">")
+  nav.write_string(
+    "<nav id=\"review-file-switcher\" class=\"review-file-switcher\" aria-label=\"Review files\"><span class=\"review-file-switcher-label\">Review files</span><div class=\"review-file-switcher-tabs\">",
+  )
   for i, candidate in active_servers {
     let cls = if i == active_idx { " class=\"active\"" } else { "" }
     nav.write_string("<a")
@@ -1747,6 +1878,7 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     active_tabs: [],
     active_tab_instances: {},
     finished: false,
+    decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
   }
@@ -1797,6 +1929,7 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     active_tabs: [],
     active_tab_instances: {},
     finished: false,
+    decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
   }
@@ -1806,9 +1939,20 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
 fn watch_review_file(ctx : ServerContext) -> Unit {
   if ctx.file_path != "<stdin>" {
     let clients = ctx.sse_clients
+    let previous_signature = Ref(file_content_signature(ctx.file_path))
     ignore(
       watch_file(ctx.file_path, fn(_curr, _prev) {
+        let current_signature = file_content_signature(ctx.file_path)
+        if current_signature == previous_signature.val {
+          return
+        }
+        previous_signature.val = current_signature
         ctx.html_cache = load_and_build_html(ctx)
+        if ctx.decision_source_change_pending {
+          ctx.decision_source_change_pending = false
+          return
+        }
+        log_session_event("reload source=file-watch file=\{ctx.filename}")
         for client in clients {
           sse_send(client, "reload", "")
         }
@@ -1816,8 +1960,14 @@ fn watch_review_file(ctx : ServerContext) -> Unit {
     )
     let signal_path = review_signal_path_for_file(ctx.file_path)
     write_file_secure(signal_path, "")
+    let previous_signal_signature = Ref(file_content_signature(signal_path))
     ignore(
       watch_file(signal_path, fn(_curr, _prev) {
+        let current_signal_signature = file_content_signature(signal_path)
+        if current_signal_signature == previous_signal_signature.val {
+          return
+        }
+        previous_signal_signature.val = current_signal_signature
         handle_go_signal(ctx)
       }),
     )
@@ -1835,9 +1985,20 @@ fn refresh_review_mux_html() -> Unit {
 fn watch_share_file(ctx : ServerContext) -> Unit {
   if ctx.file_path != "<stdin>" {
     let clients = ctx.sse_clients
+    let previous_signature = Ref(file_content_signature(ctx.file_path))
     ignore(
       watch_file(ctx.file_path, fn(_curr, _prev) {
+        let current_signature = file_content_signature(ctx.file_path)
+        if current_signature == previous_signature.val {
+          return
+        }
+        previous_signature.val = current_signature
         ctx.html_cache = load_and_build_html(ctx)
+        if ctx.decision_source_change_pending {
+          ctx.decision_source_change_pending = false
+          return
+        }
+        log_session_event("reload source=share-file-watch file=\{ctx.filename}")
         for client in clients {
           sse_send(client, "reload", "")
         }
@@ -1847,7 +2008,11 @@ fn watch_share_file(ctx : ServerContext) -> Unit {
 }
 
 ///|
-fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit {
+fn start_share_server(
+  files : Array[String],
+  port : Int,
+  no_open : Bool,
+) -> Unit {
   if files.is_empty() {
     console_error("yunomi share: file path is required")
     print_usage()
@@ -1858,11 +2023,7 @@ fn start_share_server(files : Array[String], port : Int, no_open : Bool) -> Unit
   expected_count.val = files.length()
   ensure_lock_dir()
   let actual_port = find_available_port(port)
-  let token = create_share_token(
-    files,
-    bind_host.val,
-    actual_port,
-  )
+  let token = create_share_token(files, bind_host.val, actual_port)
   share_token.val = token
   for file_path in files {
     let ctx = create_file_context(file_path, actual_port)
@@ -1917,7 +2078,9 @@ fn handle_share_command(args : Array[String]) -> Unit {
     }
     i = i + 1
   }
-  if !public_share && bind_host.val != "127.0.0.1" && bind_host.val != "localhost" {
+  if !public_share &&
+    bind_host.val != "127.0.0.1" &&
+    bind_host.val != "localhost" {
     console_error("yunomi share: non-loopback binding requires --public")
     exit_process("share public flag required", 1)
   }
@@ -1935,7 +2098,11 @@ fn handle_share_command(args : Array[String]) -> Unit {
 }
 
 ///|
-fn start_review_mux_server(files : Array[String], port : Int, no_open : Bool) -> Unit {
+fn start_review_mux_server(
+  files : Array[String],
+  port : Int,
+  no_open : Bool,
+) -> Unit {
   review_mux_mode.val = true
   expected_count.val = files.length()
   ensure_lock_dir()
@@ -1984,9 +2151,14 @@ fn handle_go_command(port : Int, no_open : Bool) -> Unit {
 
 ///|
 fn post_reply_to_server(port : Int, body : String) -> String {
-  let script =
-    "const http=require('node:http');const port=Number(process.argv[1]);const path=process.argv[2];const body=process.argv[3];const req=http.request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},res=>{let data='';res.on('data',c=>data+=c);res.on('end',()=>{if(res.statusCode!==200){console.error(data);process.exit(1)}})});req.on('error',e=>{console.error(e.message);process.exit(1)});req.write(body);req.end();"
-  spawn_sync_status(process_exec_path(), ["-e", script, port.to_string(), "/reply-comment", body])
+  let script = "const http=require('node:http');const port=Number(process.argv[1]);const path=process.argv[2];const body=process.argv[3];const req=http.request({hostname:'127.0.0.1',port,path,method:'POST',headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)}},res=>{let data='';res.on('data',c=>data+=c);res.on('end',()=>{if(res.statusCode!==200){console.error(data);process.exit(1)}})});req.on('error',e=>{console.error(e.message);process.exit(1)});req.write(body);req.end();"
+  spawn_sync_status(process_exec_path(), [
+    "-e",
+    script,
+    port.to_string(),
+    "/reply-comment",
+    body,
+  ])
 }
 
 ///|
@@ -1995,12 +2167,21 @@ fn handle_reply_command(id : String, text : String) -> Unit {
     console_error("yunomi reply: usage: yunomi reply <comment-id> '<text>'")
     exit_process("reply usage", 1)
   }
-  let body = "{\"id\":" + json_encode_value(id) + ",\"text\":" +
-    json_encode_value(text) + ",\"author\":\"agent\"}"
+  let body = "{\"id\":" +
+    json_encode_value(id) +
+    ",\"text\":" +
+    json_encode_value(text) +
+    ",\"author\":\"agent\"}"
   let review_path = review_json_path_for_cwd()
   if !exists_sync(review_path) {
-    console_error("yunomi reply: no review.json found for this repository branch")
+    console_error(
+      "yunomi reply: no review.json found for this repository branch",
+    )
     exit_process("reply missing review", 1)
+  }
+  if !review_comment_is_replyable(read_file_safe(review_path), id) {
+    console_error("yunomi reply: thread is resolved or does not exist: " + id)
+    exit_process("reply unavailable", 1)
   }
   let server_path = review_server_path_for_cwd()
   if exists_sync(server_path) {
@@ -2013,12 +2194,18 @@ fn handle_reply_command(id : String, text : String) -> Unit {
         console_log("yunomi reply: notified running review server")
         exit_process("reply notified", 0)
       }
-      console_error("yunomi reply: server POST failed, writing review.json directly: " + err)
+      console_error(
+        "yunomi reply: server POST failed, writing review.json directly: " + err,
+      )
     } else {
-      console_error("yunomi reply: server metadata is stale; writing review.json directly")
+      console_error(
+        "yunomi reply: server metadata is stale; writing review.json directly",
+      )
     }
   } else {
-    console_error("yunomi reply: no running server metadata; writing review.json directly")
+    console_error(
+      "yunomi reply: no running server metadata; writing review.json directly",
+    )
   }
   reply_review_comment_cwd(id, text, "agent")
   console_log("yunomi reply: wrote review.json")
@@ -2154,7 +2341,9 @@ fn start_http_server(ctx : ServerContext, no_open : Bool) -> Unit {
 
 ///|
 fn is_index_url(url : String) -> Bool {
-  url == "/" || url == "/index.html" || url.has_prefix("/?") ||
+  url == "/" ||
+  url == "/index.html" ||
+  url.has_prefix("/?") ||
   url.has_prefix("/index.html?")
 }
 
@@ -2247,18 +2436,63 @@ fn try_listen(
 }
 
 ///|
+fn save_conversation_image(
+  ctx : ServerContext,
+  id : String,
+  image : String,
+) -> String {
+  if ctx.file_path == "<stdin>" || image.length() == 0 {
+    return ""
+  }
+  let ext = extract_base64_ext(image)
+  let review_path = review_json_path_for_file(ctx.file_path)
+  let attachment_name = safe_attachment_name_component(id) +
+    "-reply-" +
+    (review_comment_reply_count(read_file_safe(review_path), id) + 1).to_string() +
+    "." +
+    ext
+  let attachment_dir = path_join(
+    review_dir_for_file(ctx.file_path),
+    "comment-attachments",
+  )
+  if ext.length() > 0 &&
+    base64_to_named_file(image, attachment_dir, attachment_name).length() > 0 {
+    "./comment-attachments/" + attachment_name
+  } else {
+    ""
+  }
+}
+
+///|
 fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   let http_method = req_method(req)
   let url = req_url(req)
   let request_ctx = selected_context(ctx, url)
-  if http_method == "GET" && is_index_url(url) {
-    if share_mode.val && parse_query_param(url, "share") != share_token.val {
-      res_write_head(res, 403, "text/plain; charset=utf-8")
-      res_end(res, "invalid or missing share token")
-    } else {
-      res_write_head(res, 200, "text/html; charset=utf-8")
-      res_end(res, request_ctx.html_cache)
+  let share_query_token = parse_query_param(url, "share")
+  let share_authorized = !share_mode.val ||
+    (
+      share_token.val.length() > 0 &&
+      (
+        share_query_token == share_token.val ||
+        req_cookie_value(req, "yunomi_share") == share_token.val
+      )
+    )
+  if share_mode.val &&
+    (http_method == "GET" || http_method == "HEAD") &&
+    url != "/healthz" &&
+    !share_authorized {
+    res_write_head(res, 403, "text/plain; charset=utf-8")
+    res_end(res, "invalid or missing share token")
+  } else if http_method == "GET" && is_index_url(url) {
+    if share_mode.val && share_query_token == share_token.val {
+      res_set_header(
+        res,
+        "Set-Cookie",
+        "yunomi_share=\{share_token.val}; HttpOnly; SameSite=Strict; Path=/",
+      )
     }
+    res_write_head(res, 200, "text/html; charset=utf-8")
+    res_end(res, request_ctx.html_cache)
   } else if http_method == "GET" && url == "/ui.js" {
     res_set_header(res, "Cache-Control", "no-store, no-cache, must-revalidate")
     res_write_head(res, 200, "application/javascript; charset=utf-8")
@@ -2331,7 +2565,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       res_end(res, "{\"ok\":true}")
       if ctx.file_path != "<stdin>" {
         for client in ctx.sse_clients {
-          sse_send(client, "round", review_state_response(ctx.file_path, ctx.is_loop))
+          sse_send(
+            client,
+            "resolve",
+            review_state_response(ctx.file_path, ctx.is_loop),
+          )
         }
       }
     })
@@ -2341,25 +2579,142 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       let text = json_parse_string("text", body)
       let author_raw = json_parse_string("author", body)
       let author = if author_raw.length() > 0 { author_raw } else { "agent" }
+      let image = json_parse_string("image", body)
       if ctx.file_path != "<stdin>" {
-        reply_review_comment(
-          ctx.file_path,
-          id,
-          text,
-          author,
-        )
+        let review_path = review_json_path_for_file(ctx.file_path)
+        if !review_comment_is_replyable(read_file_safe(review_path), id) {
+          res_write_head(res, 409, "application/json")
+          res_end(res, "{\"ok\":false,\"error\":\"thread_resolved\"}")
+          return
+        }
+      }
+      let attachment_ref = save_conversation_image(ctx, id, image)
+      if ctx.file_path != "<stdin>" {
+        reply_review_comment(ctx.file_path, id, text, author, attachment_ref)
+        if author == "human" {
+          let round = current_review_round(ctx.file_path)
+          let attachment_path = if attachment_ref.length() > 0 {
+            path_resolve(
+              path_join(
+                review_dir_for_file(ctx.file_path),
+                @core.safe_slice(attachment_ref, 2),
+              ),
+            )
+          } else {
+            ""
+          }
+          let attachment_line = if attachment_path.length() > 0 {
+            "\nattachment: " + attachment_path
+          } else {
+            ""
+          }
+          notify_reviewer(
+            ctx,
+            "[yunomi] conversation reply id=" +
+            id +
+            " round=" +
+            round.to_string() +
+            "\nhuman: " +
+            text +
+            attachment_line +
+            "\nreply with: yunomi reply " +
+            id +
+            " <text>\nurl=" +
+            review_url(ctx),
+          )
+        }
       }
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true}")
       if ctx.file_path != "<stdin>" {
         let round = current_review_round(ctx.file_path)
-        let reply_event = "{\"id\":" + json_encode_value(id) + ",\"text\":" +
-          json_encode_value(text) + ",\"author\":" + json_encode_value(author) +
-          ",\"round\":" + round.to_string() + "}"
+        let reply_event = "{\"id\":" +
+          json_encode_value(id) +
+          ",\"text\":" +
+          json_encode_value(text) +
+          ",\"author\":" +
+          json_encode_value(author) +
+          ",\"round\":" +
+          round.to_string() +
+          "}"
         for client in ctx.sse_clients {
           sse_send(client, "reply", reply_event)
-          sse_send(client, "round", review_state_response(ctx.file_path, ctx.is_loop))
+          sse_send(
+            client,
+            "round",
+            review_state_response(ctx.file_path, ctx.is_loop),
+          )
         }
+      }
+    })
+  } else if http_method == "POST" && url == "/create-global-comment" {
+    read_body(req, fn(body) {
+      let text = json_parse_string("text", body)
+      let image = json_parse_string("image", body)
+      if text.trim().length() == 0 && image.length() == 0 {
+        res_write_head(res, 400, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"empty_comment\"}")
+        return
+      }
+      if ctx.file_path == "<stdin>" {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"review_not_persistent\"}")
+        return
+      }
+      let review_path = review_json_path_for_file(ctx.file_path)
+      let review_json = read_file_safe(review_path)
+      if !review_can_create_global_comment(review_json) {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"conversation_open\"}")
+        return
+      }
+      let id = next_global_comment_id(review_json)
+      let attachment_ref = save_conversation_image(ctx, id, image)
+      create_global_review_comment(
+        ctx.file_path,
+        id,
+        text,
+        "human",
+        attachment_ref,
+      )
+      let round = current_review_round(ctx.file_path)
+      let attachment_path = if attachment_ref.length() > 0 {
+        path_resolve(
+          path_join(
+            review_dir_for_file(ctx.file_path),
+            @core.safe_slice(attachment_ref, 2),
+          ),
+        )
+      } else {
+        ""
+      }
+      let attachment_line = if attachment_path.length() > 0 {
+        "\nattachment: " + attachment_path
+      } else {
+        ""
+      }
+      notify_reviewer(
+        ctx,
+        "[yunomi] global comment id=" +
+        id +
+        " round=" +
+        round.to_string() +
+        "\nhuman: " +
+        text +
+        attachment_line +
+        "\nreply with: yunomi reply " +
+        id +
+        " <text>\nurl=" +
+        review_url(ctx),
+      )
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true,\"id\":" + json_encode_value(id) + "}")
+      for client in ctx.sse_clients {
+        sse_send(
+          client,
+          "round",
+          review_state_response(ctx.file_path, ctx.is_loop),
+        )
       }
     })
   } else if http_method == "POST" && url == "/decision" {
@@ -2370,8 +2725,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "POST" && url == "/exit" {
     read_body(req, fn(body) {
-      if
-        ctx.file_path != "<stdin>" &&
+      if ctx.file_path != "<stdin>" &&
         ctx.is_loop &&
         json_parse_string("decision", body) == "approve" &&
         review_prior_unresolved_count(ctx.file_path) > 0 {
@@ -2484,8 +2838,13 @@ fn serve_static_file(
     res_end(res, "Forbidden")
     return
   }
-  // Resolve against file's directory
-  let base_dir = path_dirname(ctx.file_path)
+  // Review attachments live with review.json; document media stays relative
+  // to the reviewed file.
+  let base_dir = if relative_path.has_prefix("comment-attachments/") {
+    review_dir_for_file(ctx.file_path)
+  } else {
+    path_dirname(ctx.file_path)
+  }
   let static_path = path_join(base_dir, relative_path)
   // Ensure resolved path is under base_dir
   let resolved_static = path_resolve(static_path)
@@ -2537,7 +2896,11 @@ fn serve_static_file_head(
     res_end(res, "")
     return
   }
-  let base_dir = path_dirname(ctx.file_path)
+  let base_dir = if relative_path.has_prefix("comment-attachments/") {
+    review_dir_for_file(ctx.file_path)
+  } else {
+    path_dirname(ctx.file_path)
+  }
   let static_path = path_join(base_dir, relative_path)
   let resolved_static = path_resolve(static_path)
   let resolved_base = path_resolve(base_dir)
@@ -2622,13 +2985,15 @@ fn write_review_decision(
   checked : Bool,
   now : String,
 ) -> String {
-  let path = review_file_path()
-  ensure_parent_dir(path)
+  ensure_review_state(file_path)
+  let path = review_json_path_for_file(file_path)
+  let display_file = review_display_file(file_path)
   let existing = read_file_safe(path)
   let updated = js_upsert_decision_review_json(
     existing,
     current_branch(),
-    file_path,
+    display_file,
+    crypto_sha256(display_file),
     line,
     text,
     checked,
@@ -2639,7 +3004,33 @@ fn write_review_decision(
 }
 
 ///|
-fn update_task_decision_source(ctx : ServerContext, line : Int, checked : Bool) -> Bool {
+fn notification_quote(text : String) -> String {
+  let trimmed = text.trim().to_owned()
+  if trimmed.to_array().length() > 200 {
+    @core.safe_slice_range(trimmed, 0, 200) + "…"
+  } else {
+    trimmed
+  }
+}
+
+///|
+fn comment_quote_for_row(ctx : ServerContext, line : Int) -> String {
+  let source = if ctx.file_path == "<stdin>" {
+    ctx.source_text
+  } else {
+    decode_file(ctx.file_path, encoding_override.val)
+  }
+  notification_quote(
+    @core.quote_source_line(@core.split_to_lines(source), line - 1),
+  )
+}
+
+///|
+fn update_task_decision_source(
+  ctx : ServerContext,
+  line : Int,
+  checked : Bool,
+) -> Bool {
   if ctx.file_path == "<stdin>" {
     return false
   }
@@ -2648,6 +3039,7 @@ fn update_task_decision_source(ctx : ServerContext, line : Int, checked : Bool) 
   if updated.length() == 0 {
     return false
   }
+  ctx.decision_source_change_pending = true
   write_file_sync(ctx.file_path, updated)
   ctx.html_cache = load_and_build_html(ctx)
   true
@@ -2659,16 +3051,28 @@ fn decision_url(ctx : ServerContext) -> String {
 }
 
 ///|
-fn notify_decision(ctx : ServerContext, line : Int, text : String, checked : Bool) -> Unit {
-  let msg = "[yunomi] decision \{ctx.filename}:\{line} checked=\{checked.to_string()} " +
-    json_encode_value(text) + " url=" + decision_url(ctx)
+fn notify_decision(
+  ctx : ServerContext,
+  line : Int,
+  quote : String,
+  checked : Bool,
+) -> Unit {
+  let quote_line = if quote.length() > 0 { "\n> " + quote } else { "" }
+  let msg = "[yunomi] decision \{ctx.filename}:\{line} checked=\{checked.to_string()}" +
+    quote_line +
+    "\nurl=" +
+    decision_url(ctx)
   let custom_cmd = get_env_var("YUNOMI_NOTIFY_CMD")
   if custom_cmd.length() > 0 {
     let command = replace_notify_placeholder(custom_cmd, msg)
     let result = spawn_sync_shell_status(command)
     if result.0 != 0 {
       let detail = js_trim_string(result.1)
-      let reason = if detail.length() > 0 { detail } else { "exit " + result.0.to_string() }
+      let reason = if detail.length() > 0 {
+        detail
+      } else {
+        "exit " + result.0.to_string()
+      }
       console_error("yunomi decision: notify command failed: " + reason)
     }
     return
@@ -2681,12 +3085,24 @@ fn notify_decision(ctx : ServerContext, line : Int, text : String, checked : Boo
     console_error("yunomi decision: notify failed: herdr command not found")
     return
   }
-  let result = spawn_sync_status_args(herdr, ["agent", "send", notify_pane_id.val, msg])
+  let result = spawn_sync_status_args(herdr, [
+    "agent",
+    "send",
+    notify_pane_id.val,
+    msg,
+  ])
   if result.0 != 0 {
     let detail = js_trim_string(result.1)
-    let reason = if detail.length() > 0 { detail } else { "exit " + result.0.to_string() }
+    let reason = if detail.length() > 0 {
+      detail
+    } else {
+      "exit " + result.0.to_string()
+    }
     console_error(
-      "yunomi decision: notify failed for pane " + notify_pane_id.val + ": " + reason,
+      "yunomi decision: notify failed for pane " +
+      notify_pane_id.val +
+      ": " +
+      reason,
     )
   }
 }
@@ -2704,19 +3120,30 @@ fn handle_decision(ctx : ServerContext, body : String) -> Unit {
   let text = json_parse_string("text", body)
   let checked = json_parse_string("checked", body) == "true"
   let timestamp = iso_now()
-  let source_updated = update_task_decision_source(ctx, line, checked)
+  ignore(update_task_decision_source(ctx, line, checked))
+  let source_quote = comment_quote_for_row(ctx, line)
+  let quote = if source_quote.length() > 0 {
+    source_quote
+  } else {
+    notification_quote(text)
+  }
   ignore(write_review_decision(ctx.file_path, line, text, checked, timestamp))
-  let event = "{\"type\":\"decision\",\"file\":" + json_encode_value(ctx.filename) +
-    ",\"line\":\{line},\"text\":" + json_encode_value(text) + ",\"checked\":" +
-    checked.to_string() + ",\"decided_at\":" + json_encode_value(timestamp) + "}"
+  let event = "{\"type\":\"decision\",\"file\":" +
+    json_encode_value(ctx.filename) +
+    ",\"line\":\{line},\"text\":" +
+    json_encode_value(text) +
+    ",\"quote\":" +
+    json_encode_value(quote) +
+    ",\"checked\":" +
+    checked.to_string() +
+    ",\"decided_at\":" +
+    json_encode_value(timestamp) +
+    "}"
   append_live_log(event)
   for client in ctx.sse_clients {
     sse_send(client, "decision", event)
-    if source_updated {
-      sse_send(client, "reload", "")
-    }
   }
-  notify_decision(ctx, line, text, checked)
+  notify_decision(ctx, line, quote, checked)
 }
 
 ///|
@@ -2761,6 +3188,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   let row = json_parse_string("row", body)
   buf.write_string(",\"row\":")
   buf.write_string(if row.length() > 0 { row } else { "0" })
+  let line = json_parse_int_field("row", body) + 1
   let col = json_parse_string("col", body)
   buf.write_string(",\"col\":")
   buf.write_string(if col.length() > 0 { col } else { "0" })
@@ -2776,6 +3204,14 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   }
   let has_image = json_parse_string("hasImage", body)
   let target = json_parse_string("target", body)
+  let source_quote = comment_quote_for_row(ctx, line)
+  let quote = if source_quote.length() > 0 {
+    source_quote
+  } else {
+    notification_quote(target)
+  }
+  buf.write_string(",\"quote\":")
+  buf.write_string(json_encode_value(quote))
   if target.length() > 0 {
     buf.write_string(",\"target\":")
     buf.write_string(json_encode_value(target))
@@ -2786,32 +3222,62 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   buf.write_string("}")
   append_live_log(buf.to_string())
   if text.length() > 0 && event_type == "send-now" && ctx.file_path != "<stdin>" {
-    let line = json_parse_int_field("row", body) + 1
     let id = if key.length() > 0 { key } else { "draft" }
     update_review_on_send_now(ctx.file_path, id, line, text, target)
   }
-  if text.length() > 0 && event_type == "comment" && key.has_prefix("cli-") &&
+  if text.length() > 0 &&
+    event_type == "comment" &&
+    key.has_prefix("cli-") &&
     ctx.file_path != "<stdin>" {
     let line = json_parse_int_field("row", body)
     let writer = if author.length() > 0 { author } else { "agent" }
     update_review_on_cli_comment(ctx.file_path, key, line, text, writer)
   }
   if text.length() > 0 && event_type != "delete" {
-    let line = json_parse_int_field("row", body) + 1
-    let round = if ctx.file_path == "<stdin>" { 1 } else { current_review_round(ctx.file_path) }
+    let round = if ctx.file_path == "<stdin>" {
+      1
+    } else {
+      current_review_round(ctx.file_path)
+    }
     let id = if key.length() > 0 { key } else { "draft" }
     let label = if event_type == "send-now" { "send-now" } else { "comment" }
-    let target_suffix = if target.length() > 0 { " target=" + target } else { "" }
+    let target_suffix = if target.length() > 0 {
+      " target=" + target
+    } else {
+      ""
+    }
+    let quote_line = if quote.length() > 0 { "\n> " + quote } else { "" }
     notify_reviewer(
       ctx,
-      "[yunomi] " + label + " " + ctx.filename + ":" + line.to_string() +
-      " id=" + id + " round=" + round.to_string() + " " +
-      json_encode_value(text) + target_suffix + " url=" + review_url(ctx),
+      "[yunomi] " +
+      label +
+      " " +
+      ctx.filename +
+      ":" +
+      line.to_string() +
+      " id=" +
+      id +
+      " round=" +
+      round.to_string() +
+      target_suffix +
+      quote_line +
+      "\nhuman: " +
+      text +
+      "\nurl=" +
+      review_url(ctx),
     )
   }
   // Notify SSE clients about the comment event
   for client in ctx.sse_clients {
-    sse_send(client, if event_type == "send-now" { "send-now" } else { "comment" }, buf.to_string())
+    sse_send(
+      client,
+      if event_type == "send-now" {
+        "send-now"
+      } else {
+        "comment"
+      },
+      buf.to_string(),
+    )
   }
 }
 
@@ -2852,7 +3318,9 @@ fn handle_answer_event(ctx : ServerContext, body : String) -> Unit {
 /// its response has finished sending (see handle_request).
 fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   if ctx.finished {
-    log_session_event("ignored submit for finished context file=\{ctx.filename}")
+    log_session_event(
+      "ignored submit for finished context file=\{ctx.filename}",
+    )
     return false
   }
   let summary = json_parse_string("summary", body)
@@ -2880,7 +3348,12 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   for i, img in images {
     if img.length() > 0 {
       let ext = extract_base64_ext(img)
-      let filename = summary_image_filename(server_instance_id.val, summary_submit_id, i, ext)
+      let filename = summary_image_filename(
+        server_instance_id.val,
+        summary_submit_id,
+        i,
+        ext,
+      )
       if filename.length() > 0 {
         let path = base64_to_named_file(img, output_dir, filename)
         if path.length() > 0 {
@@ -2904,7 +3377,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   }
   for c in raw_comments {
     if c.length() >= 5 && c[4].length() > 0 {
-      comment_image_paths.push(base64_to_file(c[4], output_dir, comment_img_idx))
+      comment_image_paths.push(
+        base64_to_file(c[4], output_dir, comment_img_idx),
+      )
       let attachment_ext = extract_base64_ext(c[4])
       let attachment_name = if attachment_ext.length() > 0 {
         "c-\{current_round}-\{comment_seq}.\{attachment_ext}"
@@ -2943,12 +3418,32 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       let row = @core.parse_int_safe(c[0])
       let col = @core.parse_int_safe(c[1])
       let sent_value = if c.length() > 3 { c[3] } else { "" }
-      let image_path = if i < comment_image_paths.length() { comment_image_paths[i] } else { "" }
-      let end_row = if c.length() > 5 { @core.parse_int_safe(c[5]) } else { row }
-      let end_col = if c.length() > 6 { @core.parse_int_safe(c[6]) } else { col }
+      let image_path = if i < comment_image_paths.length() {
+        comment_image_paths[i]
+      } else {
+        ""
+      }
+      let end_row = if c.length() > 5 {
+        @core.parse_int_safe(c[5])
+      } else {
+        row
+      }
+      let end_col = if c.length() > 6 {
+        @core.parse_int_safe(c[6])
+      } else {
+        col
+      }
       let selector = if c.length() > 7 { c[7] } else { "" }
       let bounds = if c.length() > 8 { c[8] } else { "" }
       let element_text = if c.length() > 9 { c[9] } else { "" }
+      // The quote must name the exact line the human pointed at. Falling back
+      // to comment_snippet here would quote three lines above the target,
+      // since that helper returns a row-3..row+3 window.
+      let quote = js_quote_from_candidates(
+        sent_value,
+        element_text,
+        @core.quote_source_line(source_lines, row),
+      )
       let attachment_ref = if i < comment_attachment_refs.length() {
         comment_attachment_refs[i]
       } else {
@@ -2965,6 +3460,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
         end_row: Some(end_row),
         end_col: Some(end_col),
         text: c[2],
+        quote: Some(quote),
         value: if sent_value.length() > 0 {
           sent_value
         } else {
@@ -3011,7 +3507,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   if ctx.file_path != "<stdin>" {
     update_review_on_submit(
       ctx.file_path,
-      json_with_comment_image_paths(body, comment_image_paths, comment_attachment_refs),
+      json_with_comment_image_paths(
+        body, comment_image_paths, comment_attachment_refs,
+      ),
       source_lines,
       current_round,
     )
@@ -3046,7 +3544,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     let yaml = @core.reviews_to_yaml(all_results)
     process_stdout_write(yaml)
     all_results.clear()
-    console_log("yunomi loop waiting for next round; run `yunomi go` after fixes")
+    console_log(
+      "yunomi loop waiting for next round; run `yunomi go` after fixes",
+    )
     false
   } else if all_results.length() >= expected_count.val {
     ctx.finished = true

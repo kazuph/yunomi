@@ -13,6 +13,8 @@ const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
   import.meta.url,
 ).pathname;
+const SERVER_START_TIMEOUT_MS = 10_000;
+const SLOW_RECONNECT_DELAY_MS = 6_000;
 
 let failed = 0;
 
@@ -118,7 +120,7 @@ function startServer(
     });
     setTimeout(() => {
       if (!resolved) reject(new Error(`server did not start:\n${out}`));
-    }, 10000);
+    }, SERVER_START_TIMEOUT_MS);
   });
 }
 
@@ -300,7 +302,7 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
       }
       // Simulate a slow client boot. Closing never starts a submit deadline,
       // so the reconnect may take arbitrarily longer than the former 5s timer.
-      await new Promise((r) => setTimeout(r, 6000));
+      await new Promise((r) => setTimeout(r, SLOW_RECONNECT_DELAY_MS));
       await route.continue().catch(() => {});
     });
 
@@ -317,7 +319,12 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
 
     // Let the delayed /session/open land. The second open log is the direct
     // signal that the reloaded client finished booting.
-    const reconnected = await waitForLogCount(getOutput, "open file=", 2, 8000);
+    const reconnected = await waitForLogCount(
+      getOutput,
+      "open file=",
+      2,
+      SLOW_RECONNECT_DELAY_MS + SERVER_START_TIMEOUT_MS,
+    );
     assert(
       reconnected,
       "6秒遅延したreconnectが着地する（2回目の 'open file=' ログを観測）",

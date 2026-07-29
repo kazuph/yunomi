@@ -86,7 +86,10 @@ extern "js" fn strip_md_suffix(name : String) -> String =
 
 ///|
 fn report_output_path() -> String {
-  path_join(path_join(path_join(process_cwd(), ".artifacts"), current_feature_slug()), "REPORT.md")
+  path_join(
+    path_join(path_join(process_cwd(), ".artifacts"), current_feature_slug()),
+    "REPORT.md",
+  )
 }
 
 ///|
@@ -145,7 +148,13 @@ fn handle_init_command(args : Array[String]) -> Unit {
   }
   write_file_secure(out, render_template(read_file_safe(path), template))
   if json_output {
-    process_stdout_write("{\"ok\":true,\"template\":" + json_encode_value(template) + ",\"path\":" + json_encode_value(out) + "}\n")
+    process_stdout_write(
+      "{\"ok\":true,\"template\":" +
+      json_encode_value(template) +
+      ",\"path\":" +
+      json_encode_value(out) +
+      "}\n",
+    )
   } else {
     process_stdout_write("Created " + out + " from template " + template + "\n")
   }

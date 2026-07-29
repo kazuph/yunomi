@@ -42,6 +42,7 @@ pub(all) struct Comment {
   end_row : Int?
   end_col : Int?
   text : String
+  quote : String?
   value : String
   snippet : String?
   context_before : String

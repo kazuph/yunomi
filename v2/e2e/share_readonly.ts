@@ -1,5 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -74,9 +74,9 @@ async function stop(proc: ChildProcess): Promise<void> {
   });
 }
 
-async function get(port: number, path: string): Promise<{ status: number; text: string }> {
-  const res = await fetch(`http://127.0.0.1:${port}${path}`);
-  return { status: res.status, text: await res.text() };
+async function get(port: number, path: string, headers: Record<string, string> = {}): Promise<{ status: number; text: string; headers: Headers }> {
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, { headers });
+  return { status: res.status, text: await res.text(), headers: res.headers };
 }
 
 async function post(port: number, path: string): Promise<{ status: number; text: string }> {
@@ -137,6 +137,8 @@ try {
 
     const page = await get(share.port, `/?f=0&share=${shareToken}`);
     assert(page.status === 200 && page.text.includes("Shared Report"), "share serves the reviewed markdown");
+    const cookie = String(page.headers.get("set-cookie") || "").split(";")[0];
+    assert(cookie.startsWith("yunomi_share="), "share exchanges the URL token for an HttpOnly session cookie", cookie);
     assert(page.text.includes("share-readonly-banner"), "share page renders a read-only banner");
     assert(page.text.includes("__YUNOMI_SHARE_READONLY__=true"), "share page marks the browser as read-only");
     assert(page.text.includes("submit-exit-btn") && page.text.includes("display:none"), "share page hides submit/comment controls");
@@ -144,6 +146,22 @@ try {
       page.text.includes("review-file-switcher") &&
         (page.text.includes(`/?f=1&share=${shareToken}`) || page.text.includes(`/?f=1&amp;share=${shareToken}`)),
       "share supports read-only multi-file switching",
+    );
+
+    const attachmentDir = join(REVIEW_DIR, "comment-attachments");
+    mkdirSync(attachmentDir, { recursive: true });
+    writeFileSync(join(attachmentDir, "private.png"), "private attachment");
+    for (const path of ["/review-state", "/history", "/ui.js", "/comment-attachments/private.png"]) {
+      const blocked = await get(share.port, path);
+      assert(blocked.status === 403, `share rejects unsigned GET ${path}`, blocked);
+    }
+    const authorizedState = await get(share.port, "/review-state", { Cookie: cookie });
+    assert(authorizedState.status === 200, "share cookie authorizes review state after the signed page load", authorizedState);
+    const authorizedAttachment = await get(share.port, "/comment-attachments/private.png", { Cookie: cookie });
+    assert(
+      authorizedAttachment.status === 200 && authorizedAttachment.text === "private attachment",
+      "share cookie authorizes a conversation attachment after the signed page load",
+      authorizedAttachment,
     );
 
     const browser = await chromium.launch();

@@ -164,7 +164,9 @@ async function main(): Promise<void> {
     JSON.stringify({ type: "comment", row: 2, col: 1, text: "Relay this immediately", key: "2:1" }),
   );
   assert.equal(comment.status, 200);
-  await waitForNotify(/\[yunomi\] comment REPORT\.md:3 .*"Relay this immediately"/);
+  // The relayed notification must quote the commented source line, so the
+  // agent can re-identify the target even after the file has moved on.
+  await waitForNotify(/\[yunomi\] comment REPORT\.md:3 id=2:1 round=1\n> Before relay\nhuman: Relay this immediately\nurl=/);
 
   const submit = await request(
     port,
@@ -190,7 +192,10 @@ async function main(): Promise<void> {
   );
   assert.equal(reply.status, 200);
   const roundJson = JSON.parse(await sseRound);
-  assert.equal(roundJson.review.comments[0].replies[0].text, "Fixed relay path");
+  assert.equal(
+    roundJson.review.comments.find((entry: { id: string }) => entry.id === "c-1-1")?.replies[0].text,
+    "Fixed relay path",
+  );
 
   const state = await request(port, "GET", "/review-state");
   assert.match(state.body, /unresolved/);

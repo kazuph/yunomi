@@ -23,7 +23,10 @@ extern "js" fn js_stat_mtime_ms(stat : JsValue) -> Double =
   #|(s) => Number(s?.mtimeMs || 0)
 
 ///|
-extern "js" fn try_call_double(func : () -> Double, fallback : Double) -> Double =
+extern "js" fn try_call_double(
+  func : () -> Double,
+  fallback : Double,
+) -> Double =
   #|(f, fallback) => { try { return f(); } catch (_) { return fallback; } }
 
 ///|
@@ -103,7 +106,10 @@ extern "js" fn js_status_output(
   #|}
 
 ///|
-extern "js" fn js_stats_output(history_jsons : Array[String], json_output : Bool) -> String =
+extern "js" fn js_stats_output(
+  history_jsons : Array[String],
+  json_output : Bool,
+) -> String =
   #|(historyJsons, jsonOutput) => {
   #|  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
   #|  const entries = [];
@@ -167,7 +173,10 @@ extern "js" fn js_cleanup_candidates(
   #|}
 
 ///|
-extern "js" fn js_cleanup_output(deleted : Array[String], json_output : Bool) -> String =
+extern "js" fn js_cleanup_output(
+  deleted : Array[String],
+  json_output : Bool,
+) -> String =
   #|(deleted, jsonOutput) => {
   #|  if (jsonOutput) return JSON.stringify({ deleted: deleted.length, paths: deleted }, null, 2);
   #|  if (!deleted.length) return "No approved yunomi reviews matched cleanup.\n";
@@ -186,7 +195,9 @@ fn handle_meta_status(json_output : Bool) -> Unit {
 
 ///|
 fn handle_meta_stats(json_output : Bool) -> Unit {
-  process_stdout_write(js_stats_output(collect_history_json(meta_history_root()), json_output))
+  process_stdout_write(
+    js_stats_output(collect_history_json(meta_history_root()), json_output),
+  )
 }
 
 ///|

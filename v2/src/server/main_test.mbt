@@ -15,7 +15,9 @@ test "sanitize_branch_name: produces review-directory-safe branch name" {
 ///|
 test "install_target_path: codex project skill path follows agents convention" {
   debug_inspect(
-    install_target_path("codex", false).contains(".agents/skills/yunomi/SKILL.md"),
+    install_target_path("codex", false).contains(
+      ".agents/skills/yunomi/SKILL.md",
+    ),
     content="true",
   )
 }
@@ -23,7 +25,9 @@ test "install_target_path: codex project skill path follows agents convention" {
 ///|
 test "install_target_path: claude global skill path follows claude convention" {
   debug_inspect(
-    install_target_path("claude", true).contains(".claude/skills/yunomi/SKILL.md"),
+    install_target_path("claude", true).contains(
+      ".claude/skills/yunomi/SKILL.md",
+    ),
     content="true",
   )
 }
@@ -56,7 +60,7 @@ test "summary_image_filename: includes review identifier and image index" {
 test "summary_image_filename: avoids multi-file submit collisions at same index" {
   debug_inspect(
     summary_image_filename("srv-1", "submit-a", 0, "png") !=
-      summary_image_filename("srv-1", "submit-b", 0, "png"),
+    summary_image_filename("srv-1", "submit-b", 0, "png"),
     content="true",
   )
 }

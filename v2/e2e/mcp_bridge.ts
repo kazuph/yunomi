@@ -132,7 +132,12 @@ try {
       capabilities: {},
       clientInfo: { name: "yunomi-e2e", version: "0" },
     });
-    assert((init as { result?: { serverInfo?: { name?: string } } }).result?.serverInfo?.name === "yunomi", "MCP initialize returns yunomi server info");
+    const serverInfo = (init as { result?: { serverInfo?: { name?: string; version?: string } } }).result?.serverInfo;
+    assert(
+      serverInfo?.name === "yunomi" && serverInfo?.version === "2.4.0",
+      "MCP initialize returns the published yunomi server identity and version",
+      serverInfo,
+    );
 
     const listed = await client.request("tools/list");
     const toolNames = ((listed as { result?: { tools?: Array<{ name: string }> } }).result?.tools || []).map((tool) => tool.name);

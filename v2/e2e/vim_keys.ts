@@ -124,6 +124,28 @@ try {
         throw new Error(`${error instanceof Error ? error.message : String(error)}\nVim state: ${JSON.stringify(state)}`);
       });
       assert(true, "j selects the first review target");
+      const selectedStyle = await page.locator(".text-line[data-row='0'].vim-key-selected").evaluate((element) => {
+        const style = getComputedStyle(element);
+        return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, backgroundColor: style.backgroundColor };
+      });
+      assert(
+        selectedStyle.outlineStyle === "none" && selectedStyle.outlineWidth === "0px",
+        "keyboard selection uses no outline",
+      );
+      await page.waitForFunction(() => {
+        const element = document.querySelector(".text-line[data-row='0'].vim-key-selected");
+        if (!element) return false;
+        const backgroundColor = getComputedStyle(element).backgroundColor;
+        return backgroundColor !== "rgba(0, 0, 0, 0)" && backgroundColor !== "transparent";
+      });
+      const selectedBackground = await page.locator(".text-line[data-row='0'].vim-key-selected").evaluate((element) => (
+        getComputedStyle(element).backgroundColor
+      ));
+      assert(
+        selectedBackground !== "rgba(0, 0, 0, 0)" && selectedBackground !== "transparent",
+        "keyboard selection remains visible through its background color",
+        selectedBackground,
+      );
 
       await page.keyboard.press("j");
       await page.waitForSelector(".text-line[data-row='1'].vim-key-selected");
@@ -167,27 +189,25 @@ try {
       assert(true, "？ opens keyboard help outside text inputs");
       await page.mouse.click(5, 5);
 
-      await page.waitForSelector(".review-loop-resolve", { timeout: 10000 });
+      await page.waitForSelector(".review-loop-inline .review-loop-resolve", { timeout: 10000 });
       await page.keyboard.press("r");
       await page.waitForFunction(() => {
-        const badge = document.querySelector(".review-loop-badge")?.textContent?.trim();
+        const counts = document.querySelector(".review-loop-meta")?.textContent?.trim() || "";
         const status = (window as unknown as { __YUNOMI_REVIEW_LOOP_STATUS__?: string }).__YUNOMI_REVIEW_LOOP_STATUS__ || "";
-        return !document.querySelector(".review-loop-resolve")
-          && !!document.querySelector(".review-loop-resolved")
-          && badge === "0"
+        return !document.querySelector(".review-loop-inline .review-loop-resolve")
+          && !document.querySelector("#review-loop-panel [data-review-comment-id='loop-1']")
+          && counts.startsWith("0 open")
           && status.includes("All resolved");
       });
       const review = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));
       assert(review.comments[0]?.status === "resolved", "r resolves the focused review-loop comment");
 
-      const submitShortcut = process.platform === "darwin" ? "Meta+Enter" : "Control+Enter";
-      for (let attempt = 0; attempt < 3 && !await page.locator("#submit-modal.visible").isVisible(); attempt++) {
-        await page.keyboard.press(submitShortcut);
-        await page.locator("#submit-modal.visible").waitFor({ state: "visible", timeout: 1500 }).catch(() => {});
-      }
-      await page.waitForSelector("#submit-modal.visible");
-      assert(true, "Cmd/Ctrl+Enter opens Submit from the review surface");
-      await page.keyboard.press("Escape");
+      await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+      await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+      assert(
+        await page.locator("#submit-modal.visible").count() === 0,
+        "Cmd/Ctrl+Enter outside a comment editor never opens Submit",
+      );
 
       await page.keyboard.press("?");
       await page.waitForSelector(".vim-key-help:not(.hidden)");

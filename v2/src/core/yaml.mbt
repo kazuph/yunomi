@@ -31,6 +31,7 @@ fn write_comment_yaml(
   let file = option_string(comment.file, "")
   let end_row = option_int(comment.end_row, comment.row)
   let end_col = option_int(comment.end_col, comment.col)
+  let quote = option_string(comment.quote, "")
   let snippet = option_string(
     comment.snippet,
     if comment.value.length() > 0 {
@@ -62,6 +63,10 @@ fn write_comment_yaml(
   buf.write_string(indent)
   buf.write_string("  end_col: ")
   buf.write_string(end_col.to_string())
+  buf.write_char('\n')
+  buf.write_string(indent)
+  buf.write_string("  quote: ")
+  buf.write_string(yaml_escape_string(quote))
   buf.write_char('\n')
   buf.write_string(indent)
   buf.write_string("  text: ")

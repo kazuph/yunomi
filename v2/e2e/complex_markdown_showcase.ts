@@ -90,9 +90,13 @@ async function nonContainedOverlaps(page: Page): Promise<Array<{ first: string; 
 
 const server = await startServer();
 let browser: Browser | null = null;
+const navigationEvents: string[] = [];
 try {
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) navigationEvents.push(frame.url());
+  });
   await page.goto(`http://127.0.0.1:${server.port}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#md-preview [data-source-line],#md-preview [data-source-start-line]", { timeout: 10_000 });
   await page.waitForTimeout(600);
@@ -250,10 +254,17 @@ try {
   });
   assert(reportLatest !== null && reportLatest.open && reportLatest.strong && !reportLatest.summary.includes("詳細"), "REPORT latest feedback keeps its summary and open state", reportLatest);
   await reportPage.close();
+  assert(
+    navigationEvents.length === 1,
+    "multi-file startup does not trigger a phantom new-round reload",
+    navigationEvents,
+  );
   assert(!server.output().includes("TypeError") && !server.output().includes("ReferenceError"), "showcase server has no runtime errors", server.output());
 } catch (error) {
   failed++;
   console.error(error instanceof Error ? error.stack || error.message : String(error));
+  console.error(`Navigation events: ${JSON.stringify(navigationEvents)}`);
+  console.error(`Server output:\n${server.output()}`);
 } finally {
   if (browser) await browser.close();
   await stopServer(server.proc);

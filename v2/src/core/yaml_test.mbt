@@ -11,6 +11,7 @@ test "review to yaml single file" {
         end_row: Some(1),
         end_col: Some(2),
         text: "needs review",
+        quote: Some("150"),
         value: "150",
         snippet: Some("150"),
         context_before: "",
@@ -32,7 +33,7 @@ test "review to yaml single file" {
   debug_inspect(
     review_to_yaml(result),
     content=(
-      #|"action: final_approve\nfile: data.csv\nmode: csv\ncomments:\n  - file: data.csv\n    row: 1\n    col: 2\n    end_row: 1\n    end_col: 2\n    text: needs review\n    value: 150\n    snippet: 150\n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: looks good\n"
+      #|"action: final_approve\nfile: data.csv\nmode: csv\ncomments:\n  - file: data.csv\n    row: 1\n    col: 2\n    end_row: 1\n    end_col: 2\n    quote: 150\n    text: needs review\n    value: 150\n    snippet: 150\n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: looks good\n"
     ),
   )
 }
@@ -50,6 +51,7 @@ test "review to yaml escapes special chars" {
         end_row: Some(0),
         end_col: Some(0),
         text: "has: colon and #hash",
+        quote: Some(""),
         value: "",
         snippet: Some(""),
         context_before: "",
@@ -71,7 +73,7 @@ test "review to yaml escapes special chars" {
   debug_inspect(
     review_to_yaml(result),
     content=(
-      #|"action: final_approve\nfile: test.csv\nmode: csv\ncomments:\n  - file: test.csv\n    row: 0\n    col: 0\n    end_row: 0\n    end_col: 0\n    text: 'has: colon and #hash'\n    snippet: \n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: 'it''s fine'\n"
+      #|"action: final_approve\nfile: test.csv\nmode: csv\ncomments:\n  - file: test.csv\n    row: 0\n    col: 0\n    end_row: 0\n    end_col: 0\n    quote: \n    text: 'has: colon and #hash'\n    snippet: \n    context_before: \n    context_after: \n    selector: \n    bounds: \n    element_text: \n    attachments: []\nsummary: 'it''s fine'\n"
     ),
   )
 }
@@ -123,6 +125,7 @@ test "yaml escape empty value omitted" {
         end_row: None,
         end_col: None,
         text: "note",
+        quote: Some(""),
         value: "",
         snippet: None,
         context_before: "",
@@ -164,6 +167,7 @@ test "review to yaml includes structured context and image path" {
         end_row: Some(2),
         end_col: Some(1),
         text: "needs context",
+        quote: Some("target line"),
         value: "target line",
         snippet: Some("before line\ntarget line\nafter line"),
         context_before: "before line",
@@ -185,7 +189,7 @@ test "review to yaml includes structured context and image path" {
   debug_inspect(
     review_to_yaml(result),
     content=(
-      #|"action: final_request_changes\nfile: test.md\nmode: markdown\ncomments:\n  - file: test.md\n    row: 2\n    col: 1\n    end_row: 2\n    end_col: 1\n    text: needs context\n    value: target line\n    snippet: 'before line\ntarget line\nafter line'\n    context_before: before line\n    context_after: after line\n    selector: '#target'\n    bounds: '{\"x\":1,\"y\":2,\"width\":3,\"height\":4}'\n    element_text: target line\n    attachments:\n      - ./comment-attachments/c-1-1.png\n    image_path: /tmp/yunomi/image_0.png\nsummary: done\n"
+      #|"action: final_request_changes\nfile: test.md\nmode: markdown\ncomments:\n  - file: test.md\n    row: 2\n    col: 1\n    end_row: 2\n    end_col: 1\n    quote: target line\n    text: needs context\n    value: target line\n    snippet: 'before line\ntarget line\nafter line'\n    context_before: before line\n    context_after: after line\n    selector: '#target'\n    bounds: '{\"x\":1,\"y\":2,\"width\":3,\"height\":4}'\n    element_text: target line\n    attachments:\n      - ./comment-attachments/c-1-1.png\n    image_path: /tmp/yunomi/image_0.png\nsummary: done\n"
     ),
   )
 }

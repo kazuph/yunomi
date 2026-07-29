@@ -94,6 +94,10 @@ async function cardState(page: Page): Promise<{
 
 async function selectedState(page: Page): Promise<{
   previewText: string;
+  previewBackgroundColor: string;
+  previewOutlineStyle: string;
+  previewOutlineWidth: string;
+  previewBoxShadow: string;
   selectedRows: string[];
   selectedCols: string[];
   cardVisible: boolean;
@@ -106,6 +110,10 @@ async function selectedState(page: Page): Promise<{
     const activeMedia = document.querySelector<HTMLElement>(".media-sidebar-thumb.active");
     return {
       previewText: highlighted?.textContent?.trim() || highlighted?.getAttribute("title") || "",
+      previewBackgroundColor: highlighted ? getComputedStyle(highlighted).backgroundColor : "",
+      previewOutlineStyle: highlighted ? getComputedStyle(highlighted).outlineStyle : "",
+      previewOutlineWidth: highlighted ? getComputedStyle(highlighted).outlineWidth : "",
+      previewBoxShadow: highlighted ? getComputedStyle(highlighted).boxShadow : "",
       selectedRows: selected.map((el) => el.getAttribute("data-row") || ""),
       selectedCols: selected.map((el) => el.getAttribute("data-col") || ""),
       cardVisible: !!card && getComputedStyle(card).display !== "none",
@@ -257,6 +265,10 @@ async function main(): Promise<void> {
       "画像コメントの即時送信は画像種別・alt・URLをSSEへ含める",
       imagePayload,
     );
+    if (await page.locator(".comment-list:not(.collapsed)").count() === 1) {
+      await page.locator("#comment-list-minimize").click();
+      await page.waitForSelector(".comment-list.collapsed");
+    }
 
     await page.locator("#md-preview .mermaid-container > .yunomi-comment-button").first().click();
     const mermaidCard = await cardState(page);
@@ -287,6 +299,24 @@ async function main(): Promise<void> {
       timelineButton.hasThumb && timelineButton.hasButton && timelineCard.visible && timelineCard.preview.length > 0,
       "動画サムネ右上のコメントアイコンでコメントカードが開く",
       { timelineButton, timelineCard },
+    );
+    await closeCard(page);
+
+    const headingTarget = page.locator("#md-preview h1[data-source-line]");
+    const headingCount = await headingTarget.count();
+    assert(headingCount === 1, "枠線を検証するMarkdown見出しが一意に存在する", { headingCount });
+    await headingTarget.click();
+    await page.waitForTimeout(200);
+    const headingSelection = await selectedState(page);
+    assert(
+      headingSelection.previewText.length > 0 &&
+        headingSelection.previewBackgroundColor !== "rgba(0, 0, 0, 0)" &&
+        headingSelection.previewBackgroundColor !== "transparent" &&
+        headingSelection.previewOutlineStyle === "none" &&
+        headingSelection.previewBoxShadow.includes("6px") &&
+        !headingSelection.previewBoxShadow.includes("inset"),
+      "選択中のMarkdown本文は枠線を付けず背景色だけを外側へ広げる",
+      headingSelection,
     );
     await closeCard(page);
 

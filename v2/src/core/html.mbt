@@ -177,7 +177,7 @@ fn build_page_start(
     "<span class=\"sse-dot sse-dot-connected\" id=\"sse-status\" role=\"status\" aria-live=\"polite\" title=\"Connected\"></span>",
   )
   buf.write_string(
-    "<button class=\"pill\" id=\"pill-comments\" title=\"Click anywhere to comment / ESC to cancel\">Comments <strong id=\"comment-count\">0</strong></button>",
+    "<button class=\"pill\" id=\"pill-comments\" title=\"Unsubmitted comment drafts\" style=\"display:none\">Drafts <strong id=\"comment-count\">0</strong></button>",
   )
   buf.write_string(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
@@ -229,7 +229,7 @@ fn build_page_start(
   )
   buf.write_string("</div></div>")
   buf.write_string(
-    "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit review</button>",
+    "<button id=\"send-and-exit\" class=\"submit-exit-btn\">Submit</button>",
   )
   buf.write_string("</div></header>")
 }
@@ -237,7 +237,7 @@ fn build_page_start(
 ///|
 pub fn build_review_loop_mount(buf : StringBuilder) -> Unit {
   buf.write_string(
-    "<section class=\"review-loop-panel\" id=\"review-loop-panel\" aria-live=\"polite\"></section>",
+    "<section class=\"review-loop-sidebar\" id=\"review-loop-panel\" aria-live=\"polite\"></section>",
   )
 }
 
@@ -245,7 +245,7 @@ pub fn build_review_loop_mount(buf : StringBuilder) -> Unit {
 fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<div class=\"modal-overlay\" id=\"submit-modal\">")
   buf.write_string("<div class=\"modal-dialog\">")
-  buf.write_string("<h3>Submit review</h3>")
+  buf.write_string("<h3>Submit</h3>")
   buf.write_string(
     "<div class=\"review-loop-submit-state\" id=\"review-loop-submit-state\"></div>",
   )
@@ -298,10 +298,12 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
 ///|
 fn build_comment_list_aside(buf : StringBuilder) -> Unit {
   buf.write_string("<aside class=\"comment-list collapsed\">")
-  buf.write_string("<div class=\"comment-list-header\"><h3>Comments</h3><button type=\"button\" class=\"comment-list-minimize\" id=\"comment-list-minimize\" title=\"Minimize comments\" aria-label=\"Minimize comments\">Minimize</button></div>")
+  buf.write_string(
+    "<div class=\"comment-list-header\"><h3>Drafts</h3><button type=\"button\" class=\"comment-list-minimize\" id=\"comment-list-minimize\" title=\"Minimize drafts\" aria-label=\"Minimize drafts\">Minimize</button></div>",
+  )
   buf.write_string("<ol id=\"comment-list\"></ol>")
   buf.write_string(
-    "<p class=\"hint\">Click \"Submit review\" to send pending comments and stop the server.</p>",
+    "<p class=\"hint\">Click \"Submit\" to send pending comments and stop the server.</p>",
   )
   buf.write_string("</aside>")
 }

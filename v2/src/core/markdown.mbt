@@ -84,10 +84,11 @@ pub fn parse_markdown(input : String) -> MarkdownData {
   }
   let definitions = collect_markdown_definitions(content_lines)
   let html = render_markdown_lines(
-    content_lines,
-    references=definitions.0,
-    footnotes=definitions.1,
-  ) + render_footnotes(definitions.1, definitions.0)
+      content_lines,
+      references=definitions.0,
+      footnotes=definitions.1,
+    ) +
+    render_footnotes(definitions.1, definitions.0)
   // Build source (content without frontmatter)
   let src_buf = StringBuilder::new()
   for i, line in content_lines {
@@ -260,12 +261,14 @@ fn render_footnotes(
   footnotes.each(fn(id, content) {
     if !has_footnotes {
       has_footnotes = true
-      buf.write_string("<section class=\"footnotes\" aria-label=\"Footnotes\"><ol>")
+      buf.write_string(
+        "<section class=\"footnotes\" aria-label=\"Footnotes\"><ol>",
+      )
     }
     buf.write_string("<li id=\"footnote-")
     buf.write_string(escape_html(id))
     buf.write_string("\">")
-    buf.write_string(render_inline(content, references=references, footnotes=footnotes))
+    buf.write_string(render_inline(content, references~, footnotes~))
     buf.write_string(" <a href=\"#footnote-ref-")
     buf.write_string(escape_html(id))
     buf.write_string("\" aria-label=\"Back to reference\">↩</a></li>")
@@ -435,7 +438,12 @@ fn render_markdown_lines(
           "\"><span class=\"heading-toggle-icon\">\u{25BC}</span>",
         )
         buf.write_string(
-          render_inline(content, source_line=i + 1 + line_offset, references~, footnotes~),
+          render_inline(
+            content,
+            source_line=i + 1 + line_offset,
+            references~,
+            footnotes~,
+          ),
         )
         buf.write_string("</h")
         buf.write_string(level.to_string())
@@ -529,7 +537,8 @@ fn render_markdown_lines(
         render_markdown_lines(
           quote_lines,
           line_offset=quote_start_line - 1,
-          references~, footnotes~,
+          references~,
+          footnotes~,
         ),
       )
       buf.write_string("</blockquote>\n")
@@ -539,7 +548,13 @@ fn render_markdown_lines(
     let list_kind = markdown_list_kind(line)
     if list_kind > 0 && leading_spaces(line) == 0 {
       let rendered = render_markdown_list(
-        lines, i, line_offset, 0, list_kind, references~, footnotes~,
+        lines,
+        i,
+        line_offset,
+        0,
+        list_kind,
+        references~,
+        footnotes~,
       )
       buf.write_string(rendered.0)
       i = rendered.1
@@ -564,7 +579,14 @@ fn render_markdown_lines(
         buf.write_string("\" data-col=\"")
         buf.write_string((col_idx + 1).to_string())
         buf.write_string("\">")
-        buf.write_string(render_inline(trim(h), source_line=header_line, references~, footnotes~))
+        buf.write_string(
+          render_inline(
+            trim(h),
+            source_line=header_line,
+            references~,
+            footnotes~,
+          ),
+        )
         buf.write_string("</th>\n")
       }
       buf.write_string("</tr>\n</thead>\n<tbody>\n")
@@ -583,7 +605,14 @@ fn render_markdown_lines(
           buf.write_string("\" data-col=\"")
           buf.write_string((col_idx + 1).to_string())
           buf.write_string("\">")
-          buf.write_string(render_inline(trim(cell), source_line=row_line, references~, footnotes~))
+          buf.write_string(
+            render_inline(
+              trim(cell),
+              source_line=row_line,
+              references~,
+              footnotes~,
+            ),
+          )
           buf.write_string("</td>\n")
         }
         buf.write_string("</tr>\n")
@@ -611,7 +640,14 @@ fn render_markdown_lines(
       buf.write_string("\" data-source-end-line=\"")
       buf.write_string((i + line_offset).to_string())
       buf.write_string("\">")
-      buf.write_string(render_inline(para_text, source_line=para_start_line, references~, footnotes~))
+      buf.write_string(
+        render_inline(
+          para_text,
+          source_line=para_start_line,
+          references~,
+          footnotes~,
+        ),
+      )
       buf.write_string("</p>\n")
     }
   }
@@ -692,13 +728,22 @@ fn render_markdown_list(
       buf.write_string("\" data-decision-text=\"")
       buf.write_string(escape_html(task_text))
       buf.write_string("\" /> ")
-      buf.write_string(render_inline(task_text, source_line=item_line, references~, footnotes~))
+      buf.write_string(
+        render_inline(task_text, source_line=item_line, references~, footnotes~),
+      )
     } else if decision_done {
       buf.write_string(
-        render_inline(safe_slice(item_text, 3), source_line=item_line, references~, footnotes~),
+        render_inline(
+          safe_slice(item_text, 3),
+          source_line=item_line,
+          references~,
+          footnotes~,
+        ),
       )
     } else {
-      buf.write_string(render_inline(item_text, source_line=item_line, references~, footnotes~))
+      buf.write_string(
+        render_inline(item_text, source_line=item_line, references~, footnotes~),
+      )
     }
     i = i + 1
     while i < lines.length() {
@@ -739,7 +784,8 @@ fn render_markdown_list(
           render_markdown_lines(
             nested_code,
             line_offset=code_start + line_offset,
-            references~, footnotes~,
+            references~,
+            footnotes~,
           ),
         )
       } else if child_kind > 0 {
@@ -749,7 +795,8 @@ fn render_markdown_list(
           line_offset,
           leading_spaces(lines[i]),
           child_kind,
-          references~, footnotes~,
+          references~,
+          footnotes~,
         )
         buf.write_string("\n")
         buf.write_string(child.0)
@@ -757,7 +804,12 @@ fn render_markdown_list(
       } else {
         buf.write_string("<br />")
         buf.write_string(
-          render_inline(trim(lines[i]), source_line=i + 1 + line_offset, references~, footnotes~),
+          render_inline(
+            trim(lines[i]),
+            source_line=i + 1 + line_offset,
+            references~,
+            footnotes~,
+          ),
         )
         i = i + 1
       }
@@ -960,7 +1012,9 @@ fn render_inline(
         let id = safe_slice_range(text, i + 2, footnote_end)
         match footnotes.get(id) {
           Some(_) => {
-            buf.write_string("<sup class=\"footnote-ref\"><a id=\"footnote-ref-")
+            buf.write_string(
+              "<sup class=\"footnote-ref\"><a id=\"footnote-ref-",
+            )
             buf.write_string(escape_html(id))
             buf.write_string("\" href=\"#footnote-")
             buf.write_string(escape_html(id))
@@ -1003,12 +1057,16 @@ fn render_inline(
           // Block javascript: scheme to prevent XSS
           let lower_url = link_url.to_lower()
           if lower_url.has_prefix("javascript:") {
-            buf.write_string(render_inline(link_text, source_line~, references~, footnotes~))
+            buf.write_string(
+              render_inline(link_text, source_line~, references~, footnotes~),
+            )
           } else {
             buf.write_string("<a href=\"")
             buf.write_string(escape_html(link_url))
             buf.write_string("\">")
-            buf.write_string(render_inline(link_text, source_line~, references~, footnotes~))
+            buf.write_string(
+              render_inline(link_text, source_line~, references~, footnotes~),
+            )
             buf.write_string("</a>")
           }
           i = url_end + 1
@@ -1027,18 +1085,34 @@ fn render_inline(
           j = j + 1
         }
         if reference_end > reference_start {
-          let reference_id = safe_slice_range(text, reference_start, reference_end)
+          let reference_id = safe_slice_range(
+            text, reference_start, reference_end,
+          )
           match references.get(reference_id) {
             Some(reference_url) => {
               let lower_url = reference_url.to_lower()
               let link_text = safe_slice_range(text, text_start, text_end)
               if lower_url.has_prefix("javascript:") {
-                buf.write_string(render_inline(link_text, source_line~, references~, footnotes~))
+                buf.write_string(
+                  render_inline(
+                    link_text,
+                    source_line~,
+                    references~,
+                    footnotes~,
+                  ),
+                )
               } else {
                 buf.write_string("<a href=\"")
                 buf.write_string(escape_html(reference_url))
                 buf.write_string("\">")
-                buf.write_string(render_inline(link_text, source_line~, references~, footnotes~))
+                buf.write_string(
+                  render_inline(
+                    link_text,
+                    source_line~,
+                    references~,
+                    footnotes~,
+                  ),
+                )
                 buf.write_string("</a>")
               }
               i = reference_end + 1
@@ -1950,14 +2024,11 @@ pub fn build_markdown_html(
   build_history_panel(buf)
   // Main content wrap
   buf.write_string("<div class=\"wrap\">")
-  // Side-by-side layout: media-sidebar (left) + md-left = preview + md-right = source table
+  // Side-by-side layout: preview + source + review sidebar + media thumbs
   buf.write_string("<div class=\"md-layout\">")
-  // Media sidebar (left side, matching cli.cjs layout)
-  build_media_sidebar(buf)
   // Left panel: rendered markdown preview
   buf.write_string("<div class=\"md-left\">")
   buf.write_string("<div class=\"md-preview\" id=\"md-preview\">")
-  build_review_loop_mount(buf)
   // Document Metadata table (frontmatter)
   if md.frontmatter.length() > 0 {
     buf.write_string(
@@ -2012,6 +2083,8 @@ pub fn build_markdown_html(
   }
   buf.write_string("</tbody></table>")
   buf.write_string("</div></div>")
+  build_review_loop_mount(buf)
+  build_media_sidebar(buf)
   buf.write_string("</div>")
   // Close .wrap
   buf.write_string("</div>")

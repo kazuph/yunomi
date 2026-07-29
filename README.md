@@ -223,6 +223,7 @@ comments:
     col: 3
     end_row: 2
     end_col: 3
+    quote: '150'
     text: This value needs review
     value: '150'
     snippet: 'alpha,ready,150'

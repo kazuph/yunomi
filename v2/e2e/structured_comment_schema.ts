@@ -7,6 +7,7 @@ import { join } from "node:path";
 const SERVER_JS = new URL("../_build/js/release/build/server/server.js", import.meta.url).pathname;
 const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-structured-schema-"));
 const REVIEW_DIR = join(WORK_DIR, ".yunomi", "reviews", "schema");
+const LOCK_DIR = join(WORK_DIR, "locks");
 const REPORT = join(WORK_DIR, "src", "docs", "REPORT.md");
 const PORT = 5884;
 const WEBP_DATA = "data:image/webp;base64,UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AA/vuUAAA=";
@@ -64,7 +65,7 @@ function waitForExit(proc: ChildProcess, timeoutMs: number): Promise<number | "t
 }
 
 function hasSchema(comment: any): boolean {
-  return ["file", "row", "col", "end_row", "end_col", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"]
+  return ["file", "row", "col", "end_row", "end_col", "quote", "snippet", "context_before", "context_after", "selector", "bounds", "element_text", "attachments"]
     .every((key) => Object.prototype.hasOwnProperty.call(comment || {}, key)) &&
     Array.isArray(comment?.attachments);
 }
@@ -77,6 +78,7 @@ function assertSchema(comment: any, message: string): void {
 
 mkdirSync(join(WORK_DIR, "src", "docs"), { recursive: true });
 mkdirSync(REVIEW_DIR, { recursive: true });
+mkdirSync(LOCK_DIR, { recursive: true });
 spawnSync("git", ["init"], { cwd: WORK_DIR, stdio: "ignore" });
 writeFileSync(REPORT, [
   "# Structured Schema",
@@ -103,6 +105,7 @@ const env = {
   HERDR_PANE_ID: "",
   YUNOMI_NOTIFY_CMD: "",
   YUNOMI_REVIEW_DIR: REVIEW_DIR,
+  YUNOMI_LOCK_DIR: LOCK_DIR,
 };
 
 const proc = spawn(process.execPath, [SERVER_JS, "--no-open", "--port", String(PORT), REPORT], {
@@ -166,6 +169,7 @@ try {
   assertSchema(cli, "CLI comment review.json comment has common schema");
 
   assert(normal.row === 9 && normal.col === 0 && normal.end_row === 9 && normal.end_col === 4, "normal submit preserves row/col/end_row/end_col", normal);
+  assert(normal.quote === "line 8 target" && now.quote === "line 8 target" && cli.quote === "line 8 target", "all comment paths persist the single target-line quote", { normal, now, cli });
   assert(normal.snippet === "line 5\nline 6\nline 7\nline 8 target\nline 9\nline 10\nline 11", "normal submit snippet uses the target line plus three lines before and after", normal);
   assert(normal.context_before === "line 3\nline 4\nline 5\nline 6\nline 7", "normal submit context_before uses five preceding lines without the target", normal);
   assert(normal.context_after === "line 9\nline 10\nline 11\nline 12\nline 13", "normal submit context_after uses five following lines without the target", normal);
@@ -183,6 +187,7 @@ try {
   assert(existsSync(join(REVIEW_DIR, "comment-attachments", attachmentName)), "relative attachment file exists under the review directory with the MIME extension");
 
   assert(output.includes("file: src/docs/REPORT.md"), "stdout YAML uses repo-relative nested file path");
+  assert(output.includes("quote: line 8 target\n    text: normal submit schema comment"), "stdout YAML puts quote immediately before text", output);
   assert(output.includes(`attachments:\n      - ./comment-attachments/${attachmentName}`), "stdout YAML uses relative attachment path with review comment id basename");
   assert(!output.includes("attachments:\n      - /"), "stdout YAML common attachments do not contain absolute paths");
 } catch (error) {

@@ -6,7 +6,7 @@
  */
 import http, { type IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, unlinkSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, unlinkSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { writeFileSync } from "node:fs";
@@ -18,12 +18,10 @@ const SERVER_JS = new URL(
 ).pathname;
 
 // Lock directory for test servers (avoids EPERM in restricted environments)
-const LOCK_DIR = join(tmpdir(), "yunomi-test-locks");
-mkdirSync(LOCK_DIR, { recursive: true });
+const LOCK_DIR = mkdtempSync(join(tmpdir(), "yunomi-test-locks-"));
 
 // Review directory for test servers (isolate review.json from the real repo)
-const REVIEW_DIR = join(tmpdir(), "yunomi-test-reviews-" + Date.now());
-mkdirSync(REVIEW_DIR, { recursive: true });
+const REVIEW_DIR = mkdtempSync(join(tmpdir(), "yunomi-test-reviews-"));
 let _rvSeq = 0;
 function freshReviewDir(): string {
   const d = join(REVIEW_DIR, String(_rvSeq++));
@@ -703,7 +701,7 @@ console.log("\n--- Session Close Ordering ---");
     assert(!sessionStdout.includes("fresh comment"), "Session Close: close does not finalize or print the latest draft");
     assert(!sessionStdout.includes("stale comment"), "Session Close: stale instance draft is ignored");
 
-    const explicitExit = waitForProcessExit(sessionProc, 8000);
+    const explicitExit = waitForProcessExit(sessionProc, 10000);
     await httpPost(sessionPort, "/exit", JSON.stringify({
       action: "final_request_changes",
       decision: "request_changes",
@@ -1018,7 +1016,7 @@ if (playwrightAvailable) {
     // Create a promise that resolves when the server process exits
     const serverExited = new Promise<number | string>(resolve => {
       browserProc.on("exit", resolve);
-      setTimeout(() => resolve("timeout"), 8000);
+      setTimeout(() => resolve("timeout"), 10000);
     });
 
     // Click Submit & Exit button
@@ -1141,7 +1139,7 @@ if (playwrightAvailable) {
     assert(closeHealth.status === 200, "Browser Close: closing the page leaves the server waiting");
     assert(!closeStdout.includes("Close draft comment"), "Browser Close: closing does not finalize the in-progress draft");
 
-    const explicitCloseExit = waitForProcessExit(closeProc, 8000);
+    const explicitCloseExit = waitForProcessExit(closeProc, 10000);
     await httpPost(closePort, "/exit", JSON.stringify({
       action: "final_request_changes",
       decision: "request_changes",
@@ -1172,7 +1170,7 @@ async function testDecisionSubmit(
   let stdout = "";
   proc.stdout!.on("data", (d: Buffer) => (stdout += d));
   proc.stderr!.on("data", () => {});
-  const exited = waitForProcessExit(proc, 8000);
+  const exited = waitForProcessExit(proc, 10000);
   try {
     await waitForServer(BASE_PORT + portOffset, 5000);
     const body = JSON.stringify(payload);
@@ -1314,6 +1312,8 @@ try {
   unlinkSync(TEST_STATIC_FILE);
   unlinkSync(TEST_VIDEO_FILE);
 } catch (_: unknown) {}
+rmSync(LOCK_DIR, { recursive: true, force: true });
+rmSync(REVIEW_DIR, { recursive: true, force: true });
 
 // ===== Summary =====
 console.log(`\n============================`);

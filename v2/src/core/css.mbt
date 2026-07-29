@@ -40,6 +40,8 @@ fn build_css() -> String {
     #|  --radius-md: 12px;
     #|  --radius-lg: 16px;
     #|  --radius-pill: 999px;
+    #|  --review-loop-sidebar-width: 300px;
+    #|  --review-loop-sidebar-offset: 8px;
     #|  --font-display: "Inter", "Hiragino Kaku Gothic ProN", "Hiragino Sans", system-ui, -apple-system, sans-serif;
     #|}
     #|/* Light theme — GitHub Primer inspired neutral light.
@@ -501,7 +503,10 @@ fn build_css() -> String {
     #|td.has-comment { background: rgba(77, 157, 99, 0.12); box-shadow: inset 0 0 0 1px rgba(77, 157, 99, 0.32); }
     #|[data-theme="dark"] td.has-comment { background: rgba(107, 191, 134, 0.14); box-shadow: inset 0 0 0 1px rgba(107, 191, 134, 0.32); }
     #|td.selected, tbody th.selected { background: var(--selected-bg) !important; box-shadow: inset 0 0 0 1px var(--accent) !important; }
-    #|.preview-highlight { background: var(--selected-bg) !important; box-shadow: inset 0 0 0 2px var(--accent); border-radius: 4px; transition: background 150ms ease, box-shadow 150ms ease; padding-left: 8px; margin-left: -8px; }
+    #|/* The old padding-left/margin-left pair kept the text still but dragged the
+    #|   whole box 8px left, so a list item's ::marker visibly jumped on select.
+    #|   A spread shadow paints the same breathing room without touching layout. */
+    #|.preview-highlight { background: var(--selected-bg) !important; outline: none; box-shadow: 0 0 0 6px var(--selected-bg); border-radius: 4px; transition: background 150ms ease; }
     #|thead th.selected { background: var(--accent-soft) !important; color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent); }
     #|[data-theme="dark"] thead th.selected { background: var(--accent-soft) !important; color: var(--accent-strong); }
     #|body.dragging { user-select: none; cursor: crosshair; }
@@ -547,6 +552,11 @@ fn build_css() -> String {
     #|tr.yunomi-inline-comment-editor-mount { padding: 0; }
     #|tr.yunomi-inline-comment-editor-mount > td { padding: 8px 12px; }
     #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
+    #|li.yunomi-inline-comment, li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
+    #|li.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; }
+    #|.md-layout:has(> #review-loop-panel.review-loop-sidebar:not(.review-loop-sidebar-collapsed):not(:empty)) #md-preview .yunomi-inline-comment-editor {
+    #|  margin-right: calc(var(--review-loop-sidebar-width) + var(--review-loop-sidebar-offset));
+    #|}
     #|.yunomi-inline-comment-editor-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
     #|.yunomi-inline-comment-context { min-width: 0; max-width: 70%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     #|.yunomi-inline-comment-editor textarea {
@@ -563,7 +573,6 @@ fn build_css() -> String {
     #|}
     #|.yunomi-inline-comment-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     #|.yunomi-inline-comment-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
-    #|.yunomi-inline-comment-actions .icon-only { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); cursor: pointer; }
     #|.yunomi-inline-comment-actions .primary { background: var(--accent); color: var(--text-inverse); border-color: var(--accent); }
     #|.yunomi-inline-comment-actions .comment-action { min-height: 32px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; }
     #|.send-now-btn {
@@ -588,11 +597,14 @@ fn build_css() -> String {
     #|  padding: 4px 8px;
     #|}
     #|.danger-text:hover { color: #dc2626 !important; text-decoration: underline; }
+    #|#pill-comments { anchor-name: --yunomi-comments-trigger; }
     #|.comment-list {
     #|  position: fixed;
-    #|  right: calc(var(--media-sidebar-offset, 0px) + 14px);
-    #|  bottom: 14px;
-    #|  width: 320px;
+    #|  position-anchor: --yunomi-comments-trigger;
+    #|  top: calc(anchor(bottom) + 8px);
+    #|  right: anchor(right);
+    #|  bottom: auto;
+    #|  width: min(320px, calc(100vw - 24px));
     #|  max-height: 60vh;
     #|  overflow: auto;
     #|  border: 1px solid var(--border);
@@ -602,6 +614,7 @@ fn build_css() -> String {
     #|  padding: 12px;
     #|  backdrop-filter: blur(6px);
     #|  transition: opacity 120ms ease, transform 120ms ease, background 200ms ease;
+    #|  z-index: 90;
     #|}
     #|.comment-list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     #|.comment-list h3 { margin: 0; font-size: 13px; color: var(--muted); }
@@ -638,57 +651,162 @@ fn build_css() -> String {
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
     #|.review-loop-header-badge { display: none; align-items: center; max-width: 220px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #|.review-loop-header-badge.ready { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
-    #|.review-loop-panel:empty { display: none; }
-    #|.review-loop-panel {
-    #|  width: 100%;
+    #|/* Must out-specify the sidebar rule below (id+class), or an empty review
+    #|   still reserves 300px and squeezes the preview. */
+    #|#review-loop-panel:empty, #review-loop-panel.review-loop-sidebar:empty { display: none; }
+    #|#review-loop-panel.review-loop-sidebar {
+    #|  order: 4;
+    #|  flex: 0 0 var(--review-loop-sidebar-width);
+    #|  width: var(--review-loop-sidebar-width);
+    #|  min-width: 280px;
+    #|  max-width: 320px;
+    #|  height: 60vh;
+    #|  max-height: 60vh;
+    #|  position: fixed;
+    #|  top: auto;
+    #|  right: var(--review-loop-sidebar-offset);
+    #|  bottom: var(--review-loop-sidebar-offset);
+    #|  z-index: 80;
+    #|  overflow: hidden;
     #|  margin: 0;
-    #|  padding: 14px 16px;
+    #|  padding: 10px;
     #|  border: 1px solid var(--border);
     #|  border-radius: var(--radius-sm);
-    #|  background: color-mix(in srgb, var(--panel) 92%, var(--accent-soft));
+    #|  background: var(--panel-solid);
     #|  color: var(--text);
     #|  display: grid;
-    #|  gap: 10px;
-    #|  box-shadow: none;
-    #|  transition: background 240ms ease, border-color 240ms ease;
+    #|  gap: 8px;
+    #|  box-shadow: var(--shadow-card);
+    #|  transition: none;
     #|}
-    #|.review-loop-details { display: grid; gap: 10px; }
-    #|.review-loop-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 28px; font-size: 13px; font-weight: 700; cursor: pointer; list-style: none; }
-    #|.review-loop-header::-webkit-details-marker { display: none; }
-    #|.review-loop-header-main { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
-    #|.review-loop-header .arrow { display: inline-block; font-size: 10px; color: var(--muted); transition: transform 150ms ease; }
-    #|.review-loop-details[open] > .review-loop-header .arrow { transform: rotate(90deg); }
-    #|.review-loop-badge { min-width: 24px; height: 22px; padding: 0 7px; border: 1px solid var(--accent); border-radius: var(--radius-pill); display: inline-flex; align-items: center; justify-content: center; color: var(--accent-strong); background: var(--accent-soft); font-size: 12px; font-weight: 800; }
-    #|.review-loop-meta { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-    #|.review-loop-context { display: grid; gap: 8px; padding: 0; border-bottom: 0; font-size: 12px; line-height: 1.45; }
-    #|.review-loop-context div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; }
-    #|.review-loop-context span, .review-loop-request > span, .review-loop-response > span { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; }
-    #|.review-loop-context p, .review-loop-request p, .review-loop-response p { margin: 0; }
+    #|#review-loop-panel.review-loop-sidebar.review-loop-sidebar-collapsed {
+    #|  flex-basis: 40px;
+    #|  width: 40px;
+    #|  min-width: 40px;
+    #|  max-width: 40px;
+    #|  height: 40px;
+    #|  max-height: 40px;
+    #|  padding: 0;
+    #|  border: 0;
+    #|  background: transparent;
+    #|  box-shadow: none;
+    #|  overflow: hidden;
+    #|  transition: none;
+    #|}
+    #|.review-loop-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+    #|/* Grid, not flex-wrap: at 300px the title, the counts and the toggle used
+    #|   to break onto three lines and shred the header. */
+    #|.review-loop-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; font-weight: 700; }
+    #|.review-loop-header-main { min-width: 0; font-size: 12px; white-space: nowrap; }
+    #|.review-loop-meta { min-width: 0; color: var(--muted); font-weight: 600; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #|.review-loop-sidebar-mini-count { display: none; }
+    #|.review-loop-sidebar-toggle { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); cursor: pointer; }
+    #|.review-loop-sidebar-toggle:hover { background: var(--hover-bg); color: var(--text); }
+    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-header { justify-content: center; gap: 2px; }
+    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-header-main, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-meta, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-body, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-ready { display: none; }
+    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-sidebar-mini-count { display: none; }
+    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-sidebar-toggle { display: inline-grid; place-items: center; width: 40px; height: 40px; }
+    #|.review-loop-sidebar-toggle svg { display: block; width: 16px; height: 16px; }
     #|.review-loop-ready { color: var(--accent-strong); padding: 0; font-size: 12px; font-weight: 600; }
-    #|.review-loop-body { display: grid; gap: 10px; }
-    #|.review-loop-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 0; color: var(--text); font-size: 13px; line-height: 1.45; }
-    #|.review-loop-comment { border-top: 0; border-bottom: 1px solid var(--border); padding: 12px 0; display: grid; gap: 10px; background: transparent; }
+    #|.review-loop-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
+    #|.review-loop-sidebar-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--panel); }
+    #|.review-loop-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 8px; color: var(--text); font-size: 13px; line-height: 1.45; }
+    #|/* Set the size on the card itself: the fallback list is not a
+    #|   .review-loop-list child, so inheriting left its text at the 16px
+    #|   browser default while every neighbouring card sat at 12px. */
+    #|.review-loop-comment { display: grid; gap: 8px; background: transparent; font-size: 13px; line-height: 1.5; }
+    #|.review-loop-sidebar-card, .review-loop-sidebar-card .review-loop-comment { font-size: 12px; }
+    #|/* Match the index rows: same size, weight and colour for the location. */
+    #|.review-loop-sidebar-card .review-loop-comment-head > strong { font-weight: 600; color: var(--muted); }
     #|.review-loop-comment:focus { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--radius-sm); }
-    #|.review-loop-comment:last-child { border-bottom: 0; padding-bottom: 0; }
-    #|.review-loop-comment-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; color: var(--muted); font-size: 12px; }
+    #|/* One row, always: the file name truncates instead of wrapping the number
+    #|   and the Resolve button onto lines of their own. */
+    #|.review-loop-comment-head { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 7px; min-height: 24px; color: var(--muted); font-size: 12px; }
+    #|.review-loop-comment-head > strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #|.review-loop-comment-head strong { color: var(--text); font-size: 12px; font-weight: 800; }
-    #|.review-loop-comment-text { font-weight: 600; }
-    #|.review-loop-request, .review-loop-response { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; }
-    #|.review-loop-response { padding: 0; background: transparent; }
-    #|.review-loop-actions { display: flex; justify-content: flex-end; }
+    #|.review-loop-actions { display: flex; justify-content: flex-end; margin-left: auto; }
     #|.review-loop-resolved { color: var(--muted); font-size: 12px; }
-    #|.review-loop-resolve { padding: 4px 8px; font-size: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease; }
+    #|.review-loop-thread-actions { display: flex; justify-content: flex-end; padding-top: 6px; }
+    #|.review-loop-resolve { padding: 0 12px; height: 28px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+    #|.review-loop-resolve:hover { color: var(--text); }
     #|.review-loop-resolve:hover { background: var(--hover-bg); border-color: var(--border-strong); }
-    #|.review-loop-replies { margin: 0; padding-left: 108px; color: var(--muted); }
-    #|.review-loop-snippet { border: 0; display: grid; gap: 5px; padding: 0; background: transparent; }
-    #|.review-loop-snippet-label, .review-loop-diff-label { color: var(--muted); font-size: 11px; font-weight: 700; }
-    #|.review-loop-snip-row { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: start; font-size: 12px; }
-    #|.review-loop-snip-row span { color: var(--muted); }
-    #|.review-loop-snip-row code { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text); }
+    #|/* 15px = status dot (8px) + its gap (7px), so the quote and the thread
+    #|   line up with the file name instead of stepping left or right. */
+    #|.review-loop-snippet { border: 0; display: grid; gap: 4px; padding: 0 0 0 15px; background: transparent; }
+    #|.review-loop-diff-label { color: var(--muted); font-size: 11px; font-weight: 700; }
     #|.review-loop-diff-block { display: grid; gap: 5px; }
     #|.review-loop-diff { margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
     #|.review-loop-submit-state { display: none; margin: 0 0 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; }
     #|.review-loop-submit-state.ready { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
+    #|.review-loop-status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); }
+    #|.review-loop-card-number { display: inline-grid; place-items: center; min-width: 16px; height: 16px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-strong); font-size: 11px; font-weight: 800; }
+    #|.review-loop-status-check { color: var(--muted); font-size: 14px; font-weight: 400; line-height: 1; }
+    #|.review-loop-snippet { gap: 4px; }
+    #|.review-loop-quote { margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #|.review-loop-change { color: var(--muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
+    #|.review-loop-thread { display: grid; gap: 5px; padding-left: 15px; }
+    #|.review-loop-thread-line { overflow-wrap: anywhere; }
+    #|.review-loop-thread-line > span { color: var(--muted); font-size: 11px; font-weight: 700; margin-right: 7px; }
+    #|.review-loop-thread-line > p { display: inline; margin: 0; font-size: inherit; line-height: 1.55; }
+    #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
+    #|.review-loop-conversation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-bottom: 5px; }
+    #|.review-loop-conversation-head > strong { font-size: 12px; font-weight: 800; }
+    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; min-width: 0; min-height: 0; overflow-y: auto; }
+    #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 6px 0; border-top: 1px solid var(--border); }
+    #|.review-loop-conversation-message > strong { color: var(--muted); font-size: 11px; font-weight: 700; }
+    #|.review-loop-conversation-message > p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #|.review-loop-conversation-image { display: block; width: auto; max-width: 100%; max-height: 180px; margin-top: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
+    #|.review-loop-conversation.is-resolved .review-loop-conversation-stream { opacity: .76; }
+    #|.review-loop-new-global { display: grid; gap: 5px; min-width: 0; color: var(--text); font-size: 12px; }
+    #|.review-loop-new-global > strong { font-size: 12px; font-weight: 800; }
+    #|.review-loop-new-global .review-loop-reply-form { padding-top: 0; border-top: 0; }
+    #|.review-loop-resolved-details { color: var(--muted); }
+    #|.review-loop-resolved-details > summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+    #|.review-loop-conversation-history { margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
+    #|.review-loop-conversation-history .review-loop-conversation-stream { margin-top: 5px; }
+    #|.review-loop-resolved-list, .review-loop-fallback-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+    #|.review-loop-resolved-list { margin-top: 8px; }
+    #|.review-loop-fallback, .review-loop-resolved-item { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+    #|.review-loop-fallback { cursor: pointer; color: var(--text); }
+    #|.review-loop-fallback:hover, .review-loop-fallback:focus { background: var(--hover-bg); outline: 0; }
+    #|/* Two 1fr columns in a 276px sidebar truncated both the file name and the
+    #|   note, so the note gets its own line under the location. */
+    #|.review-loop-fallback-head { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; grid-template-areas: "num dot loc action" "note note note note"; align-items: center; column-gap: 7px; row-gap: 2px; min-width: 0; }
+    #|.review-loop-fallback-head > .review-loop-card-number { grid-area: num; }
+    #|.review-loop-fallback-head > .review-loop-status-dot { grid-area: dot; }
+    #|.review-loop-fallback-head > .review-loop-fallback-location { grid-area: loc; }
+    #|.review-loop-fallback-head > .review-loop-actions { grid-area: action; }
+    #|.review-loop-fallback-head > .review-loop-fallback-note { grid-area: note; padding-left: 30px; font-size: 11px; }
+    #|.review-loop-resolved-item { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 7px; min-width: 0; }
+    #|.review-loop-fallback-note { min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #|.review-loop-fallback-location, .review-loop-resolved-location { min-width: 0; color: var(--muted); font-family: var(--font-mono); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #|.review-loop-fallback-text { margin: 0; padding-left: 30px; color: var(--text); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+    #|.review-loop-resolved-item { color: var(--muted); opacity: .76; }
+    #|.review-loop-resolved-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #|.review-loop-sidebar-card.is-resolved { background: var(--bg); border-color: var(--border); color: var(--muted); opacity: .76; }
+    #|.review-loop-reply-form { display: grid; gap: 5px; padding-top: 6px; border-top: 1px solid var(--border); }
+    #|#review-loop-panel .review-loop-conversation > .review-loop-reply-form { flex: 0 0 auto; background: var(--panel-solid); }
+    #|.review-loop-reply-form textarea, .review-loop-reply-form input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; line-height: 1.45; resize: vertical; }
+    #|.review-loop-reply-preview:empty { display: none; }
+    #|.review-loop-reply-preview > div { display: grid; justify-items: start; gap: 4px; }
+    #|.review-loop-reply-preview img { display: block; max-width: 100%; max-height: 120px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
+    #|.review-loop-reply-remove { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+    #|.review-loop-reply-remove:hover { color: var(--text); text-decoration: underline; }
+    #|.review-loop-reply-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+    #|.review-loop-reply-attach { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); font-size: 11px; cursor: pointer; }
+    #|.review-loop-reply-attach:hover { background: var(--hover-bg); color: var(--text); }
+    #|.review-loop-reply-attach:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
+    #|.review-loop-reply-file { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
+    #|.review-loop-reply-form button { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); cursor: pointer; }
+    #|#review-loop-panel .review-loop-reply-form :focus-visible { outline-offset: -2px; }
+    #|#review-loop-panel .review-loop-reply-attach:focus-within { outline-offset: -2px; }
+    #|.review-loop-inline { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); }
+    #|.review-loop-inline-item { list-style: none; margin: 0; padding: 0; background: var(--panel); }
+    #|.preview-highlight + .review-loop-inline-item .review-loop-inline { background: var(--panel); border-color: var(--border); }
+    #|.review-loop-inline .review-loop-comment { padding: 0; }
+    #|.review-loop-inline .review-loop-comment:last-child { padding-bottom: 0; }
+    #|.review-loop-inline-highlight { animation: review-loop-inline-highlight 1.2s ease-out; }
+    #|@keyframes review-loop-inline-highlight { from { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent); } to { box-shadow: none; border-color: var(--border); } }
     #|.comment-list.collapsed {
     #|  opacity: 0;
     #|  pointer-events: none;
@@ -704,13 +822,6 @@ fn build_css() -> String {
     #|  line-height: 1.65;
     #|  transition: background 240ms ease, border-color 240ms ease;
     #|}
-    #|.md-preview:has(> #review-loop-panel:not(:empty)) {
-    #|  background: transparent;
-    #|  border: 0;
-    #|  border-radius: 0;
-    #|  padding: 0;
-    #|  box-shadow: none;
-    #|}
     #|.md-preview .footnotes { margin-top: 28px; padding-top: 14px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.92em; }
     #|.md-preview .footnotes ol { margin: 0; padding-left: 22px; }
     #|.md-preview .footnotes li { margin: 6px 0; }
@@ -723,10 +834,10 @@ fn build_css() -> String {
     #|  flex: 1;
     #|  min-height: 0;
     #|}
-    #|/* Panel order: review loop (left) | preview | source | media thumbs (right) */
+    #|/* Panel order: preview | source | review sidebar | media thumbs */
     #|.md-layout > .md-left { order: 2; }
     #|.md-layout > .md-right { order: 3; }
-    #|.md-layout > .media-sidebar { order: 4; }
+    #|.md-layout > .media-sidebar { order: 5; }
     #|.md-left {
     #|  flex: 1;
     #|  min-width: 200px;
@@ -1946,10 +2057,24 @@ fn build_css() -> String {
     #|  opacity: 1;
     #|  transform: translateX(-50%) translateY(0);
     #|}
-    #|@media (max-width: 960px) {
+    #|@media (max-width: 960px), (max-device-width: 960px) {
     #|  .md-layout { flex-direction: column; }
     #|  .md-left { max-width: 100%; flex: 1 1 0; min-height: 0; }
     #|  .md-right { display: none; }
+    #|  .md-layout:has(> #review-loop-panel.review-loop-sidebar:not(.review-loop-sidebar-collapsed):not(:empty)) #md-preview .yunomi-inline-comment-editor { margin-right: 0; }
+    #|  #review-loop-panel.review-loop-sidebar {
+    #|    inset: auto 12px 12px auto;
+    #|    width: calc(100% - 24px);
+    #|    min-width: 0;
+    #|    max-width: 320px;
+    #|    height: 60dvh;
+    #|    max-height: 60dvh;
+    #|  }
+    #|  #review-loop-panel.review-loop-sidebar.review-loop-sidebar-collapsed {
+    #|    width: 40px;
+    #|    min-width: 40px;
+    #|    max-width: 40px;
+    #|  }
     #|  .media-sidebar { display: none; }
     #|  .media-sidebar-toggle { display: none !important; }
     #|}
@@ -2338,7 +2463,7 @@ fn build_css() -> String {
     #|}
     #|.text-line .line-content { flex: 1; color: var(--text); }
     #|
-    #|@media (max-width: 840px) {
+    #|@media (max-width: 840px), (max-device-width: 840px) {
     #|  header { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; gap: 6px; padding: 8px 12px; align-items: center; }
     #|  header .meta { width: 100%; gap: 8px; }
     #|  header h1 { display: block; flex: 1 1 auto; min-width: 0; }
@@ -2346,9 +2471,9 @@ fn build_css() -> String {
     #|  header h1 .title-file { display: block; max-width: none; }
     #|  header .actions { width: 100%; justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 4px; min-height: 34px; }
     #|  header .actions::-webkit-scrollbar { display: none; }
-    #|  .comment-list { width: calc(100% - 24px); right: 12px; }
+    #|  .comment-list { width: calc(100% - 24px); }
     #|}
-    #|@media (max-width: 420px) {
+    #|@media (max-width: 420px), (max-device-width: 420px) {
     #|  header .actions button { min-width: 32px; height: 32px; padding: 4px 6px; }
     #|  header .actions #pill-comments { min-width: 34px; font-size: 0; }
     #|  header .actions #pill-comments strong { font-size: 12px; }
@@ -2919,7 +3044,7 @@ fn build_css() -> String {
     #|}
     #|.fullscreen-controls button:hover { background: rgba(255,255,255,0.2); }
     #|.fullscreen-controls .zoom-info { color: #fff; font-size: 12px; min-width: 40px; text-align: center; }
-    #|@media (max-width: 960px) {
+    #|@media (max-width: 960px), (max-device-width: 960px) {
     #|  .media-sidebar { display: none !important; }
     #|  .media-sidebar-toggle { display: none !important; }
     #|}

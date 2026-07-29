@@ -122,6 +122,11 @@ try {
       const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
       assert(sentDraft.includes('"pending":false') && sentDraft.includes('"sent":true'), "Immediate comments persist as sent, not pending", { sentDraft });
 
+      if (await page.locator(".comment-list:not(.collapsed)").count() === 1) {
+        await page.locator("#comment-list-minimize").click();
+        await page.waitForSelector(".comment-list.collapsed");
+      }
+
       await page.locator(".text-line[data-row='2']").click();
       await page.locator("#comment-input").fill("pending review comment");
       await page.locator("#save-comment").click();
@@ -148,14 +153,34 @@ try {
         const seen = (window as unknown as { __sendNowSeen?: string[] }).__sendNowSeen || [];
         return seen.some((line) => line.startsWith("reply:"));
       });
-      const inlineReply = await page.locator(".comment-inline-replies").textContent({ timeout: 5000 });
-      assert((inlineReply || "").includes("agent reply arrived"), "Agent reply renders inline under the matching comment list entry", { inlineReply });
+      const listReply = await page.locator("#comment-list li[data-key='1:0'] > .comment-inline-replies").textContent({ timeout: 5000 });
+      assert((listReply || "").includes("agent reply arrived"), "Agent reply renders under the matching comment list entry", { listReply });
+      const savedInlineReplies = page.locator(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies");
+      await savedInlineReplies.first().waitFor({ state: "visible", timeout: 5000 });
+      assert(
+        await savedInlineReplies.count() >= 1
+          && (await savedInlineReplies.allTextContents()).every((text) => text.includes("agent reply arrived")),
+        "Agent reply renders inside every matching inline card",
+        { inlineReplies: await savedInlineReplies.allTextContents() },
+      );
 
       const afterReply = JSON.parse(readFileSync(reviewPath, "utf8"));
       const replied = afterReply.comments.find((comment: { id?: string }) => comment.id === "1:0");
       assert(replied?.replies?.[0]?.text === "agent reply arrived", "Agent reply is persisted in review.json history");
 
       await page.evaluate(() => (window as unknown as { __sendNowEs?: EventSource }).__sendNowEs?.close());
+      await page.reload({ waitUntil: "domcontentloaded" });
+      const restore = page.locator("#recovery-restore");
+      const restoreVisible = await restore.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
+      if (restoreVisible) await restore.click();
+      await page.waitForFunction(() => {
+        const replies = Array.from(document.querySelectorAll(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies"));
+        return replies.length >= 1 && replies.every((item) => item.textContent?.includes("agent reply arrived"));
+      }, undefined, { timeout: 5000 });
+      assert(
+        await page.locator(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies").count() >= 1,
+        "Agent reply remains inside every inline card after reload",
+      );
     });
   } finally {
     await stop(server.proc);

@@ -1,8 +1,10 @@
+import assert from "node:assert/strict";
 import http, { type IncomingMessage } from "node:http";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { chromium } from "playwright";
 
 const SERVER_JS = new URL(
   "../_build/js/release/build/server/server.js",
@@ -23,8 +25,10 @@ writeFileSync(
   [
     "# Checkbox decisions",
     "- [ ] 認証はOAuthにする",
+    "- [ ] 通知には引用を付ける",
     "- ✅️ デプロイは親が実行する",
     "",
+    ...Array.from({ length: 80 }, (_value, index) => `Trailing line ${index + 1}`),
   ].join("\n"),
 );
 writeFileSync(
@@ -134,35 +138,71 @@ async function main(): Promise<void> {
     if (html.includes("task-decision-checkbox\" type=\"checkbox\" disabled")) {
       throw new Error("task list checkbox is still disabled");
     }
-    if (!html.includes('class="decision-done" data-source-line="3"')) {
+    if (!html.includes('class="decision-done" data-source-line="4"')) {
       throw new Error("- ✅️ decision line did not render with decision-done class");
     }
     const ui = await get(port, "/ui.js");
     if (!ui.includes("/decision")) {
       throw new Error("served UI script does not post checkbox decisions");
     }
+    if (!/apply.*task.*decision.*event/.test(ui)) {
+      throw new Error("served UI script does not apply decision SSE updates in place");
+    }
 
     const sse = await openSse(port);
-    const status = await post(
-      port,
-      "/decision",
-      JSON.stringify({ file: "REPORT.md", line: 2, text: "認証はOAuthにする", checked: true }),
-    );
-    if (status !== 200) {
-      throw new Error(`POST /decision returned ${status}`);
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1200, height: 700 } });
+      await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const before = await page.evaluate(() => window.scrollY);
+      await page.locator(".task-decision-checkbox[data-source-line='2']").click();
+      await page.waitForFunction(() => document.querySelector<HTMLInputElement>(".task-decision-checkbox[data-source-line='2']")?.checked === true);
+      assert.equal(await page.evaluate(() => window.scrollY), before, "checkbox decision keeps the current scroll position");
+    } finally {
+      await browser.close().catch(() => {});
     }
     await waitFor(() => readFileSync(REPORT, "utf8").includes("- [x] 認証はOAuthにする"), "markdown rewrite");
     await waitFor(() => sse.body().includes("event: decision") && sse.body().includes('"checked":true'), "decision SSE");
     await waitFor(() => existsSync(NOTIFY_LOG) && readFileSync(NOTIFY_LOG, "utf8").includes("[yunomi] decision REPORT.md:2 checked=true"), "notify command");
+    await waitFor(() => readFileSync(NOTIFY_LOG, "utf8").includes("> - [x] 認証はOAuthにする"), "decision quote in notify command");
+    const unchecked = await post(
+      port,
+      "/decision",
+      JSON.stringify({ file: "REPORT.md", line: 2, text: "認証はOAuthにする", checked: false }),
+    );
+    if (unchecked !== 200) throw new Error(`POST /decision unchecked returned ${unchecked}`);
+    await waitFor(() => readFileSync(REPORT, "utf8").includes("- [ ] 認証はOAuthにする"), "markdown unchecked rewrite");
+    const rechecked = await post(
+      port,
+      "/decision",
+      JSON.stringify({ file: "REPORT.md", line: 2, text: "認証はOAuthにする", checked: true }),
+    );
+    if (rechecked !== 200) throw new Error(`POST /decision rechecked returned ${rechecked}`);
+    const secondLine = await post(
+      port,
+      "/decision",
+      JSON.stringify({ file: "REPORT.md", line: 3, text: "通知には引用を付ける", checked: true }),
+    );
+    if (secondLine !== 200) throw new Error(`POST /decision second line returned ${secondLine}`);
+    await waitFor(() => readFileSync(REPORT, "utf8").includes("- [x] 認証はOAuthにする") && readFileSync(REPORT, "utf8").includes("- [x] 通知には引用を付ける"), "checkbox on-off-on rewrites");
+    await waitFor(() => (readFileSync(NOTIFY_LOG, "utf8").match(/\[yunomi\] decision REPORT\.md:2 checked=/g) || []).length === 3, "all decision notifications");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (sse.body().includes("event: reload")) {
+      throw new Error(`decision SSE must not reload the page\n${sse.body()}`);
+    }
     sse.close();
 
-    const reviewPath = join(TMP_DIR, ".yunomi", "reviews", "detached", "review.json");
+    const reviewPath = join(REVIEW_DIR, "review.json");
     await waitFor(() => existsSync(reviewPath), "review.json");
-    const review = readFileSync(reviewPath, "utf8");
-    if (!review.includes('"decisions"') || !review.includes('"checked": true')) {
-      throw new Error(`review.json does not contain the checked decision\n${review}`);
+    const review = JSON.parse(readFileSync(reviewPath, "utf8"));
+    if (!Array.isArray(review.decisions) || review.decisions.length !== 2 || !review.decisions.every((decision: { checked: boolean }) => decision.checked)) {
+      throw new Error(`review.json does not contain the two checked decisions\n${JSON.stringify(review, null, 2)}`);
     }
-    console.log("PASS: checkbox decisions update markdown, notify AI, and persist review decisions");
+    if (new Set(review.decisions.map((decision: { id: string }) => decision.id)).size !== 2 || !review.decisions.every((decision: { file: string }) => decision.file === "REPORT.md") || JSON.stringify(review.files) !== JSON.stringify(["REPORT.md"])) {
+      throw new Error(`review.json decision ids or display files are inconsistent\n${JSON.stringify(review, null, 2)}`);
+    }
+    console.log("PASS: checkbox decisions toggle on-off-on, quote notifications, and persist unique relative review decisions");
   } finally {
     try {
       proc.kill("SIGINT");

@@ -187,7 +187,8 @@ fn open_inline_comment_editor(
     row,
     col,
     editor_text.val,
-    if comment_value.has_prefix("Video ") || comment_value.has_prefix("Image alt=") {
+    if comment_value.has_prefix("Video ") ||
+      comment_value.has_prefix("Image alt=") {
       comment_value
     } else {
       resolve_comment_target_preview(target)
@@ -326,7 +327,12 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
   if !is_null(image) {
     let alt = get_attr(image, "alt")
     let src = get_attr(image, "src")
-    return "Image alt=\"" + alt + "\" src=\"" + src + "\" | source: " + source_line
+    return "Image alt=\"" +
+      alt +
+      "\" src=\"" +
+      src +
+      "\" | source: " +
+      source_line
   }
   if col > 0 {
     let cell_text = resolve_comment_target_preview(target)
@@ -403,8 +409,16 @@ pub fn init_app() -> Unit {
   let review_unresolved_action = query("#review-unresolved-action")
   if !is_null(review_unresolved_action) {
     on(review_unresolved_action, "click", fn(_e) {
-      let resolve = query(".review-loop-resolve")
-      let comment = closest(resolve, ".review-loop-comment")
+      let mut resolve = query(".review-loop-inline .review-loop-resolve")
+      if is_null(resolve) {
+        resolve = query(
+          "#review-loop-panel .review-loop-fallback .review-loop-resolve",
+        )
+      }
+      let mut comment = closest(resolve, ".review-loop-comment")
+      if is_null(comment) {
+        comment = closest(resolve, ".review-loop-fallback")
+      }
       if !is_null(comment) {
         let details = closest(comment, "details")
         if !is_null(details) {
@@ -452,30 +466,7 @@ pub fn init_app() -> Unit {
   if !is_null(recovery_discard) {
     on(recovery_discard, "click", fn(_e) { discard_comments() })
   }
-  // Keyboard shortcut: Cmd/Ctrl+Enter context-dependent
   on_doc("keydown", fn(e) {
-    if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
-      prevent_default(e)
-      let active = get_active_element()
-      if inline_comment_editor_open() &&
-        get_attr(active, "id") == "comment-input" {
-        save_comment()
-        return
-      }
-      // If submit modal is open, default to request changes
-      let modal = query("#submit-modal")
-      if !is_null(modal) && has_class(modal, "visible") {
-        pending_decision.val = decision_request_changes
-        pending_action.val = action_final_request_changes
-        submit_review(port)
-        return
-      }
-      let submit_btn = query("#send-and-exit")
-      if !is_null(submit_btn) {
-        _click_element(submit_btn)
-        return
-      }
-    }
     if event_key(e) == "Escape" {
       if inline_comment_editor_open() {
         cancel_inline_comment_edit()
@@ -483,17 +474,8 @@ pub fn init_app() -> Unit {
       hide_submit_modal()
     }
   })
-  // Also support Cmd/Ctrl+Enter from within submit modal textarea
   let global_comment_input = query("#global-comment")
   if !is_null(global_comment_input) {
-    on(global_comment_input, "keydown", fn(e) {
-      if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
-        prevent_default(e)
-        pending_decision.val = decision_request_changes
-        pending_action.val = action_final_request_changes
-        submit_review(port)
-      }
-    })
     // Persist the summary/decision draft as the human types it, same as
     // comments — a reload (or the close-abandonment safety net) must never
     // be able to wipe it silently.
@@ -1008,7 +990,7 @@ fn render_comment_list() -> Unit {
   })
   if count == 0 {
     set_inner_html(
-      list, "<li style=\"color:var(--text-dim);list-style:none;margin-left:-18px\">No comments yet</li>",
+      list, "<li style=\"color:var(--text-dim);list-style:none;margin-left:-18px\">No drafts yet</li>",
     )
     return
   }
@@ -1255,6 +1237,18 @@ fn update_comment_indicators() -> Unit {
   if !is_null(count_el) {
     set_text_content(count_el, count.to_string())
   }
+  let drafts_button = query("#pill-comments")
+  if !is_null(drafts_button) {
+    set_style(
+      drafts_button,
+      "display",
+      if count > 0 {
+        "inline-flex"
+      } else {
+        "none"
+      },
+    )
+  }
   bind_inline_saved_comments(fn(key, target, row, col) {
     if !is_null(target) {
       show_inline_comment(target, key, row, col)
@@ -1287,7 +1281,7 @@ fn show_submit_modal() -> Unit {
   let html = buf.to_string()
   if html.length() == 0 {
     set_inner_html(
-      list, "<li style=\"color:var(--text-dim)\">No comments yet</li>",
+      list, "<li style=\"color:var(--text-dim)\">No drafts yet</li>",
     )
   } else {
     set_inner_html(list, html)
@@ -1302,9 +1296,7 @@ fn show_submit_modal() -> Unit {
       let japanese = is_japanese_locale()
       if japanese {
         set_attribute(
-          approve,
-          "title",
-          "未解決の確認項目をすべて解決してから承認してください",
+          approve, "title", "未解決の確認項目をすべて解決してから承認してください",
         )
       } else {
         set_attribute(
@@ -1313,9 +1305,7 @@ fn show_submit_modal() -> Unit {
       }
       set_attribute(approve, "aria-describedby", "approve-blocked-reason")
       if !is_null(blocked_reason) {
-        let message = query(
-          "#approve-blocked-reason .approve-blocked-message",
-        )
+        let message = query("#approve-blocked-reason .approve-blocked-message")
         if !is_null(message) {
           if japanese {
             set_text_content(
@@ -1801,6 +1791,9 @@ fn apply_live_comment_event(data : String) -> Unit {
 ///|
 fn setup_sse(_port : Int) -> Unit {
   let url = location_origin() + "/sse"
+  if sse_server_instance.val == "" {
+    sse_server_instance.val = get_yunomi_server_instance()
+  }
   let es = new_event_source(url)
   sse_on(es, "reload", fn(_e) {
     intentional_reload_in_progress.val = true
@@ -1829,10 +1822,16 @@ fn setup_sse(_port : Int) -> Unit {
       location_reload()
     }
   })
+  sse_on(es, "resolve", fn(e) {
+    review_loop_unresolved_count.val = render_review_loop_panel_json(
+      sse_event_data(e),
+    )
+  })
   sse_on(es, "reply", fn(e) {
     suppress_next_round_reload.val = true
     apply_comment_reply_event(get_yunomi_filename(), sse_event_data(e))
   })
+  sse_on(es, "decision", fn(e) { apply_task_decision_event(sse_event_data(e)) })
   sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
   sse_on(es, "send-now", fn(e) { mark_send_now_event(sse_event_data(e)) })
   sse_on(es, "hello", fn(e) {
@@ -1852,6 +1851,7 @@ fn setup_sse(_port : Int) -> Unit {
     set_sse_status("connected", label)
     sse_was_connected.val = true
     set_send_buttons_enabled(true)
+    load_review_loop_state()
   })
   sse_on_error_status(es, fn() {
     set_sse_status("reconnecting", "Reconnecting...")
@@ -3510,20 +3510,28 @@ fn setup_preview_click() -> Unit {
     if is_null(target) {
       return
     }
+    let tag = get_tag_name(target)
+    if !is_null(
+        closest(
+          target, ".review-loop-inline,.review-loop-inline-row,.review-loop-inline-item,.review-loop-reply-form,.yunomi-inline-comment,.yunomi-inline-comment-editor",
+        ),
+      ) ||
+      tag == "TEXTAREA" ||
+      tag == "INPUT" ||
+      tag == "SELECT" ||
+      tag == "BUTTON" ||
+      tag == "LABEL" ||
+      tag == "FORM" ||
+      tag == "A" {
+      return
+    }
     // Media owns its direct-click fullscreen behavior. Its dedicated comment
     // button stops propagation and opens the inline editor instead.
-    let tag = get_tag_name(target)
     let summary = closest(target, "summary")
     if !is_null(summary) && !has_class(summary, "heading-summary") {
-      prevent_default(e)
-      let details = closest(summary, "details")
-      if !is_null(details) {
-        if has_attribute(details, "open") {
-          remove_attribute(details, "open")
-        } else {
-          set_attribute(details, "open", "")
-        }
-      }
+      // Keep the browser's native <details> toggle as the single source of
+      // truth. Manually flipping `open` here races the native default action
+      // and can leave the section in its original state.
       ignore(open_or_select_preview_comment_target(summary, false))
       return
     }
@@ -3543,7 +3551,12 @@ fn setup_preview_comment_buttons() -> Unit {
     return
   }
   install_preview_comment_buttons(fn(target) {
-    ignore(open_or_select_preview_comment_target(target, true))
+    if open_or_select_preview_comment_target(target, true) {
+      let input = query("#comment-input")
+      if !is_null(input) {
+        focus_element(input)
+      }
+    }
   })
 }
 

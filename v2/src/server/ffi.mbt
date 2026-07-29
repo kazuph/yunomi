@@ -45,6 +45,18 @@ extern "js" fn watch_file(
 ) -> JsValue = "watchFile"
 
 ///|
+extern "js" fn file_content_signature(path : String) -> String =
+  #|(path) => {
+  #|  try {
+  #|    const fs = process.getBuiltinModule("node:fs");
+  #|    const crypto = process.getBuiltinModule("node:crypto");
+  #|    return crypto.createHash("sha256").update(fs.readFileSync(path)).digest("hex");
+  #|  } catch {
+  #|    return "";
+  #|  }
+  #|}
+
+///|
 /// Node.js path module
 #module("node:path")
 extern "js" fn path_basename(path : String) -> String = "basename"
@@ -129,7 +141,11 @@ extern "js" fn gen_instance_id() -> String =
   #|() => Date.now().toString(36) + "-" + process.pid + "-" + Math.random().toString(36).slice(2, 8)
 
 ///|
-extern "js" fn create_share_token(files : Array[String], host : String, port : Int) -> String =
+extern "js" fn create_share_token(
+  files : Array[String],
+  host : String,
+  port : Int,
+) -> String =
   #|(filesArg, host, port) => {
   #|  const fs = process.getBuiltinModule("node:fs");
   #|  const path = process.getBuiltinModule("node:path");
@@ -896,6 +912,7 @@ fn json_encode_value(s : String) -> String {
   buf.to_string()
 }
 
+///|
 extern "js" fn get_platform() -> String =
   #|() => process.platform
 
@@ -1138,7 +1155,10 @@ extern "js" fn js_obj_error_message(obj : JsValue) -> String =
   #|(obj) => obj?.error?.message || ""
 
 ///|
-extern "js" fn js_inject_before_body_end(html : String, fragment : String) -> String =
+extern "js" fn js_inject_before_body_end(
+  html : String,
+  fragment : String,
+) -> String =
   #|(html, fragment) => {
   #|  const text = String(html);
   #|  const header = text.indexOf("</header>");
@@ -1345,14 +1365,22 @@ fn git_root_for(path : String) -> String {
   }
   let out = git_stdout(dir, "[\"rev-parse\",\"--show-toplevel\"]")
   let root = trim_ascii(out)
-  if root.length() > 0 { realpath_or_resolve(root) } else { realpath_or_resolve(dir) }
+  if root.length() > 0 {
+    realpath_or_resolve(root)
+  } else {
+    realpath_or_resolve(dir)
+  }
 }
 
 ///|
 fn git_branch_for(root : String) -> String {
   let out = git_stdout(root, "[\"branch\",\"--show-current\"]")
   let branch = trim_ascii(out)
-  if branch.length() > 0 { branch } else { "no-branch" }
+  if branch.length() > 0 {
+    branch
+  } else {
+    "no-branch"
+  }
 }
 
 ///|
@@ -1462,7 +1490,11 @@ extern "js" fn js_external_review_submit(
   #|}
 
 ///|
-fn persist_external_review(review_path : String, file : String, body : String) -> Unit {
+fn persist_external_review(
+  review_path : String,
+  file : String,
+  body : String,
+) -> Unit {
   let parent = path_dirname(review_path)
   if !exists_sync(parent) {
     mkdir_sync(parent, mkdir_recursive_opts())
@@ -1490,7 +1522,10 @@ fn review_json_path_for_id(review_id : String) -> String {
     let cwd = path_resolve(".")
     path_join(path_join(git_root_for(cwd), ".yunomi"), "reviews")
   }
-  path_join(path_join(reviews_root, js_sanitize_branch(review_id)), "review.json")
+  path_join(
+    path_join(reviews_root, js_sanitize_branch(review_id)),
+    "review.json",
+  )
 }
 
 ///|
@@ -1512,7 +1547,11 @@ fn review_snapshot_path(file_path : String, round : Int) -> String {
 fn review_display_file(file_path : String) -> String {
   let root = git_root_for(file_path)
   let rel = path_relative(root, realpath_or_resolve(file_path))
-  if rel.length() > 0 && !rel.has_prefix("..") { rel } else { path_basename(file_path) }
+  if rel.length() > 0 && !rel.has_prefix("..") {
+    rel
+  } else {
+    path_basename(file_path)
+  }
 }
 
 ///|
@@ -1553,7 +1592,10 @@ fn ensure_review_state(file_path : String) -> Unit {
 }
 
 ///|
-extern "js" fn js_review_update_viewed_files(json : String, viewed_json : String) -> String =
+extern "js" fn js_review_update_viewed_files(
+  json : String,
+  viewed_json : String,
+) -> String =
   #|(json, viewedJson) => {
   #|  let review;
   #|  let viewed;
@@ -1574,12 +1616,23 @@ fn update_review_viewed_files(file_path : String, viewed_json : String) -> Unit 
 }
 
 ///|
-fn write_review_server(file_path : String, port : Int, notify_pane : String) -> Unit {
+fn write_review_server(
+  file_path : String,
+  port : Int,
+  notify_pane : String,
+) -> Unit {
   ensure_review_state(file_path)
-  let data = "{\"pid\":" + process_pid().to_string() + ",\"port\":" +
-    port.to_string() + ",\"file\":" + json_encode_value(path_resolve(file_path)) +
-    ",\"notify_pane\":" + json_encode_value(notify_pane) +
-    ",\"updated_at\":" + json_encode_value(iso_now()) + "}"
+  let data = "{\"pid\":" +
+    process_pid().to_string() +
+    ",\"port\":" +
+    port.to_string() +
+    ",\"file\":" +
+    json_encode_value(path_resolve(file_path)) +
+    ",\"notify_pane\":" +
+    json_encode_value(notify_pane) +
+    ",\"updated_at\":" +
+    json_encode_value(iso_now()) +
+    "}"
   write_file_secure(review_server_path_for_file(file_path), data)
 }
 
@@ -1603,11 +1656,28 @@ extern "js" fn js_review_submit_update(
   #|  current.summary = submit.summary || "";
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const roundNo = Number(current.round || review.rounds.length);
-  #|  let seq = review.comments.filter(c => Number(c.round) === roundNo).length + 1;
+  #|  const summary = String(current.summary || "").trim();
+  #|  if (summary) {
+  #|    const id = `r-${roundNo}`;
+  #|    const existingIndex = review.comments.findIndex(c => c && c.id === id);
+  #|    if (existingIndex >= 0) review.comments.splice(existingIndex, 1);
+  #|    review.comments.push({ id, scope: "round", file: "", line: 0, round: roundNo, text: summary, author: "human", status: "unresolved", replies: [], attachments: [] });
+  #|  }
+  #|  let seq = review.comments.filter(c => Number(c.round) === roundNo && c.scope !== "round").length + 1;
   #|  const lineWindow = (row, before, after) => {
   #|    const start = Math.max(0, row - before);
   #|    const end = Math.min(sourceLines.length, row + after + 1);
   #|    return sourceLines.slice(start, end).map(line => String(line || "")).join("\n");
+  #|  };
+  #|  const oneLineQuote = (...values) => {
+  #|    const marker = " | source: ";
+  #|    for (const value of values) {
+  #|      const raw = String(value || "");
+  #|      const idx = raw.indexOf(marker);
+  #|      const quote = (idx >= 0 ? raw.slice(idx + marker.length) : raw).split(/\r?\n/, 1)[0].trim();
+  #|      if (quote) return quote;
+  #|    }
+  #|    return "";
   #|  };
   #|  for (const c of submit.comments || []) {
   #|    const row = Number(c.row || 0);
@@ -1619,6 +1689,7 @@ extern "js" fn js_review_submit_update(
   #|    const imagePath = String(c.imagePath || "");
   #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
   #|    const elementText = String(c.element_text || c.value || "");
+  #|    const quote = oneLineQuote(c.value, c.element_text, sourceLines[row] || "");
   #|    const bounds = c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds));
   #|    review.comments.push({
   #|      id: `c-${roundNo}-${seq++}`,
@@ -1630,6 +1701,7 @@ extern "js" fn js_review_submit_update(
   #|      line,
   #|      round: roundNo,
   #|      text: String(c.text || ""),
+  #|      quote,
   #|      author: "human",
   #|      status: "unresolved",
   #|      replies: [],
@@ -1648,15 +1720,27 @@ extern "js" fn js_review_submit_update(
   #|}
 
 ///|
-fn update_review_on_submit(file_path : String, body : String, source_lines : Array[String], round : Int) -> Unit {
+fn update_review_on_submit(
+  file_path : String,
+  body : String,
+  source_lines : Array[String],
+  round : Int,
+) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
   let current = read_file_safe(review_path)
   write_file_secure(
     review_path,
-    js_review_submit_update(current, body, review_display_file(file_path), source_lines),
+    js_review_submit_update(
+      current,
+      body,
+      review_display_file(file_path),
+      source_lines,
+    ),
   )
-  try_call_void(fn() { fs_copy_file_sync(file_path, review_snapshot_path(file_path, round)) })
+  try_call_void(fn() {
+    fs_copy_file_sync(file_path, review_snapshot_path(file_path, round))
+  })
 }
 
 ///|
@@ -1667,12 +1751,13 @@ extern "js" fn js_review_send_now_update(
   line : Int,
   text : String,
   snippet : String,
+  quote : String,
   context_before : String,
   context_after : String,
   round : Int,
   target : String,
 ) -> String =
-  #|(json, file, id, line, text, snippet, before, after, round, target) => {
+  #|(json, file, id, line, text, snippet, quote, before, after, round, target) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -1690,6 +1775,7 @@ extern "js" fn js_review_send_now_update(
   #|    end_row: Math.max(0, Number(line || 1) - 1),
   #|    end_col: 0,
   #|    snippet: String(snippet || ""),
+  #|    quote: String(quote || ""),
   #|    context_before: String(before || ""),
   #|    context_after: String(after || ""),
   #|    selector: "",
@@ -1708,6 +1794,7 @@ extern "js" fn js_review_send_now_update(
   #|    existing.status = existing.status || "unresolved";
   #|    existing.replies = Array.isArray(existing.replies) ? existing.replies : [];
   #|    existing.anchor = existing.anchor || anchor;
+  #|    existing.quote = String(existing.quote || structured.quote || "");
   #|    existing.send_now = true;
   #|    existing.sent_at = existing.sent_at || new Date().toISOString();
   #|  } else {
@@ -1729,11 +1816,18 @@ extern "js" fn js_review_send_now_update(
   #|}
 
 ///|
-fn update_review_on_send_now(file_path : String, id : String, line : Int, text : String, target : String) -> Unit {
+fn update_review_on_send_now(
+  file_path : String,
+  id : String,
+  line : Int,
+  text : String,
+  target : String,
+) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
   let source_lines = @core.split_to_lines(read_file_safe(file_path))
   let idx = line - 1
+  let quote = @core.quote_source_line(source_lines, idx)
   let snippet = comment_snippet(source_lines, idx)
   let before = comment_context_before(source_lines, idx)
   let after = comment_context_after(source_lines, idx)
@@ -1746,6 +1840,7 @@ fn update_review_on_send_now(file_path : String, id : String, line : Int, text :
       line,
       text,
       snippet,
+      quote,
       before,
       after,
       current_review_round(file_path),
@@ -1766,6 +1861,7 @@ fn update_review_on_cli_comment(
   let review_path = review_json_path_for_file(file_path)
   let source_lines = @core.split_to_lines(read_file_safe(file_path))
   let idx = line - 1
+  let quote = @core.quote_source_line(source_lines, idx)
   let snippet = comment_snippet(source_lines, idx)
   let before = comment_context_before(source_lines, idx)
   let after = comment_context_after(source_lines, idx)
@@ -1779,6 +1875,7 @@ fn update_review_on_cli_comment(
       text,
       author,
       snippet,
+      quote,
       before,
       after,
       iso_now(),
@@ -1811,11 +1908,17 @@ fn current_review_round(file_path : String) -> Int {
 ///|
 fn next_review_comment_seq(file_path : String, round : Int) -> Int {
   ensure_review_state(file_path)
-  js_review_next_comment_seq(read_file_safe(review_json_path_for_file(file_path)), round)
+  js_review_next_comment_seq(
+    read_file_safe(review_json_path_for_file(file_path)),
+    round,
+  )
 }
 
 ///|
-extern "js" fn js_review_start_next_round(json : String, current_text : String) -> String =
+extern "js" fn js_review_start_next_round(
+  json : String,
+  current_text : String,
+) -> String =
   #|(json, currentText) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
@@ -1850,8 +1953,9 @@ extern "js" fn js_review_response_json(
   current_text : String,
   previous_text : String,
   gate_enabled : Bool,
+  current_file : String,
 ) -> String =
-  #|(reviewJson, currentText, previousText, gateEnabled) => {
+  #|(reviewJson, currentText, previousText, gateEnabled, currentFile) => {
   #|  let review;
   #|  try { review = JSON.parse(reviewJson || "{}"); } catch { review = {}; }
   #|  const normalizeComment = (comment) => {
@@ -1883,6 +1987,7 @@ extern "js" fn js_review_response_json(
   #|    };
   #|  };
   #|  review.comments = Array.isArray(review.comments) ? review.comments.map(normalizeComment) : [];
+  #|  const currentComments = review.comments.filter(c => c.scope === "round" || c.file === currentFile);
   #|  const prev = String(previousText || "").split(/\r?\n/);
   #|  const curr = String(currentText || "").split(/\r?\n/);
   #|  const max = Math.max(prev.length, curr.length);
@@ -1894,9 +1999,10 @@ extern "js" fn js_review_response_json(
   #|    }
   #|  }
   #|  const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
-  #|  const unresolved = (review.comments || []).filter(c => c.status !== "resolved").length;
-  #|  const gateUnresolved = gateEnabled ? (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
-  #|  return JSON.stringify({ review, diff: { lines }, unresolved_count: unresolved, gate_unresolved_count: gateUnresolved, is_loop: !!gateEnabled });
+  #|  const actionable = (c) => c && c.scope !== "round";
+  #|  const unresolved = currentComments.filter(c => actionable(c) && c.status !== "resolved").length;
+  #|  const gateUnresolved = gateEnabled ? currentComments.filter(c => actionable(c) && c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
+  #|  return JSON.stringify({ review: { ...review, comments: currentComments }, diff: { lines }, unresolved_count: unresolved, gate_unresolved_count: gateUnresolved, is_loop: !!gateEnabled });
   #|}
 
 ///|
@@ -1905,15 +2011,27 @@ fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   let review_json = read_file_safe(review_json_path_for_file(file_path))
   let round = current_review_round(file_path)
   let prev_path = review_snapshot_path(file_path, round - 1)
-  let previous_text = if exists_sync(prev_path) { read_file_safe(prev_path) } else { "" }
-  js_review_response_json(review_json, read_file_safe(file_path), previous_text, gate_enabled)
+  let previous_text = if exists_sync(prev_path) {
+    read_file_safe(prev_path)
+  } else {
+    ""
+  }
+  js_review_response_json(
+    review_json,
+    read_file_safe(file_path),
+    previous_text,
+    gate_enabled,
+    review_display_file(file_path),
+  )
 }
 
 ///|
 extern "js" fn js_review_resolve(json : String, id : String) -> String =
   #|(json, id) => {
   #|  const review = JSON.parse(json || "{}");
-  #|  for (const c of review.comments || []) if (c.id === id) c.status = "resolved";
+  #|  for (const c of review.comments || []) {
+  #|    if (c.id === id && c.scope !== "round") c.status = "resolved";
+  #|  }
   #|  return JSON.stringify(review, null, 2);
   #|}
 
@@ -1921,7 +2039,10 @@ extern "js" fn js_review_resolve(json : String, id : String) -> String =
 fn resolve_review_comment(file_path : String, id : String) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
-  write_file_secure(review_path, js_review_resolve(read_file_safe(review_path), id))
+  write_file_secure(
+    review_path,
+    js_review_resolve(read_file_safe(review_path), id),
+  )
 }
 
 ///|
@@ -1930,8 +2051,9 @@ extern "js" fn js_review_reply(
   id : String,
   text : String,
   author : String,
+  attachment : String,
 ) -> String =
-  #|(json, id, text, author) => {
+  #|(json, id, text, author, attachment) => {
   #|  const review = JSON.parse(json || "{}");
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  const currentRound = Number((rounds[rounds.length - 1] || {}).round || 1);
@@ -1939,7 +2061,12 @@ extern "js" fn js_review_reply(
   #|  for (const c of review.comments) {
   #|    if (c.id === id) {
   #|      c.replies = Array.isArray(c.replies) ? c.replies : [];
-  #|      c.replies.push({ author: author || "agent", round: currentRound, text: String(text || "") });
+  #|      c.replies.push({
+  #|        author: author || "agent",
+  #|        round: currentRound,
+  #|        text: String(text || ""),
+  #|        attachments: attachment ? [String(attachment)] : []
+  #|      });
   #|      break;
   #|    }
   #|  }
@@ -1947,25 +2074,149 @@ extern "js" fn js_review_reply(
   #|}
 
 ///|
-fn reply_review_comment(file_path : String, id : String, text : String, author : String) -> Unit {
-  ensure_review_state(file_path)
-  let review_path = review_json_path_for_file(file_path)
-  write_file_secure(review_path, js_review_reply(read_file_safe(review_path), id, text, author))
-}
+extern "js" fn review_comment_is_replyable(json : String, id : String) -> Bool =
+  #|(json, id) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const comment = (review.comments || []).find(c => c && c.id === id);
+  #|    return !!comment && (comment.scope === "round" || comment.status !== "resolved");
+  #|  } catch (_) {
+  #|    return false;
+  #|  }
+  #|}
 
 ///|
-fn reply_review_comment_cwd(id : String, text : String, author : String) -> Unit {
-  let review_path = review_json_path_for_cwd()
-  write_file_secure(review_path, js_review_reply(read_file_safe(review_path), id, text, author))
-}
-
-///|
-extern "js" fn js_review_prior_unresolved_count(json : String) -> Int =
+extern "js" fn review_can_create_global_comment(json : String) -> Bool =
   #|(json) => {
   #|  try {
   #|    const review = JSON.parse(json || "{}");
+  #|    const threads = (review.comments || []).filter(c => c && c.scope === "round");
+  #|    const latest = threads[threads.length - 1];
+  #|    return !latest;
+  #|  } catch (_) {
+  #|    return false;
+  #|  }
+  #|}
+
+///|
+extern "js" fn next_global_comment_id(json : String) -> String =
+  #|(json) => {
+  #|  const review = JSON.parse(json || "{}");
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const round = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  const ids = new Set((review.comments || []).map(c => String(c?.id || "")));
+  #|  let sequence = 1;
+  #|  while (ids.has(`r-${round}-${sequence}`)) sequence += 1;
+  #|  return `r-${round}-${sequence}`;
+  #|}
+
+///|
+extern "js" fn js_review_create_global_comment(
+  json : String,
+  id : String,
+  text : String,
+  author : String,
+  attachment : String,
+) -> String =
+  #|(json, id, text, author, attachment) => {
+  #|  const review = JSON.parse(json || "{}");
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const currentRound = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  review.comments.push({
+  #|    id,
+  #|    scope: "round",
+  #|    file: "",
+  #|    line: 0,
+  #|    round: currentRound,
+  #|    text: String(text || ""),
+  #|    author: author || "human",
+  #|    status: "unresolved",
+  #|    replies: [],
+  #|    attachments: attachment ? [String(attachment)] : []
+  #|  });
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn create_global_review_comment(
+  file_path : String,
+  id : String,
+  text : String,
+  author : String,
+  attachment : String,
+) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  write_file_secure(
+    review_path,
+    js_review_create_global_comment(
+      read_file_safe(review_path),
+      id,
+      text,
+      author,
+      attachment,
+    ),
+  )
+}
+
+///|
+fn reply_review_comment(
+  file_path : String,
+  id : String,
+  text : String,
+  author : String,
+  attachment : String,
+) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  write_file_secure(
+    review_path,
+    js_review_reply(read_file_safe(review_path), id, text, author, attachment),
+  )
+}
+
+///|
+extern "js" fn review_comment_reply_count(json : String, id : String) -> Int =
+  #|(json, id) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const comment = (review.comments || []).find(c => c && c.id === id);
+  #|    return Array.isArray(comment?.replies) ? comment.replies.length : 0;
+  #|  } catch (_) {
+  #|    return 0;
+  #|  }
+  #|}
+
+///|
+extern "js" fn safe_attachment_name_component(value : String) -> String =
+  #|(value) => String(value || "reply")
+  #|  .replace(/[^A-Za-z0-9._-]+/g, "-")
+  #|  .replace(/^-+|-+$/g, "") || "reply"
+
+///|
+fn reply_review_comment_cwd(
+  id : String,
+  text : String,
+  author : String,
+) -> Unit {
+  let review_path = review_json_path_for_cwd()
+  write_file_secure(
+    review_path,
+    js_review_reply(read_file_safe(review_path), id, text, author, ""),
+  )
+}
+
+///|
+extern "js" fn js_review_prior_unresolved_count(
+  json : String,
+  current_file : String,
+) -> Int =
+  #|(json, currentFile) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
   #|    const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
-  #|    return (review.comments || []).filter(c => c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
+  #|    return (review.comments || []).filter(c => c && c.scope !== "round" && c.file === currentFile && c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
   #|  } catch(e) {
   #|    return 0;
   #|  }
@@ -1974,7 +2225,10 @@ extern "js" fn js_review_prior_unresolved_count(json : String) -> Int =
 ///|
 fn review_prior_unresolved_count(file_path : String) -> Int {
   ensure_review_state(file_path)
-  js_review_prior_unresolved_count(read_file_safe(review_json_path_for_file(file_path)))
+  js_review_prior_unresolved_count(
+    read_file_safe(review_json_path_for_file(file_path)),
+    review_display_file(file_path),
+  )
 }
 
 ///|
@@ -2404,7 +2658,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!msg || !msg.method) return;
   #|    try {
   #|      if (msg.method === "initialize") {
-  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.3.2" } } });
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.4.0" } } });
   #|      } else if (msg.method === "tools/list") {
   #|        send({ jsonrpc: "2.0", id: msg.id, result: { tools } });
   #|      } else if (msg.method === "tools/call") {
@@ -2442,6 +2696,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|}
 
 ///|
+
 ///|
 /// Save base64 image to file, returns filepath or ""
 fn base64_to_file(data : String, dir : String, index : Int) -> String {
@@ -2467,7 +2722,11 @@ fn base64_to_file(data : String, dir : String, index : Int) -> String {
 }
 
 ///|
-fn base64_to_named_file(data : String, dir : String, filename : String) -> String {
+fn base64_to_named_file(
+  data : String,
+  dir : String,
+  filename : String,
+) -> String {
   let b64_data = extract_base64_data(data)
   if b64_data.length() == 0 || filename.length() == 0 {
     return ""
@@ -2524,7 +2783,10 @@ extern "js" fn split_path_list(path : String) -> Array[String] =
   #|(path) => path.split(":").filter(Boolean)
 
 ///|
-extern "js" fn split_notify_command(command : String, msg : String) -> Array[String] =
+extern "js" fn split_notify_command(
+  command : String,
+  msg : String,
+) -> Array[String] =
   #|(command, msg) => {
   #|  const out = [];
   #|  let cur = "", quote = "";
@@ -2553,7 +2815,6 @@ extern "js" fn split_notify_command(command : String, msg : String) -> Array[Str
   #|  if (replaced.length > 0 && !hadPlaceholder) replaced.push(msg);
   #|  return replaced;
   #|}
-
 
 ///|
 fn json_array_of_strings(values : Array[String]) -> String {
@@ -2673,28 +2934,62 @@ fn send_notify_message(notify_pane : String, msg : String) -> String {
   spawn_sync_status("herdr", ["agent", "send", notify_pane, msg])
 }
 
-
 ///|
 fn spawn_sync_status_args(cmd : String, args : Array[String]) -> (Int, String) {
-  let result = child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe())
+  let result = child_spawn_sync(
+    cmd,
+    js_array_from_strings(args),
+    js_spawn_opts_utf8_pipe(),
+  )
   (js_obj_status(result), js_obj_stderr(result))
 }
 
 ///|
-fn spawn_sync_result_args(cmd : String, args : Array[String]) -> (Int, String, String) {
-  let result = child_spawn_sync(cmd, js_array_from_strings(args), js_spawn_opts_utf8_pipe())
+fn spawn_sync_result_args(
+  cmd : String,
+  args : Array[String],
+) -> (Int, String, String) {
+  let result = child_spawn_sync(
+    cmd,
+    js_array_from_strings(args),
+    js_spawn_opts_utf8_pipe(),
+  )
   (js_obj_status(result), js_obj_stdout(result), js_obj_stderr(result))
 }
 
 ///|
 fn spawn_sync_shell_status(cmd : String) -> (Int, String) {
-  let result = child_spawn_sync(cmd, js_array_from_strings([]), js_spawn_opts_shell_utf8())
+  let result = child_spawn_sync(
+    cmd,
+    js_array_from_strings([]),
+    js_spawn_opts_shell_utf8(),
+  )
   (js_obj_status(result), js_obj_stderr(result))
 }
 
 ///|
 extern "js" fn js_spawn_opts_shell_utf8() -> JsValue =
   #|() => ({ encoding: "utf8", shell: true, stdio: ["ignore", "pipe", "pipe"] })
+
+///|
+/// Pick the single source line a comment points at. Element comments carry a
+/// "<rendered text> | source: <markdown source>" composite, so the source half
+/// wins when present.
+extern "js" fn js_quote_from_candidates(
+  value : String,
+  element_text : String,
+  fallback : String,
+) -> String =
+  #|(value, elementText, fallback) => {
+  #|  const marker = " | source: ";
+  #|  for (const candidate of [value, elementText, fallback]) {
+  #|    const raw = String(candidate || "");
+  #|    const idx = raw.indexOf(marker);
+  #|    const quote = (idx >= 0 ? raw.slice(idx + marker.length) : raw).split(/\r?\n/, 1)[0].trim();
+  #|    if (quote) return quote;
+  #|  }
+  #|  return "";
+  #|}
 
 ///|
 extern "js" fn replace_notify_placeholder(cmd : String, msg : String) -> String =
@@ -2725,12 +3020,13 @@ extern "js" fn js_upsert_decision_review_json(
   existing : String,
   branch : String,
   file : String,
+  path_hash : String,
   line : Int,
   text : String,
   checked : Bool,
   now : String,
 ) -> String =
-  #|(existing, branch, file, line, text, checked, now) => {
+  #|(existing, branch, file, pathHash, line, text, checked, now) => {
   #|  let review;
   #|  try { review = existing ? JSON.parse(existing) : null; } catch { review = null; }
   #|  if (!review || typeof review !== "object" || review.version !== 1) {
@@ -2742,8 +3038,12 @@ extern "js" fn js_upsert_decision_review_json(
   #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  review.decisions = Array.isArray(review.decisions) ? review.decisions : [];
+  #|  review.files = Array.from(new Set(review.files.map(String).map((entry) => {
+  #|    const normalized = entry.replaceAll("\\\\", "/");
+  #|    return normalized === file || normalized.endsWith(`/${file}`) ? file : entry;
+  #|  })));
   #|  if (!review.files.includes(file)) review.files.push(file);
-  #|  const id = `d-${Buffer.from(`${file}:${line}`).toString("base64url").slice(0, 16)}`;
+  #|  const id = `d-${String(pathHash)}-${Number(line)}`;
   #|  const next = { id, file, line, text, checked: !!checked, decided_at: now };
   #|  const idx = review.decisions.findIndex((d) => d && d.file === file && Number(d.line) === Number(line));
   #|  if (idx >= 0) review.decisions[idx] = next; else review.decisions.push(next);
@@ -2893,6 +3193,17 @@ extern "js" fn req_range_header(req : JsValue) -> String =
   #|(req) => req.headers.range || ""
 
 ///|
+extern "js" fn req_cookie_value(req : JsValue, name : String) -> String =
+  #|(req, name) => {
+  #|  const prefix = `${name}=`;
+  #|  const entry = String(req?.headers?.cookie || "")
+  #|    .split(";")
+  #|    .map(value => value.trim())
+  #|    .find(value => value.startsWith(prefix));
+  #|  return entry ? entry.slice(prefix.length) : "";
+  #|}
+
+///|
 /// Set a single response header
 extern "js" fn res_set_header(
   res : JsValue,
@@ -2915,11 +3226,12 @@ extern "js" fn js_update_review_json(
   text : String,
   author : String,
   snippet : String,
+  quote : String,
   context_before : String,
   context_after : String,
   now : String,
 ) -> String =
-  #|(existing, branch, file, line, text, author, snippet, before, after, now) => {
+  #|(existing, branch, file, line, text, author, snippet, quote, before, after, now) => {
   #|  let review;
   #|  try { review = existing ? JSON.parse(existing) : null; } catch { review = null; }
   #|  if (!review || typeof review !== "object" || review.version !== 1) {
@@ -2955,6 +3267,7 @@ extern "js" fn js_update_review_json(
   #|    line,
   #|    round,
   #|    text,
+  #|    quote: String(quote || ""),
   #|    author,
   #|    status: "unresolved",
   #|    replies: [],

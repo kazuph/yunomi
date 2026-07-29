@@ -19,7 +19,7 @@ mkdirSync(join(WORK_DIR, "project-alpha", ".git"), { recursive: true });
 if (EVIDENCE_DIR) mkdirSync(EVIDENCE_DIR, { recursive: true });
 writeFileSync(SAMPLE, [
   "# Heading", "", "Paragraph with ![image](cat.png) and ![video](clip.mp4).", "",
-  "- list item", "  - nested item", "", "1. ordered item", "", "> quoted block", "", "---", "",
+  "- list item", "  - nested item", "", "1. ordered item", "2. second ordered item", "", "> quoted block", "", "---", "",
   "```ts", "const answer = 42;", "```", "", "| Name | Value |", "|---|---|", "| alpha | **one** |", "",
   "```mermaid", "flowchart LR", "  A --> B", "```", "", "<details>", "<summary>More</summary>", "",
   "Inside details", "</details>", "", '<div class="raw-note">Raw HTML</div>',
@@ -138,6 +138,25 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
   });
   const surfaces = await page.locator(`.yunomi-inline-comment-text:text-is("${initial}")`).count();
   assert(surfaces >= 2, `${name}: saved comment is visible below preview and source`, { surfaces });
+  if (name === "unordered-list" || name === "ordered-list" || name === "list-item") {
+    const savedListPlacement = await page.locator(`#md-preview .yunomi-inline-comment-text:text-is("${initial}")`).evaluate((text) => {
+      const holder = text.closest<HTMLElement>(".yunomi-inline-comment");
+      return {
+        holderTag: holder?.tagName || "",
+        parentTag: holder?.parentElement?.tagName || "",
+        holderValue: holder?.getAttribute("value") || "",
+        previousLine: (holder?.previousElementSibling as HTMLElement | null)?.dataset.sourceLine || "",
+      };
+    });
+    assert(
+      savedListPlacement.holderTag === "LI" &&
+        (savedListPlacement.parentTag === "UL" || savedListPlacement.parentTag === "OL") &&
+        (savedListPlacement.parentTag !== "OL" || savedListPlacement.holderValue === "1") &&
+        savedListPlacement.previousLine.length > 0,
+      `${name}: saved comment remains a valid list sibling directly below its source item`,
+      savedListPlacement,
+    );
+  }
   if (EVIDENCE_DIR && name === "heading") {
     await page.screenshot({ path: join(EVIDENCE_DIR, "02-saved-comment-both-panes.png"), fullPage: true });
   }
@@ -173,6 +192,52 @@ try {
   if (EVIDENCE_DIR) {
     await page.locator("header").screenshot({ path: join(EVIDENCE_DIR, "00-header-project-path.png") });
   }
+
+  const scrollBeforeOrderedListComment = await page.evaluate(() => ({
+    window: scrollY,
+    preview: document.querySelector<HTMLElement>(".md-left")?.scrollTop || 0,
+  }));
+  await page.locator("#md-preview ol[data-source-line]").first().evaluate((element) => (element as HTMLElement).click());
+  await page.waitForSelector(".yunomi-inline-comment-editor #comment-input", { state: "visible" });
+  const orderedListPlacement = await page.evaluate(() => {
+    const selected = document.querySelector<HTMLElement>("#md-preview .preview-highlight");
+    const mount = document.querySelector<HTMLElement>("#md-preview li.yunomi-inline-comment-editor-mount");
+    const editor = mount?.querySelector<HTMLElement>(":scope > .yunomi-inline-comment-editor");
+    const following = mount?.nextElementSibling as HTMLElement | null;
+    if (!selected || !mount || !editor) return null;
+    const selectedRect = selected.getBoundingClientRect();
+    const editorRect = editor.getBoundingClientRect();
+    return {
+      selectedTag: selected.tagName,
+      selectedLine: selected.dataset.sourceLine || "",
+      selectedText: selected.textContent?.trim() || "",
+      mountParent: mount.parentElement?.tagName || "",
+      mountValue: mount.getAttribute("value") || "",
+      previousLine: (mount.previousElementSibling as HTMLElement | null)?.dataset.sourceLine || "",
+      followingLine: following?.dataset.sourceLine || "",
+      editorBelowSelected: editorRect.top >= selectedRect.bottom,
+      focused: document.activeElement?.id || "",
+      windowScroll: scrollY,
+      previewScroll: document.querySelector<HTMLElement>(".md-left")?.scrollTop || 0,
+    };
+  });
+  assert(
+    orderedListPlacement !== null &&
+      orderedListPlacement.selectedTag === "LI" &&
+      orderedListPlacement.selectedLine === "8" &&
+      !orderedListPlacement.selectedText.includes("second ordered item") &&
+      orderedListPlacement.mountParent === "OL" &&
+      orderedListPlacement.mountValue === "1" &&
+      orderedListPlacement.previousLine === "8" &&
+      orderedListPlacement.followingLine === "9" &&
+      orderedListPlacement.editorBelowSelected &&
+      orderedListPlacement.focused !== "comment-input" &&
+      orderedListPlacement.windowScroll === scrollBeforeOrderedListComment.window &&
+      orderedListPlacement.previewScroll === scrollBeforeOrderedListComment.preview,
+    "list-container entry opens below its first item without stealing focus or moving either scroll position",
+    orderedListPlacement,
+  );
+  await page.locator('.yunomi-inline-comment-editor [data-action="cancel"]').click();
 
   await clickElement(page, "#md-preview p[data-source-start-line]");
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("draft before fullscreen");
@@ -220,25 +285,47 @@ try {
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
   const storageBefore = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
   assert(storageBefore.includes("survives reload") && storageBefore.includes('"pending":true') && storageBefore.includes('"sent":false'), "localStorage preserves the pending review state");
+  assert(
+    /^Drafts\s+\d+$/.test(await page.locator("#pill-comments").textContent() || ""),
+    "the header identifies its count as unsubmitted drafts rather than saved review threads",
+  );
+  assert(await page.locator("#pill-comments").isVisible(), "the Drafts button appears when an unsubmitted draft exists");
 
   if (await page.locator(".comment-list.collapsed").count() > 0) {
     await page.locator("#pill-comments").click();
     await page.waitForSelector(".comment-list:not(.collapsed)", { state: "visible" });
   }
+  await page.waitForTimeout(150);
   const expandedLayout = await page.evaluate(() => {
     const panel = document.querySelector<HTMLElement>(".comment-list");
-    const sidebar = document.querySelector<HTMLElement>(".media-sidebar:not(.hidden)");
-    if (!panel || !sidebar) return null;
+    const trigger = document.querySelector<HTMLElement>("#pill-comments");
+    if (!panel || !trigger) return null;
     const panelRect = panel.getBoundingClientRect();
-    const sidebarRect = sidebar.getBoundingClientRect();
-    return { panelRight: panelRect.right, sidebarLeft: sidebarRect.left, cssOffset: getComputedStyle(document.documentElement).getPropertyValue("--media-sidebar-offset") };
+    const triggerRect = trigger.getBoundingClientRect();
+    return {
+      panelTop: panelRect.top,
+      panelRight: panelRect.right,
+      panelBottom: panelRect.bottom,
+      triggerBottom: triggerRect.bottom,
+      triggerRight: triggerRect.right,
+      viewportWidth: innerWidth,
+      viewportHeight: innerHeight,
+    };
   });
-  assert(expandedLayout !== null && expandedLayout.panelRight <= expandedLayout.sidebarLeft, "Comments panel stays clear of the expanded media sidebar", expandedLayout);
+  assert(
+    expandedLayout !== null &&
+      expandedLayout.panelTop >= expandedLayout.triggerBottom &&
+      Math.abs(expandedLayout.panelRight - expandedLayout.triggerRight) <= 1 &&
+      expandedLayout.panelRight <= expandedLayout.viewportWidth &&
+      expandedLayout.panelBottom <= expandedLayout.viewportHeight,
+    "Drafts panel opens as a viewport-contained popover below the header button",
+    expandedLayout,
+  );
   await page.locator("#comment-list-minimize").click();
-  assert(await page.locator(".comment-list.collapsed").count() === 1, "Comments panel can be minimized without deleting comments");
+  assert(await page.locator(".comment-list.collapsed").count() === 1, "Drafts panel can be minimized without deleting comments");
   await page.locator("#pill-comments").click();
   await page.waitForSelector(".comment-list:not(.collapsed)", { state: "visible" });
-  assert(await page.locator("#comment-list li[data-key]").count() > 0, "Minimized Comments panel restores its existing comments");
+  assert(await page.locator("#comment-list li[data-key]").count() > 0, "Minimized Drafts panel restores its existing comments");
   if (EVIDENCE_DIR) {
     await page.screenshot({ path: join(EVIDENCE_DIR, "04-comments-clear-media-sidebar.png"), fullPage: true });
   }
@@ -246,14 +333,16 @@ try {
   await page.locator("#media-sidebar-toggle").click();
   await page.waitForFunction(() => {
     const panel = document.querySelector<HTMLElement>(".comment-list");
-    return panel && getComputedStyle(panel).right === "14px";
+    const trigger = document.querySelector<HTMLElement>("#pill-comments");
+    if (!panel || !trigger) return false;
+    return Math.abs(panel.getBoundingClientRect().right - trigger.getBoundingClientRect().right) <= 1;
   });
-  assert(true, "Comments panel returns to the viewport edge when the media sidebar is collapsed");
+  assert(true, "Comments panel stays anchored to its header button when the media sidebar is collapsed");
   await page.locator("#media-sidebar-toggle").click();
   await page.waitForFunction(() => {
     const panel = document.querySelector<HTMLElement>(".comment-list");
-    const sidebar = document.querySelector<HTMLElement>(".media-sidebar:not(.hidden)");
-    return panel && sidebar && panel.getBoundingClientRect().right <= sidebar.getBoundingClientRect().left;
+    const trigger = document.querySelector<HTMLElement>("#pill-comments");
+    return panel && trigger && Math.abs(panel.getBoundingClientRect().right - trigger.getBoundingClientRect().right) <= 1;
   });
 
   await page.reload({ waitUntil: "domcontentloaded" });

@@ -667,12 +667,12 @@ async function main(): Promise<void> {
           };
         });
 
-        assert.equal(panelState.open, true, "Comments pill should open the comment list panel");
-        assert.equal(panelState.countBadge, "2", "comment badge should reflect preview-origin saved comments");
-        assert.ok(panelState.items.length >= 2, "comment list should show saved comments instead of the empty-state");
-        assert.ok(panelState.text.includes("paragraph note"), "comment list should contain the first preview comment");
-        assert.ok(panelState.text.includes("blockquote note"), "comment list should contain the second preview comment");
-        assert.ok(!/^No comments yet$/i.test(panelState.text), "comment list must not claim to be empty when comments exist");
+        assert.equal(panelState.open, true, "Drafts pill should open the unsubmitted comment list");
+        assert.equal(panelState.countBadge, "2", "draft badge should reflect preview-origin saved drafts");
+        assert.ok(panelState.items.length >= 2, "draft list should show saved drafts instead of the empty-state");
+        assert.ok(panelState.text.includes("paragraph note"), "draft list should contain the first preview comment");
+        assert.ok(panelState.text.includes("blockquote note"), "draft list should contain the second preview comment");
+        assert.ok(!/^No drafts yet$/i.test(panelState.text), "draft list must not claim to be empty when drafts exist");
       } finally {
         await context.close();
       }

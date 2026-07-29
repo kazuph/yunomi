@@ -270,6 +270,18 @@ extern "js" fn sse_event_data(e : Event) -> String =
   #|(e) => String((e && e.data) || "")
 
 ///|
+extern "js" fn apply_task_decision_event(data : String) -> Unit =
+  #|(data) => {
+  #|  let event;
+  #|  try { event = JSON.parse(data || "{}"); } catch (_) { return; }
+  #|  const line = Number(event.line || 0);
+  #|  if (line <= 0) return;
+  #|  document.querySelectorAll(`input.task-decision-checkbox[data-source-line="${CSS.escape(String(line))}"]`).forEach((box) => {
+  #|    box.checked = !!event.checked;
+  #|  });
+  #|}
+
+///|
 extern "js" fn apply_comment_reply_event(
   filename : String,
   data : String,
@@ -291,12 +303,14 @@ extern "js" fn apply_comment_reply_event(
   #|  });
   #|  store[id] = list;
   #|  localStorage.setItem(key, JSON.stringify(store));
-  #|  for (const item of document.querySelectorAll("#comment-list li[data-key]")) {
-  #|    if ((item.getAttribute("data-key") || "") !== id) continue;
-  #|    let replies = item.querySelector(".comment-inline-replies");
+  #|  const selector = `#comment-list li[data-key="${CSS.escape(id)}"],.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`;
+  #|  for (const item of document.querySelectorAll(selector)) {
+  #|    const container = item.matches("tr.yunomi-inline-comment") ? item.querySelector("td") : item;
+  #|    if (!container) continue;
+  #|    let replies = container.querySelector(":scope > .comment-inline-replies");
   #|    if (!replies) {
-  #|      item.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies"></ul>`);
-  #|      replies = item.querySelector(".comment-inline-replies");
+  #|      container.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies"></ul>`);
+  #|      replies = container.querySelector(":scope > .comment-inline-replies");
   #|    }
   #|    replies?.insertAdjacentHTML("beforeend", `<li><strong>${esc(event.author || "agent")}</strong> R${esc(event.round || 1)}: ${esc(event.text || "")}</li>`);
   #|  }
@@ -309,13 +323,15 @@ extern "js" fn render_comment_replies_for_file(filename : String) -> Unit =
   #|  let store = {};
   #|  try { store = JSON.parse(localStorage.getItem(key) || "{}"); } catch (_) { store = {}; }
   #|  const esc = (s) => String(s || "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch]));
-  #|  for (const item of document.querySelectorAll("#comment-list li[data-key]")) {
-  #|    const id = item.getAttribute("data-key") || "";
-  #|    item.querySelector(".comment-inline-replies")?.remove();
+  #|  for (const item of document.querySelectorAll("#comment-list li[data-key],.yunomi-inline-comment[data-comment-key]")) {
+  #|    const id = item.getAttribute("data-key") || item.getAttribute("data-comment-key") || "";
+  #|    const container = item.matches("tr.yunomi-inline-comment") ? item.querySelector("td") : item;
+  #|    if (!container) continue;
+  #|    container.querySelector(":scope > .comment-inline-replies")?.remove();
   #|    const replies = Array.isArray(store[id]) ? store[id] : [];
   #|    if (replies.length === 0) continue;
   #|    const html = replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("");
-  #|    item.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies">${html}</ul>`);
+  #|    container.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies">${html}</ul>`);
   #|  }
   #|}
 
@@ -738,74 +754,97 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|(json) => {
   #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (!panel) return 0;
+  #|  const mobileQuery = matchMedia("(max-width: 960px), (max-device-width: 960px)");
+  #|  const clearPanel = () => {
+  #|    panel.innerHTML = "";
+  #|  };
   #|  let state;
-  #|  try { state = JSON.parse(json || "{}"); } catch { panel.innerHTML = ""; window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
+  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  const round = rounds[rounds.length - 1] || {};
+  #|  if (round.decision === "approve") {
+  #|    clearPanel();
+  #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
+  #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
+  #|    return 0;
+  #|  }
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
   #|  if (comments.length === 0 && rounds.length <= 1) {
-  #|    panel.innerHTML = "";
+  #|    clearPanel();
   #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
   #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
   #|    return 0;
   #|  }
   #|  const currentRound = Number(round.round || 1);
-  #|  const unresolved = comments.filter(c => c.status !== "resolved");
+  #|  const actionableComments = comments.filter(c => c.scope !== "round");
+  #|  const roundThreads = comments.filter(c => c.scope === "round");
+  #|  const unresolved = actionableComments.filter(c => c.status !== "resolved");
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const ja = /^ja\b/i.test(navigator.language || "");
   #|  const t = ja ? {
-  #|    noReply: "AIからの返信はまだありません",
-  #|    afterMissing: "この依頼に直接対応する変更は、まだ自動では確認できません",
-  #|    afterChanged: "現在の変更",
-  #|    checkState: "確認状況",
-  #|    target: "確認する対象",
-  #|    beforeTarget: "依頼時の対象",
+  #|    header: "コメント",
+  #|    counts: (open, resolved) => `未解決 ${open} ・ 解決済み ${resolved}`,
+  #|    you: "あなた",
+  #|    agent: "AI",
   #|    resolved: "解決済み",
-  #|    resolve: "確認して解決",
-  #|    resolveTitle: "依頼どおりの結果を確認してから解決にします",
-  #|    inlineLabel: "この箇所の確認項目",
-  #|    itemLabel: "確認項目",
-  #|    request: "レビューコメント",
-  #|    response: "AIからの返信",
-  #|    header: (_n) => "確認項目",
-  #|    meta: (n) => `未解決 ${n} 件`,
-  #|    reason: "今回の指摘",
-  #|    guide: "レビューの進め方",
-  #|    guideText: "依頼、現在の変更、AIからの返信を確認してから解決にします。",
-  #|    noSummary: "前回の総評はありません。各確認項目の依頼を確認してください。",
-  #|    diffLabel: (_n) => "前回提出時 → 現在の全体差分（補助情報）"
+  #|    resolve: "会話を解決",
+  #|    resolveTitle: "このスレッドを解決済みにする",
+  #|    collapseTitle: "サイドバーを最小化",
+  #|    expandTitle: "サイドバーを広げる",
+  #|    diffLabel: "前回からの差分",
+  #|    allResolved: "すべて解決済み — お茶をどうぞ",
+  #|    reply: "返信",
+  #|    replyPlaceholder: "この会話に返信",
+  #|    newGlobalComment: "新しい会話",
+  #|    newGlobalPlaceholder: "新しい論点を入力",
+  #|    create: "作成",
+  #|    attachImage: "画像を添付",
+  #|    removeImage: "画像を削除",
+  #|    attachedImage: "添付画像",
+  #|    notInDocument: "本文内に表示できません",
   #|  } : {
-  #|    noReply: "No AI reply yet",
-  #|    afterMissing: "No direct matching change was detected yet",
-  #|    afterChanged: "Current change",
-  #|    checkState: "Check status",
-  #|    target: "Review target",
-  #|    beforeTarget: "Original target",
+  #|    header: "Comments",
+  #|    counts: (open, resolved) => `${open} open · ${resolved} resolved`,
+  #|    you: "you",
+  #|    agent: "agent",
   #|    resolved: "Resolved",
-  #|    resolve: "Resolve",
-  #|    resolveTitle: "Resolve only after verifying the requested result",
-  #|    inlineLabel: "Review target",
-  #|    itemLabel: "Review item",
-  #|    request: "Previous request",
-  #|    response: "AI reply",
-  #|    header: (_n) => "Review items",
-  #|    meta: (n) => `${n} unresolved`,
-  #|    reason: "Latest reviewer note",
-  #|    guide: "Review flow",
-  #|    guideText: "Verify the request, current changes, and AI reply before resolving.",
-  #|    noSummary: "No previous summary. Review each request.",
-  #|    diffLabel: (_n) => "Previous submission to current diff"
+  #|    resolve: "Resolve conversation",
+  #|    resolveTitle: "Mark this thread resolved",
+  #|    collapseTitle: "Minimize sidebar",
+  #|    expandTitle: "Expand sidebar",
+  #|    diffLabel: "Diff since last round",
+  #|    allResolved: "All resolved — enjoy your tea",
+  #|    reply: "Reply",
+  #|    replyPlaceholder: "Reply to this conversation",
+  #|    newGlobalComment: "New conversation",
+  #|    newGlobalPlaceholder: "Start a new topic",
+  #|    create: "Create",
+  #|    attachImage: "Attach image",
+  #|    removeImage: "Remove image",
+  #|    attachedImage: "Attached image",
+  #|    notInDocument: "Not shown in document",
   #|  };
   #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+  #|  const baseName = (file) => String(file || "").split("/").filter(Boolean).pop() || String(file || "");
   #|  const lineText = (line) => String((line && line.text) || "");
   #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
+  #|  const quoteFor = (c) => {
+  #|    const source = String(c.quote || c.value || "").trim();
+  #|    if (source) return source.split(/\r?\n/, 1)[0];
+  #|    const snippetLines = String(c.anchor?.snippet || "").split(/\r?\n/);
+  #|    if (snippetLines.length) return String(snippetLines[Math.floor(snippetLines.length / 2)] || "").trim();
+  #|    const element = String(c.element_text || "");
+  #|    const sourceMarker = " | source: ";
+  #|    const marker = element.indexOf(sourceMarker);
+  #|    return String(marker >= 0 ? element.slice(marker + sourceMarker.length) : element).split(/\r?\n/, 1)[0].trim();
+  #|  };
   #|  const matchCommentDiff = (c) => {
   #|    const anchor = c.anchor || {};
-  #|    const original = String(anchor.snippet || "").trim();
+  #|    const original = quoteFor(c);
   #|    // Line numbers drift after edits. Only call a changed line evidence
   #|    // when the old source text itself matches the comment's anchor.
   #|    // This avoids presenting an unrelated table header as the answer to
@@ -822,24 +861,17 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        }
   #|      }
   #|    }
-  #|    return { before: original || "No original source snippet was recorded", after };
-  #|  };
-  #|  const commentResponse = (c) => Array.isArray(c.replies)
-  #|    ? c.replies.filter(r => String(r.author || "") === "agent").at(-1)?.text || t.noReply
-  #|    : t.noReply;
-  #|  const commentStateText = (c) => {
-  #|    const hasAgentReply = Array.isArray(c.replies) && c.replies.some(r => String(r.author || "") === "agent");
-  #|    return c.status === "resolved" ? "resolved" : (hasAgentReply ? "unresolved + replied" : "unresolved");
+  #|    return { before: original, after };
   #|  };
   #|  const snippetHtml = (c) => {
   #|    const s = matchCommentDiff(c);
-  #|    const after = s.after || t.afterMissing;
-  #|    const afterState = s.after ? t.afterChanged : t.checkState;
-  #|    return `<div class="review-loop-snippet" aria-label="Review item source evidence"><div class="review-loop-snippet-label">${esc(t.target)}</div><div class="review-loop-snip-row"><span>${esc(t.beforeTarget)}</span><code>${esc(s.before)}</code></div><div class="review-loop-snip-row"><span>${esc(afterState)}</span><code>${esc(after)}</code></div></div>`;
+  #|    const quote = s.before ? `<blockquote class="review-loop-quote">${esc(s.before)}</blockquote>` : "";
+  #|    const after = s.after ? `<div class="review-loop-change">→ ${esc(s.after)}</div>` : "";
+  #|    return `<div class="review-loop-snippet">${quote}${after}</div>`;
   #|  };
   #|  const inlineTargetFor = (c) => {
   #|    const file = String(c.file || "");
-  #|    const snippet = norm(c.element_text || c.value || c.anchor?.snippet || "");
+  #|    const snippet = norm(quoteFor(c));
   #|    const candidates = [];
   #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
   #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) return false;
@@ -851,7 +883,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    candidates.push(...visibleCandidates(document.querySelectorAll(".diff-line")));
   #|    if (snippet) {
   #|      for (const el of candidates) {
-  #|        if (norm(el.textContent || "").includes(snippet)) return el;
+  #|        if (norm(el.textContent || "").includes(snippet)) {
+  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(child.textContent || "").includes(snippet)) : null;
+  #|          return listItem || el;
+  #|        }
   #|      }
   #|      const deletionIndex = diffLines.findIndex(l => l.kind === "deletion" && norm(lineText(l)) === snippet);
   #|      if (deletionIndex >= 0) {
@@ -867,7 +902,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        }
   #|      }
   #|      for (const el of visibleCandidates(document.querySelectorAll("[data-row],[data-source-line],[data-source-start-line]"))) {
-  #|        if (norm(el.textContent || "").includes(snippet)) return el;
+  #|        if (norm(el.textContent || "").includes(snippet)) {
+  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(child.textContent || "").includes(snippet)) : null;
+  #|          return listItem || el;
+  #|        }
   #|      }
   #|    }
   #|    const line = Number(c.line || 0);
@@ -887,7 +925,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  const bindResolveButtons = (root) => {
   #|    root.querySelectorAll(".review-loop-resolve").forEach(btn => {
-  #|      btn.addEventListener("click", () => {
+  #|      btn.addEventListener("click", (event) => {
+  #|        event.stopPropagation();
   #|        fetch("/resolve-comment", {
   #|          method: "POST",
   #|          headers: { "Content-Type": "application/json" },
@@ -896,21 +935,154 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      });
   #|    });
   #|  };
-  #|  const reviewLoopCard = (c, inline) => {
-  #|    const replies = Array.isArray(c.replies) && c.replies.length
-  #|      ? `<ul class="review-loop-replies">${c.replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("")}</ul>`
-  #|      : "";
-  #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
-  #|    const klass = inline ? "review-loop-comment review-loop-inline-card" : "review-loop-comment";
-  #|    const label = inline ? t.inlineLabel : t.itemLabel;
-  #|    return `<li class="${klass}" data-review-comment-id="${esc(c.id)}"><div class="review-loop-comment-head"><strong>${esc(label)} ${esc(c.id)}</strong><span>${esc(c.file)}:${esc(c.line)} [${esc(commentStateText(c))}]</span></div><div class="review-loop-request"><span>${esc(t.request)}</span><p>${esc(c.text)}</p></div><div class="review-loop-response"><span>${esc(t.response)}</span><p>${esc(commentResponse(c))}</p></div>${snippetHtml(c)}${replies}<div class="review-loop-actions">${resolve}</div></li>`;
+  #|  const bindReplyForms = (root) => {
+  #|    root.querySelectorAll(".review-loop-reply-form").forEach(form => {
+  #|      const editor = form.querySelector("textarea, input[type='text']");
+  #|      const picker = form.querySelector("input[type='file']");
+  #|      const preview = form.querySelector(".review-loop-reply-preview");
+  #|      let image = "";
+  #|      let submitting = false;
+  #|      const renderPreview = () => {
+  #|        if (!preview) return;
+  #|        preview.innerHTML = image ? `<div><img src="${esc(image)}" alt="${esc(t.attachedImage)}" /><button type="button" class="review-loop-reply-remove">${esc(t.removeImage)}</button></div>` : "";
+  #|        preview.querySelector(".review-loop-reply-remove")?.addEventListener("click", () => {
+  #|          image = "";
+  #|          if (picker) picker.value = "";
+  #|          renderPreview();
+  #|        });
+  #|      };
+  #|      const readImage = (file) => {
+  #|        if (!file || !String(file.type || "").startsWith("image/")) return;
+  #|        const reader = new FileReader();
+  #|        reader.onload = () => {
+  #|          image = String(reader.result || "");
+  #|          renderPreview();
+  #|        };
+  #|        reader.readAsDataURL(file);
+  #|      };
+  #|      picker?.addEventListener("change", () => readImage(picker.files?.[0]));
+  #|      editor?.addEventListener("paste", (event) => {
+  #|        const item = Array.from(event.clipboardData?.items || []).find(entry => String(entry.type || "").startsWith("image/"));
+  #|        if (!item) return;
+  #|        event.preventDefault();
+  #|        readImage(item.getAsFile());
+  #|      });
+  #|      const submitReply = () => {
+  #|        const text = String(editor?.value || "").trim();
+  #|        if (submitting || (!text && !image)) return;
+  #|        submitting = true;
+  #|        fetch(form.getAttribute("data-review-endpoint") || "/reply-comment", {
+  #|          method: "POST",
+  #|          headers: { "Content-Type": "application/json" },
+  #|          body: JSON.stringify({ id: form.getAttribute("data-review-comment-id") || "", text, image, author: "human" })
+  #|        }).then(response => {
+  #|          if (!response.ok) throw new Error(`conversation request failed: ${response.status}`);
+  #|        }).then(() => {
+  #|          if (editor) editor.value = "";
+  #|          if (picker) picker.value = "";
+  #|          image = "";
+  #|          renderPreview();
+  #|        }).catch(() => {}).finally(() => {
+  #|          submitting = false;
+  #|        });
+  #|      };
+  #|      form.addEventListener("submit", (event) => {
+  #|        event.preventDefault();
+  #|        submitReply();
+  #|      });
+  #|      editor?.addEventListener("keydown", (event) => {
+  #|        if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+  #|        event.preventDefault();
+  #|        event.stopPropagation();
+  #|        submitReply();
+  #|      });
+  #|      form.querySelector("button[type='submit']")?.addEventListener("click", (event) => {
+  #|        event.preventDefault();
+  #|        event.stopPropagation();
+  #|        submitReply();
+  #|      });
+  #|    });
   #|  };
-  #|  document.querySelectorAll(".review-loop-inline").forEach(el => el.remove());
-  #|  if (comments.length === 0 && unresolved.length === 0) {
-  #|    panel.innerHTML = `<div class="review-loop-ready">All resolved — enjoy your tea</div>`;
+  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach">${esc(t.attachImage)}<input class="review-loop-reply-file" type="file" accept="image/*" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
+  #|  const reviewLoopCard = (c, includeSnippet, options = {}) => {
+  #|    const replies = Array.isArray(c.replies) ? c.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
+  #|    const threadLine = (r) => {
+  #|      const human = r.author === "human";
+  #|      const className = human ? "review-loop-thread-line is-human" : "review-loop-thread-line is-agent";
+  #|      const attachments = (Array.isArray(r.attachments) ? r.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
+  #|      return `<div class="${className}"><span>${esc(r.author === "human" ? t.you : t.agent)}</span>${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
+  #|    };
+  #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] })]
+  #|      .concat(replies.map(threadLine)).join("");
+  #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
+  #|    const resolveAction = `<div class="review-loop-thread-actions">${resolve}</div>`;
+  #|    const replyForm = c.status === "resolved" ? "" : conversationForm(c.id, "/reply-comment", t.replyPlaceholder, t.reply);
+  #|    const state = c.status === "resolved" ? `<span class="review-loop-status-check" aria-label="${esc(t.resolved)}">✓</span>` : `<span class="review-loop-status-dot" aria-hidden="true"></span>`;
+  #|    const snippet = includeSnippet ? snippetHtml(c) : "";
+  #|    const number = options.number ? `<span class="review-loop-card-number" aria-label="${esc(String(options.number))}">${esc(String(options.number))}</span>` : state;
+  #|    const file = options.fileLabel || `${baseName(c.file)}:${c.line}`;
+  #|    const title = `${c.file || ""}:${c.line || ""}`;
+  #|    const classes = `review-loop-comment${options.sidebar ? " review-loop-sidebar-card" : ""}${c.status === "resolved" ? " is-resolved" : ""}`;
+  #|    return `<li class="${classes}" data-review-comment-id="${esc(c.id)}"><div class="review-loop-comment-head">${number}<strong title="${esc(title)}">${esc(file)}</strong></div>${snippet}<div class="review-loop-thread">${thread}</div>${resolveAction}${replyForm}</li>`;
+  #|  };
+  #|  // Anchors are often inline (an image lives in span.yunomi-media-comment-host
+  #|  // inside a <p>). Dropping a <div> there nests a block inside a <p>, which is
+  #|  // invalid HTML, so climb to the nearest block-level ancestor first.
+  #|  const insertionAnchor = (el) => {
+  #|    let cur = el;
+  #|    while (cur && cur.parentElement && cur.parentElement.id !== "md-preview" && !cur.parentElement.classList.contains("review-loop-inline")) {
+  #|      const display = getComputedStyle(cur).display;
+  #|      if (display !== "inline" && display !== "inline-block" && display !== "inline-flex") break;
+  #|      cur = cur.parentElement;
+  #|    }
+  #|    return cur;
+  #|  };
+  #|  const insertInline = (rawTarget, comment) => {
+  #|    const target = rawTarget.closest?.("tr") ? rawTarget : insertionAnchor(rawTarget);
+  #|    const inline = document.createElement("div");
+  #|    inline.className = "review-loop-inline";
+  #|    inline.tabIndex = -1;
+  #|    inline.dataset.reviewCommentId = String(comment.id || "");
+  #|    inline.innerHTML = `<ol class="review-loop-list">${reviewLoopCard(comment, false)}</ol>`;
+  #|    if (target.closest?.("tr")) {
+  #|      const row = target.closest("tr");
+  #|      const holder = document.createElement("tr");
+  #|      holder.className = "review-loop-inline-row";
+  #|      holder.dataset.reviewCommentId = String(comment.id || "");
+  #|      holder.innerHTML = `<td colspan="${Math.max(1, row.children.length)}"></td>`;
+  #|      holder.firstElementChild.appendChild(inline);
+  #|      row.insertAdjacentElement("afterend", holder);
+  #|    } else if (target.closest?.("li")?.parentElement?.matches("ul,ol")) {
+  #|      const item = target.closest("li");
+  #|      const holder = document.createElement("li");
+  #|      holder.className = "review-loop-inline-item";
+  #|      holder.dataset.reviewCommentId = String(comment.id || "");
+  #|      if (item.parentElement.tagName === "OL") {
+  #|        const sourceItems = Array.from(item.parentElement.children).filter(child => child.matches?.("li[data-source-line]"));
+  #|        holder.value = item.parentElement.start + sourceItems.indexOf(item);
+  #|      }
+  #|      holder.appendChild(inline);
+  #|      item.insertAdjacentElement("afterend", holder);
+  #|    } else {
+  #|      const headingContent = target.matches?.("h1.md-heading-toggle,h2.md-heading-toggle,h3.md-heading-toggle,h4.md-heading-toggle,h5.md-heading-toggle,h6.md-heading-toggle")
+  #|        ? target.closest("details.heading-toggle")?.querySelector(":scope > .toggle-content")
+  #|        : null;
+  #|      if (headingContent) headingContent.insertAdjacentElement("afterbegin", inline);
+  #|      else target.insertAdjacentElement("afterend", inline);
+  #|    }
+  #|    bindResolveButtons(inline);
+  #|    bindReplyForms(inline);
+  #|  };
+  #|  document.querySelectorAll(".review-loop-inline, .review-loop-inline-row, .review-loop-inline-item").forEach(el => el.remove());
+  #|  if (comments.length === 0) {
+  #|    clearPanel();
   #|    return gateUnresolved;
   #|  }
-  #|  const commentHtml = comments.map(c => reviewLoopCard(c, false)).join("");
+  #|  const resolved = actionableComments.filter(c => c.status === "resolved");
+  #|  unresolved.forEach(c => {
+  #|    const target = inlineTargetFor(c);
+  #|    if (target) insertInline(target, c);
+  #|  });
   #|  const diffHtml = diffLines.length
   #|    ? diffLines.slice(0, 120).map(l => {
   #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
@@ -918,14 +1090,47 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const newNo = l.kind === "addition" ? esc(l.line) : "";
   #|        return `<div class="${klass}"><span class="line-num">${oldNo}</span><span class="line-num">${newNo}</span><span class="line-content">${esc(l.text)}</span></div>`;
   #|      }).join("")
-  #|    : `<div class="history-empty">No changes since previous submitted round</div>`;
-  #|  const fromRound = Math.max(1, Number(round.round || 1) - 1);
-  #|  const file = esc((review.files || [])[0] || "REPORT.md");
-  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">All resolved — enjoy your tea</div>` : "";
-  #|  const previousSubmittedRound = rounds.slice(0, -1).reverse().find(r => String(r.summary || "").trim().length > 0);
-  #|  const roundSummary = String(round.summary || previousSubmittedRound?.summary || "").trim() || t.noSummary;
-  #|  panel.innerHTML = `<details class="review-loop-details" open><summary class="review-loop-header"><span class="review-loop-header-main"><span class="arrow">▸</span><span>${esc(t.header(round.round || 1))}</span></span><span class="review-loop-badge">${unresolved.length}</span></summary><div class="review-loop-meta">${esc(t.meta(unresolved.length))}</div><section class="review-loop-context"><div><span>${esc(t.reason)}</span><p>${esc(roundSummary)}</p></div><div><span>${esc(t.guide)}</span><p>${esc(t.guideText)}</p></div></section>${status}<div class="review-loop-body"><ol class="review-loop-list">${commentHtml}</ol><details class="review-loop-diff-block"><summary class="review-loop-diff-label">${esc(t.diffLabel(fromRound))}</summary><pre class="review-loop-diff">${diffHtml}</pre></details></div></details>`;
+  #|    : "";
+  #|  const activeRoundThread = roundThreads[roundThreads.length - 1];
+  #|  const summaryHtml = activeRoundThread ? (() => {
+  #|    const replies = Array.isArray(activeRoundThread.replies) ? activeRoundThread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
+  #|    const messages = [{ author: "human", text: activeRoundThread.text, attachments: activeRoundThread.attachments || [] }].concat(replies).map(message => {
+  #|      const human = message.author === "human";
+  #|      const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
+  #|      return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}"><strong>${esc(human ? t.you : t.agent)}</strong>${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
+  #|    }).join("");
+  #|    const replyForm = conversationForm(activeRoundThread.id, "/reply-comment", t.replyPlaceholder, t.reply);
+  #|    return `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread.id)}"><div class="review-loop-conversation-stream">${messages}</div>${replyForm}</section>`;
+  #|  })() : "";
+  #|  const createGlobalHtml = !activeRoundThread
+  #|    ? `<section class="review-loop-new-global"><strong>${esc(t.newGlobalComment)}</strong>${conversationForm("", "/create-global-comment", t.newGlobalPlaceholder, t.create)}</section>`
+  #|    : "";
+  #|  const diffSection = diffHtml ? `<details class="review-loop-diff-block"><summary class="review-loop-diff-label">${esc(t.diffLabel)}</summary><pre class="review-loop-diff">${diffHtml}</pre></details>` : "";
+  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
+  #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
+  #|  const collapsed = localStorage.getItem(sidebarStorageKey) === "collapsed"
+  #|    || (mobileQuery.matches && localStorage.getItem(sidebarStorageKey) !== "expanded");
+  #|  panel.classList.toggle("review-loop-sidebar-collapsed", collapsed);
+  #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
+  #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
+  #|  const chatIcon = `<svg class="lucide lucide-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>`;
+  #|  // Global conversation lives in the fixed bottom-right chat; anchored
+  #|  // line comments stay beside the document text and never enter it.
+  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(t.counts(unresolved.length, resolved.length))}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(t.counts(unresolved.length, resolved.length))}">${unresolved.length}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(`${toggleTitle}: ${t.counts(unresolved.length, resolved.length)}`)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}${diffSection}</div></section>`;
   #|  bindResolveButtons(panel);
+  #|  bindReplyForms(panel);
+  #|  const togglePanel = () => {
+  #|    const button = panel.querySelector(".review-loop-sidebar-toggle");
+  #|    const next = !panel.classList.contains("review-loop-sidebar-collapsed");
+  #|    panel.classList.toggle("review-loop-sidebar-collapsed", next);
+  #|    localStorage.setItem(sidebarStorageKey, next ? "collapsed" : "expanded");
+  #|    if (button) {
+  #|      button.innerHTML = next ? chatIcon : "−";
+  #|      button.title = next ? t.expandTitle : t.collapseTitle;
+  #|      button.setAttribute("aria-label", `${button.title}: ${t.counts(unresolved.length, resolved.length)}`);
+  #|    }
+  #|  };
+  #|  panel.querySelector(".review-loop-sidebar-toggle")?.addEventListener("click", togglePanel);
   #|  return gateUnresolved;
   #|}
 
@@ -957,6 +1162,15 @@ extern "js" fn render_inline_saved_comment(
   #|      holder = document.createElement("tr");
   #|      holder.innerHTML = `<td colspan="${Math.max(1, rowEl.children.length)}">${body}</td>`;
   #|      rowEl.insertAdjacentElement("afterend", holder);
+  #|    } else if (target.closest?.("li[data-source-line]")?.parentElement?.matches("ul,ol")) {
+  #|      const listItem = target.closest("li[data-source-line]");
+  #|      holder = document.createElement("li");
+  #|      if (listItem.parentElement.tagName === "OL") {
+  #|        const sourceItems = Array.from(listItem.parentElement.children).filter(child => child.matches?.("li[data-source-line]"));
+  #|        holder.value = listItem.parentElement.start + sourceItems.indexOf(listItem);
+  #|      }
+  #|      holder.innerHTML = body;
+  #|      listItem.insertAdjacentElement("afterend", holder);
   #|    } else {
   #|      holder = document.createElement("div");
   #|      holder.innerHTML = body;
@@ -1028,8 +1242,9 @@ extern "js" fn show_inline_comment_editor(
   #|    if (holder.dataset.commentSurface === surface) holder.remove();
   #|  });
   #|  section.dataset.commentSurface = surface;
-  #|  section.innerHTML = `<div class="yunomi-inline-comment-editor-head"><span class="yunomi-inline-comment-label">${label}</span><span id="cell-preview" class="yunomi-inline-comment-context"></span></div><textarea id="comment-input" aria-label="Comment" placeholder="Comment"></textarea><div class="image-attach-area image-attach-small" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="yunomi-inline-comment-actions"><button type="button" class="icon-only" data-action="cancel" title="Cancel" aria-label="Cancel">×</button><button type="button" class="comment-action send-now-btn" id="send-now-comment">${singleLabel}</button><button type="button" class="comment-action primary" id="save-comment">${reviewLabel}</button></div>`;
+  #|  section.innerHTML = `<div class="yunomi-inline-comment-editor-head"><span class="yunomi-inline-comment-label">${label}</span><span id="cell-preview" class="yunomi-inline-comment-context"></span></div><textarea id="comment-input" aria-label="Comment" placeholder="Comment"></textarea><div class="image-attach-area image-attach-small" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="yunomi-inline-comment-actions"><button type="button" class="comment-action send-now-btn" data-action="cancel">Cancel</button><button type="button" class="comment-action send-now-btn" id="send-now-comment">${singleLabel}</button><button type="button" class="comment-action primary" id="save-comment">${reviewLabel}</button></div>`;
   #|  const rowEl = target.closest?.("tr");
+  #|  const listItem = target.closest?.("li[data-source-line]");
   #|  let mount = section;
   #|  if (rowEl) {
   #|    mount = document.createElement("tr");
@@ -1040,6 +1255,16 @@ extern "js" fn show_inline_comment_editor(
   #|    cell.appendChild(section);
   #|    mount.appendChild(cell);
   #|    rowEl.insertAdjacentElement("afterend", mount);
+  #|  } else if (listItem?.parentElement?.matches("ul,ol")) {
+  #|    mount = document.createElement("li");
+  #|    mount.className = "yunomi-inline-comment-editor-mount";
+  #|    mount.dataset.commentKey = String(key || "");
+  #|    if (listItem.parentElement.tagName === "OL") {
+  #|      const sourceItems = Array.from(listItem.parentElement.children).filter(child => child.matches?.("li[data-source-line]"));
+  #|      mount.value = listItem.parentElement.start + sourceItems.indexOf(listItem);
+  #|    }
+  #|    mount.appendChild(section);
+  #|    listItem.insertAdjacentElement("afterend", mount);
   #|  } else {
   #|    const headingContent = target.matches?.("h1.md-heading-toggle,h2.md-heading-toggle,h3.md-heading-toggle,h4.md-heading-toggle,h5.md-heading-toggle,h6.md-heading-toggle")
   #|      ? target.closest("details.heading-toggle")?.querySelector(":scope > .toggle-content")
@@ -1058,7 +1283,6 @@ extern "js" fn show_inline_comment_editor(
   #|  section.querySelector('[data-action="cancel"]')?.addEventListener("click", () => onCancel());
   #|  section.querySelector("#save-comment")?.addEventListener("click", () => onSave());
   #|  section.querySelector("#send-now-comment")?.addEventListener("click", () => onSend());
-  #|  input.focus();
   #|}
 
 ///|
@@ -1593,7 +1817,15 @@ extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|  if (image?.parentElement?.classList.contains("yunomi-media-comment-host")) return image.parentElement;
   #|  const media = el.closest?.("img:not(.timeline-thumb),video.video-preview,.mermaid-container,td,th");
   #|  if (media?.closest?.("[data-source-line],[data-source-start-line]")) return media;
-  #|  return el.closest?.("[data-source-line],[data-source-start-line]");
+  #|  const source = el.closest?.("[data-source-line],[data-source-start-line]");
+  #|  if (source?.matches?.("ul,ol")) {
+  #|    const line = source.getAttribute("data-source-line") || source.getAttribute("data-source-start-line");
+  #|    const item = line
+  #|      ? Array.from(source.children).find(child => child.matches?.(`li[data-source-line="${CSS.escape(line)}"]`))
+  #|      : null;
+  #|    return item || Array.from(source.children).find(child => child.matches?.("li[data-source-line]")) || null;
+  #|  }
+  #|  return source;
   #|}
 
 ///|
@@ -1618,6 +1850,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|  };
   #|  for (const raw of preview.querySelectorAll(selector)) {
   #|    const el = raw.closest(".timeline-thumb-wrapper") || raw;
+  #|    if (el.matches?.("ul,ol")) continue;
   #|    if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
   #|    if (el.matches?.("img.timeline-thumb")) continue;
   #|    if (el.closest?.(".yunomi-comment-button")) continue;
@@ -2003,7 +2236,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|  const state = { index: -1, enabled: localStorage.getItem(storageKey) !== "off" };
   #|  const style = document.createElement("style");
   #|  style.textContent = `
-  #|    .vim-key-selected{outline:2px solid var(--accent)!important;outline-offset:2px!important;background:var(--accent-soft)!important}
+  #|    .vim-key-selected{outline:none!important;background:var(--selected-bg,rgba(47,129,247,.22))!important}
   #|    .vim-key-help{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.28)}
   #|    .vim-key-help.hidden{display:none}
   #|    .vim-key-help-dialog{width:min(420px,calc(100vw - 32px));background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow-lg);padding:18px}
@@ -2082,7 +2315,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    if (!overlay) {
   #|      overlay = document.createElement("div");
   #|      overlay.className = "vim-key-help hidden";
-  #|      overlay.innerHTML = `<div class="vim-key-help-dialog" role="dialog" aria-modal="true"><h2>Keyboard review</h2><p><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>c</kbd> comment · <kbd>n</kbd>/<kbd>N</kbd> comments · <kbd>r</kbd> resolve · <kbd>⌘↵</kbd> submit</p><p>Current: <strong data-vim-state></strong></p><button type="button" data-vim-toggle></button></div>`;
+  #|      overlay.innerHTML = `<div class="vim-key-help-dialog" role="dialog" aria-modal="true"><h2>Keyboard review</h2><p><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>c</kbd> comment · <kbd>n</kbd>/<kbd>N</kbd> comments · <kbd>r</kbd> resolve</p><p>Current: <strong data-vim-state></strong></p><button type="button" data-vim-toggle></button></div>`;
   #|      document.body.appendChild(overlay);
   #|      overlay.addEventListener("click", (event) => { if (event.target === overlay) overlay.classList.add("hidden"); });
   #|      overlay.querySelector("[data-vim-toggle]").addEventListener("click", () => {
@@ -2102,6 +2335,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    const selected = document.querySelector(".vim-key-selected") || select(Math.max(0, state.index));
   #|    if (!selected) return false;
   #|    selected.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  #|    document.querySelector(".yunomi-inline-comment-editor #comment-input")?.focus();
   #|    return true;
   #|  };
   #|  const jumpComment = (delta) => {
@@ -2126,17 +2360,6 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    if ((event.key === "?" || event.key === "？") && !typing && !modalOpen && !composing) {
   #|      event.preventDefault();
   #|      showHelp();
-  #|      return;
-  #|    }
-  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !typing && !composing) {
-  #|      event.preventDefault();
-  #|      const modal = document.querySelector("#submit-modal.visible");
-  #|      if (!modal) {
-  #|        const submit = document.querySelector("#send-and-exit");
-  #|        if (submit && visible(submit)) {
-  #|          submit.click();
-  #|        }
-  #|      }
   #|      return;
   #|    }
   #|    const navKey = event.key === "n" || event.key === "N" || event.key === "r";
