@@ -12,7 +12,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { chromium } from "playwright";
 
 const PORT = 5923;
@@ -21,6 +21,8 @@ const SERVER_JS = new URL(
   import.meta.url,
 ).pathname;
 const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-tab-lifecycle-"));
+const NOTIFY_LOG = join(WORK_DIR, "notify.log");
+const NOTIFY_SCRIPT = join(WORK_DIR, "notify-capture.mjs");
 
 let failed = 0;
 
@@ -34,11 +36,20 @@ function assert(condition: boolean, msg: string, detail?: unknown): void {
   }
 }
 
-function startServer(file: string): Promise<ChildProcess> {
+function startServer(file: string, loop = false): Promise<ChildProcess> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("node", [SERVER_JS, file, "--no-open", "--port", String(PORT)], {
+    const args = [SERVER_JS, file, "--no-open", "--port", String(PORT)];
+    if (loop) args.push("--loop", "--notify-pane", "p_test");
+    const proc = spawn("node", args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, HERDR_PANE_ID: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: join(WORK_DIR, "locks"), YUNOMI_REVIEW_DIR: join(WORK_DIR, "reviews-" + Date.now()) },
+      env: {
+        ...process.env,
+        HERDR_PANE_ID: "",
+        YUNOMI_NOTIFY_CMD: loop ? `${process.execPath} ${NOTIFY_SCRIPT} {msg}` : "",
+        NOTIFY_LOG,
+        YUNOMI_LOCK_DIR: join(WORK_DIR, "locks"),
+        YUNOMI_REVIEW_DIR: join(WORK_DIR, "reviews-" + Date.now()),
+      },
     });
     let out = "";
     const onData = (d: Buffer) => {
@@ -49,6 +60,16 @@ function startServer(file: string): Promise<ChildProcess> {
     proc.stderr.on("data", onData);
     setTimeout(() => reject(new Error(`server did not start:\n${out}`)), 10000);
   });
+}
+
+async function waitForNotification(pattern: RegExp): Promise<string> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    const notifications = readFileSync(NOTIFY_LOG, "utf8");
+    if (pattern.test(notifications)) return notifications;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`notification timeout: ${pattern}\n${readFileSync(NOTIFY_LOG, "utf8")}`);
 }
 
 function stop(proc: ChildProcess): Promise<void> {
@@ -63,6 +84,11 @@ const docA = join(WORK_DIR, "a.md");
 const docB = join(WORK_DIR, "b.md");
 writeFileSync(docA, "# Session Alpha\n\nfirst body\n");
 writeFileSync(docB, "# Session Beta\n\nsecond body\n");
+writeFileSync(
+  NOTIFY_SCRIPT,
+  "import { appendFileSync } from 'node:fs'; appendFileSync(process.env.NOTIFY_LOG, process.argv[2] + '\\n');\n",
+);
+writeFileSync(NOTIFY_LOG, "");
 
 const browser = await chromium.launch();
 try {
@@ -113,6 +139,50 @@ try {
     });
   }
   await stop(b);
+
+  // --- 3. request_changes retires the tab and emits one close notification ---
+  writeFileSync(NOTIFY_LOG, "");
+  const loop = await startServer(docB, true);
+  const requestChanges = await browser.newPage();
+  await requestChanges.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await requestChanges.waitForTimeout(100);
+  await requestChanges.locator("#send-and-exit").click();
+  await requestChanges.waitForSelector("#submit-modal.visible");
+  const composing = await requestChanges.locator("#global-comment").evaluate((input) => {
+    const event = new KeyboardEvent("keydown", {
+      key: "Enter",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+      isComposing: true,
+    });
+    input.dispatchEvent(event);
+    return {
+      prevented: event.defaultPrevented,
+      modalVisible: document.querySelector("#submit-modal")?.classList.contains("visible") || false,
+    };
+  });
+  assert(
+    !composing.prevented && composing.modalVisible,
+    "IME変換中のCtrl+EnterはRequest Changesを送らずSubmitモーダルを維持する",
+    composing,
+  );
+  await requestChanges
+    .locator("#global-comment")
+    .press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+  await waitForNotification(/\[yunomi\] verdict b\.md decision=request_changes/);
+  const retiredAfterRequestChanges = await requestChanges
+    .waitForFunction(() => location.href === "about:blank", undefined, { timeout: 5000 })
+    .then(() => true)
+    .catch(() => false);
+  const notifications = await waitForNotification(/\[yunomi\] tab closed b\.md tab=.* active=0/);
+  const closeCount = (notifications.match(/\[yunomi\] tab closed b\.md/g) || []).length;
+  assert(
+    retiredAfterRequestChanges && closeCount === 1,
+    "Request Changes後に退役した実タブは閉じる通知を1回だけ送る",
+    { retiredAfterRequestChanges, closeCount },
+  );
+  await stop(loop);
 } finally {
   await browser.close();
   rmSync(WORK_DIR, { recursive: true, force: true });

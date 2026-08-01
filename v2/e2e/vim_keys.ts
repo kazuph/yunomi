@@ -164,6 +164,30 @@ try {
       assert(await page.locator("#comment-input").inputValue() === "?", "? is inserted into the comment input");
       assert(await page.locator(".vim-key-help:not(.hidden)").count() === 0, "? does not open keyboard help while typing");
       await page.locator("#comment-input").fill("keyboard comment");
+      const composingComment = await page.locator("#comment-input").evaluate((input) => {
+        const event = new KeyboardEvent("keydown", {
+          key: "Enter",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+          isComposing: true,
+        });
+        input.dispatchEvent(event);
+        return {
+          value: (input as HTMLTextAreaElement).value,
+          prevented: event.defaultPrevented,
+          editorVisible: !!input.closest<HTMLElement>(".yunomi-inline-comment-editor")?.offsetParent,
+          submitModalVisible: document.querySelector("#submit-modal")?.classList.contains("visible") || false,
+        };
+      });
+      assert(
+        composingComment.value === "keyboard comment" &&
+          !composingComment.prevented &&
+          composingComment.editorVisible &&
+          !composingComment.submitModalVisible,
+        "IME変換中のCtrl+Enterはコメントを保存せず入力を維持する",
+        composingComment,
+      );
       await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
       assert(await page.locator("#comment-list li[data-key='0:0']").count() === 1, "Cmd/Ctrl+Enter saves an open keyboard comment");
@@ -203,11 +227,13 @@ try {
       assert(review.comments[0]?.status === "resolved", "r resolves the focused review-loop comment");
 
       await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-      await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-      assert(
-        await page.locator("#submit-modal.visible").count() === 0,
-        "Cmd/Ctrl+Enter outside a comment editor never opens Submit",
-      );
+      for (const shortcut of ["Meta+Enter", "Control+Enter"]) {
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.keyboard.press(shortcut);
+        await page.waitForSelector("#submit-modal.visible");
+        assert(true, `${shortcut} opens Submit from the review surface`);
+        await page.keyboard.press("Escape");
+      }
 
       await page.keyboard.press("?");
       await page.waitForSelector(".vim-key-help:not(.hidden)");

@@ -494,7 +494,7 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|    const data = JSON.parse(json);
   #|    const comments = data.comments;
   #|    if (!comments || typeof comments !== "object") return [];
-  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false)]);
+  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false), String(v.surface || "preview")]);
   #|  } catch(e) { return []; }
   #|}
 
@@ -543,7 +543,7 @@ extern "js" fn parse_stored_active_comment(json : String) -> Array[String] =
   #|  try {
   #|    const ui = JSON.parse(json).ui || {};
   #|    if (!ui.comment_open || !ui.active_key) return [];
-  #|    return [String(ui.active_key), String(ui.active_row || 0), String(ui.active_col || 0)];
+  #|    return [String(ui.active_key), String(ui.active_row || 0), String(ui.active_col || 0), String(ui.active_surface || "preview")];
   #|  } catch (e) { return []; }
   #|}
 
@@ -560,8 +560,9 @@ extern "js" fn resolve_restored_comment_target(
   key : String,
   row : Int,
   col : Int,
+  surface : String,
 ) -> Element =
-  #|(key, row, col) => {
+  #|(key, row, col, surface) => {
   #|  const visible = (element) => {
   #|    if (!element) return false;
   #|    if (element.closest?.("details:not([open])") && !element.closest?.("summary")) return false;
@@ -569,6 +570,11 @@ extern "js" fn resolve_restored_comment_target(
   #|    const rect = element.getBoundingClientRect();
   #|    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   #|  };
+  #|  const sourceSelector = `td[data-row="${row}"][data-col="${col > 0 ? col : 1}"]:not(#md-preview *),.text-line[data-row="${row}"],.diff-line[data-row="${row}"]`;
+  #|  if (surface === "source") {
+  #|    const source = document.querySelector(sourceSelector);
+  #|    return visible(source) ? source : null;
+  #|  }
   #|  if (col > 0) {
   #|    const cell = document.querySelector(`#md-preview [data-row="${row}"][data-col="${col}"]`);
   #|    if (visible(cell)) return cell;
@@ -581,9 +587,36 @@ extern "js" fn resolve_restored_comment_target(
   #|      || candidates.map((element) => element.querySelector?.(anchorTag)).find(visible)
   #|    : candidates[candidates.length - 1];
   #|  if (preview) return preview;
-  #|  const source = document.querySelector(`td[data-row="${row}"][data-col="1"]:not(#md-preview *),.text-line[data-row="${row}"],.diff-line[data-row="${row}"]`);
-  #|  return visible(source) ? source : null;
+  #|  return null;
   #|}
+
+///|
+extern "js" fn inline_comment_insertion_target(target : Element) -> Element =
+  #|(target) => {
+  #|  if (!target) return null;
+  #|  const cell = target.closest?.("td,th");
+  #|  if (cell) return cell;
+  #|  const mediaHost = target.closest?.(".yunomi-media-comment-host");
+  #|  if (mediaHost) return mediaHost.closest("p,figure,li,blockquote,pre,details") || mediaHost.parentElement;
+  #|  let current = target;
+  #|  while (current && current.parentElement && current.parentElement.id !== "md-preview") {
+  #|    const parentRequiresPhrasingContent = current.parentElement.matches?.("p,h1,h2,h3,h4,h5,h6");
+  #|    const parentDisplay = getComputedStyle(current.parentElement).display;
+  #|    const display = getComputedStyle(current).display;
+  #|    if (
+  #|      !parentRequiresPhrasingContent
+  #|      &&
+  #|      display !== "inline" && display !== "inline-block" && display !== "inline-flex"
+  #|      && parentDisplay !== "inline" && parentDisplay !== "inline-block" && parentDisplay !== "inline-flex"
+  #|    ) break;
+  #|    current = current.parentElement;
+  #|  }
+  #|  return current;
+  #|}
+
+///|
+extern "js" fn inline_comment_surface(target : Element) -> String =
+  #|(target) => target?.closest?.("#md-preview") ? "preview" : "source"
 
 ///|
 /// Check if stored comments JSON has expired (TTL: 3 hours)
@@ -762,31 +795,31 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|  const round = rounds[rounds.length - 1] || {};
-  #|  if (round.decision === "approve") {
-  #|    clearPanel();
-  #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
-  #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
-  #|    return 0;
-  #|  }
+  #|  // The latest round is the highest round number, never the last array
+  #|  // slot: a stale ordering once surfaced a 20-day-old approve as current.
+  #|  const round = rounds.reduce(
+  #|    (a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a),
+  #|    rounds[0] || {},
+  #|  );
+  #|  // The conversation is independent of the verdict and of whether any
+  #|  // comment exists yet — an approved or untouched review still shows it,
+  #|  // so the reviewer always has somewhere to start talking.
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
-  #|  if (comments.length === 0 && rounds.length <= 1) {
-  #|    clearPanel();
-  #|    window.__YUNOMI_REVIEW_LOOP_STATUS__ = "";
-  #|    window.__YUNOMI_REVIEW_LOOP_GATE__ = 0;
-  #|    return 0;
-  #|  }
   #|  const currentRound = Number(round.round || 1);
   #|  const actionableComments = comments.filter(c => c.scope !== "round");
   #|  const roundThreads = comments.filter(c => c.scope === "round");
   #|  const unresolved = actionableComments.filter(c => c.status !== "resolved");
+  #|  // Only line comments can be resolved, so only they are counted. When there
+  #|  // are none the count is omitted entirely: printing "0 open · 0 resolved"
+  #|  // above a visible conversation reads as if the conversation did not exist.
+  #|  const countable = actionableComments.length > 0;
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const ja = /^ja\b/i.test(navigator.language || "");
   #|  const t = ja ? {
-  #|    header: "コメント",
+  #|    header: "レビューコメント",
   #|    counts: (open, resolved) => `未解決 ${open} ・ 解決済み ${resolved}`,
   #|    you: "あなた",
   #|    agent: "AI",
@@ -807,7 +840,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    attachedImage: "添付画像",
   #|    notInDocument: "本文内に表示できません",
   #|  } : {
-  #|    header: "Comments",
+  #|    header: "Review comments",
   #|    counts: (open, resolved) => `${open} open · ${resolved} resolved`,
   #|    you: "you",
   #|    agent: "agent",
@@ -833,14 +866,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const lineText = (line) => String((line && line.text) || "");
   #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
   #|  const quoteFor = (c) => {
-  #|    const source = String(c.quote || c.value || "").trim();
+  #|    const raw = String(c.quote || c.value || "").trim();
+  #|    const marker = " | source: ";
+  #|    const source = raw.includes(marker) ? raw.slice(raw.indexOf(marker) + marker.length) : raw;
   #|    if (source) return source.split(/\r?\n/, 1)[0];
   #|    const snippetLines = String(c.anchor?.snippet || "").split(/\r?\n/);
   #|    if (snippetLines.length) return String(snippetLines[Math.floor(snippetLines.length / 2)] || "").trim();
   #|    const element = String(c.element_text || "");
   #|    const sourceMarker = " | source: ";
-  #|    const marker = element.indexOf(sourceMarker);
-  #|    return String(marker >= 0 ? element.slice(marker + sourceMarker.length) : element).split(/\r?\n/, 1)[0].trim();
+  #|    const sourceIndex = element.indexOf(sourceMarker);
+  #|    return String(sourceIndex >= 0 ? element.slice(sourceIndex + sourceMarker.length) : element).split(/\r?\n/, 1)[0].trim();
   #|  };
   #|  const matchCommentDiff = (c) => {
   #|    const anchor = c.anchor || {};
@@ -870,15 +905,45 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    return `<div class="review-loop-snippet">${quote}${after}</div>`;
   #|  };
   #|  const inlineTargetFor = (c) => {
+  #|    if (c.unanchored) return null;
   #|    const file = String(c.file || "");
   #|    const snippet = norm(quoteFor(c));
-  #|    const candidates = [];
   #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
   #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) return false;
   #|      const rect = el.getBoundingClientRect();
   #|      const style = getComputedStyle(el);
   #|      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
   #|    });
+  #|    const mostSpecific = (items) => {
+  #|      const candidates = visibleCandidates(items);
+  #|      return candidates.filter(candidate => !candidates.some(other => other !== candidate && candidate.contains(other))).at(-1) || null;
+  #|    };
+  #|    const row = Number(c.row ?? ((Number(c.line || 1) || 1) - 1));
+  #|    const col = Number(c.col || 0);
+  #|    const isTableComment = col > 0 && /^Markdown table cell\b/.test(String(c.value || c.element_text || ""));
+  #|    if (row >= 0) {
+  #|      if (isTableComment) {
+  #|        return mostSpecific(document.querySelectorAll(`#md-preview [data-row="${row}"][data-col="${col}"]`));
+  #|      }
+  #|      const selectors = [
+  #|        `#md-preview [data-source-line="${row + 1}"]`,
+  #|        `#md-preview [data-source-start-line="${row + 1}"]`,
+  #|        `#md-preview [data-row="${row}"]`,
+  #|      ];
+  #|      for (const selector of selectors) {
+  #|        const target = mostSpecific(document.querySelectorAll(selector));
+  #|        if (target) return target;
+  #|      }
+  #|      if (col === 0) {
+  #|        const target = mostSpecific(Array.from(document.querySelectorAll("#md-preview [data-source-start-line][data-source-end-line]")).filter(element => {
+  #|          const start = Number(element.getAttribute("data-source-start-line"));
+  #|          const end = Number(element.getAttribute("data-source-end-line"));
+  #|          return Number.isFinite(start) && Number.isFinite(end) && start <= row + 1 && row + 1 <= end;
+  #|        }));
+  #|        if (target) return target;
+  #|      }
+  #|    }
+  #|    const candidates = [];
   #|    if (file) candidates.push(...visibleCandidates(document.querySelectorAll(`.diff-line[data-file="${CSS.escape(file)}"]`)));
   #|    candidates.push(...visibleCandidates(document.querySelectorAll(".diff-line")));
   #|    if (snippet) {
@@ -906,19 +971,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(child.textContent || "").includes(snippet)) : null;
   #|          return listItem || el;
   #|        }
-  #|      }
-  #|    }
-  #|    const line = Number(c.line || 0);
-  #|    if (line > 0) {
-  #|      const selectors = [
-  #|        `[data-row="${line}"][data-col="${c.col || 0}"]`,
-  #|        `[data-row="${line}"]`,
-  #|        `[data-source-line="${line}"]`,
-  #|        `[data-source-start-line="${line}"]`,
-  #|      ];
-  #|      for (const selector of selectors) {
-  #|        const target = visibleCandidates(document.querySelectorAll(selector))[0];
-  #|        if (target) return target;
   #|      }
   #|    }
   #|    return null;
@@ -991,7 +1043,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        submitReply();
   #|      });
   #|      editor?.addEventListener("keydown", (event) => {
-  #|        if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey)) return;
+  #|        if (event.key !== "Enter" || (!event.metaKey && !event.ctrlKey) || event.isComposing || event.keyCode === 229) return;
   #|        event.preventDefault();
   #|        event.stopPropagation();
   #|        submitReply();
@@ -1031,27 +1083,42 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const insertionAnchor = (el) => {
   #|    let cur = el;
   #|    while (cur && cur.parentElement && cur.parentElement.id !== "md-preview" && !cur.parentElement.classList.contains("review-loop-inline")) {
+  #|      const parentRequiresPhrasingContent = cur.parentElement.matches?.("p,h1,h2,h3,h4,h5,h6");
+  #|      const parentDisplay = getComputedStyle(cur.parentElement).display;
   #|      const display = getComputedStyle(cur).display;
-  #|      if (display !== "inline" && display !== "inline-block" && display !== "inline-flex") break;
+  #|      if (
+  #|        !parentRequiresPhrasingContent
+  #|        && display !== "inline" && display !== "inline-block" && display !== "inline-flex"
+  #|        && parentDisplay !== "inline" && parentDisplay !== "inline-block" && parentDisplay !== "inline-flex"
+  #|      ) break;
   #|      cur = cur.parentElement;
   #|    }
   #|    return cur;
   #|  };
+  #|  const lastInlineByAnchor = new Map();
+  #|  const insertAfter = (anchor, inline) => {
+  #|    const previous = lastInlineByAnchor.get(anchor);
+  #|    (previous?.isConnected ? previous : anchor).insertAdjacentElement("afterend", inline);
+  #|    lastInlineByAnchor.set(anchor, inline);
+  #|  };
   #|  const insertInline = (rawTarget, comment) => {
+  #|    const tableCell = rawTarget.closest?.("td,th");
   #|    const target = rawTarget.closest?.("tr") ? rawTarget : insertionAnchor(rawTarget);
   #|    const inline = document.createElement("div");
   #|    inline.className = "review-loop-inline";
   #|    inline.tabIndex = -1;
   #|    inline.dataset.reviewCommentId = String(comment.id || "");
   #|    inline.innerHTML = `<ol class="review-loop-list">${reviewLoopCard(comment, false)}</ol>`;
-  #|    if (target.closest?.("tr")) {
+  #|    if (tableCell && Number(comment.col || 0) > 0) {
+  #|      tableCell.appendChild(inline);
+  #|    } else if (target.closest?.("tr")) {
   #|      const row = target.closest("tr");
   #|      const holder = document.createElement("tr");
   #|      holder.className = "review-loop-inline-row";
   #|      holder.dataset.reviewCommentId = String(comment.id || "");
   #|      holder.innerHTML = `<td colspan="${Math.max(1, row.children.length)}"></td>`;
   #|      holder.firstElementChild.appendChild(inline);
-  #|      row.insertAdjacentElement("afterend", holder);
+  #|      insertAfter(row, holder);
   #|    } else if (target.closest?.("li")?.parentElement?.matches("ul,ol")) {
   #|      const item = target.closest("li");
   #|      const holder = document.createElement("li");
@@ -1062,27 +1129,31 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        holder.value = item.parentElement.start + sourceItems.indexOf(item);
   #|      }
   #|      holder.appendChild(inline);
-  #|      item.insertAdjacentElement("afterend", holder);
+  #|      insertAfter(item, holder);
   #|    } else {
   #|      const headingContent = target.matches?.("h1.md-heading-toggle,h2.md-heading-toggle,h3.md-heading-toggle,h4.md-heading-toggle,h5.md-heading-toggle,h6.md-heading-toggle")
   #|        ? target.closest("details.heading-toggle")?.querySelector(":scope > .toggle-content")
   #|        : null;
-  #|      if (headingContent) headingContent.insertAdjacentElement("afterbegin", inline);
-  #|      else target.insertAdjacentElement("afterend", inline);
+  #|      if (headingContent) headingContent.appendChild(inline);
+  #|      else insertAfter(target, inline);
   #|    }
   #|    bindResolveButtons(inline);
   #|    bindReplyForms(inline);
   #|  };
   #|  document.querySelectorAll(".review-loop-inline, .review-loop-inline-row, .review-loop-inline-item").forEach(el => el.remove());
-  #|  if (comments.length === 0) {
-  #|    clearPanel();
-  #|    return gateUnresolved;
-  #|  }
+  #|  // An empty conversation still renders: the panel doubles as the entry
+  #|  // point for starting the first thread, so it must not disappear here.
   #|  const resolved = actionableComments.filter(c => c.status === "resolved");
-  #|  unresolved.forEach(c => {
-  #|    const target = inlineTargetFor(c);
-  #|    if (target) insertInline(target, c);
+  #|  const placementCandidates = unresolved.map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
+  #|  const placements = placementCandidates.filter(placement => placement.target);
+  #|  placements.sort((a, b) => {
+  #|    if (a.target === b.target) return a.order - b.order;
+  #|    const position = a.target.compareDocumentPosition(b.target);
+  #|    if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+  #|    if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+  #|    return a.order - b.order;
   #|  });
+  #|  placements.forEach(placement => insertInline(placement.target, placement.comment));
   #|  const diffHtml = diffLines.length
   #|    ? diffLines.slice(0, 120).map(l => {
   #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
@@ -1092,6 +1163,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      }).join("")
   #|    : "";
   #|  const activeRoundThread = roundThreads[roundThreads.length - 1];
+  #|  const unanchoredHtml = placementCandidates.filter(placement => !placement.target).map(placement => reviewLoopCard(placement.comment, false, { sidebar: true })).join("");
+  #|  const unanchoredSection = unanchoredHtml ? `<section class="review-loop-unanchored"><strong>${esc(t.notInDocument)}</strong><ol class="review-loop-list">${unanchoredHtml}</ol></section>` : "";
   #|  const summaryHtml = activeRoundThread ? (() => {
   #|    const replies = Array.isArray(activeRoundThread.replies) ? activeRoundThread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
   #|    const messages = [{ author: "human", text: activeRoundThread.text, attachments: activeRoundThread.attachments || [] }].concat(replies).map(message => {
@@ -1106,17 +1179,26 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    ? `<section class="review-loop-new-global"><strong>${esc(t.newGlobalComment)}</strong>${conversationForm("", "/create-global-comment", t.newGlobalPlaceholder, t.create)}</section>`
   #|    : "";
   #|  const diffSection = diffHtml ? `<details class="review-loop-diff-block"><summary class="review-loop-diff-label">${esc(t.diffLabel)}</summary><pre class="review-loop-diff">${diffHtml}</pre></details>` : "";
-  #|  const status = unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
+  #|  // "All resolved" only makes sense once something existed to resolve;
+  #|  // on an untouched review the panel is a starting point, not a verdict.
+  #|  // "All resolved" belongs to line comments too — with none of them there is
+  #|  // nothing that was ever resolved, so the banner would be a false claim.
+  #|  const status = countable && unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
-  #|  const collapsed = localStorage.getItem(sidebarStorageKey) === "collapsed"
-  #|    || (mobileQuery.matches && localStorage.getItem(sidebarStorageKey) !== "expanded");
+  #|  // With nothing said yet the panel starts as the chat icon: an empty form
+  #|  // is not worth 300px of the document. A stored choice always wins.
+  #|  const storedSidebar = localStorage.getItem(sidebarStorageKey);
+  #|  const collapsed = storedSidebar === "collapsed"
+  #|    || (storedSidebar !== "expanded" && (mobileQuery.matches || comments.length === 0));
   #|  panel.classList.toggle("review-loop-sidebar-collapsed", collapsed);
   #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
   #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
   #|  const chatIcon = `<svg class="lucide lucide-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>`;
   #|  // Global conversation lives in the fixed bottom-right chat; anchored
   #|  // line comments stay beside the document text and never enter it.
-  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(t.counts(unresolved.length, resolved.length))}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(t.counts(unresolved.length, resolved.length))}">${unresolved.length}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(`${toggleTitle}: ${t.counts(unresolved.length, resolved.length)}`)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}${diffSection}</div></section>`;
+  #|  const countsText = countable ? t.counts(unresolved.length, resolved.length) : "";
+  #|  const toggleLabel = countable ? `${toggleTitle}: ${countsText}` : toggleTitle;
+  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(countsText)}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(countsText)}">${countable ? unresolved.length : ""}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleLabel)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}${unanchoredSection}${diffSection}</div></section>`;
   #|  bindResolveButtons(panel);
   #|  bindReplyForms(panel);
   #|  const togglePanel = () => {
@@ -1127,7 +1209,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    if (button) {
   #|      button.innerHTML = next ? chatIcon : "−";
   #|      button.title = next ? t.expandTitle : t.collapseTitle;
-  #|      button.setAttribute("aria-label", `${button.title}: ${t.counts(unresolved.length, resolved.length)}`);
+  #|      button.setAttribute("aria-label", countable ? `${button.title}: ${countsText}` : button.title);
   #|    }
   #|  };
   #|  panel.querySelector(".review-loop-sidebar-toggle")?.addEventListener("click", togglePanel);
@@ -1147,8 +1229,10 @@ extern "js" fn render_inline_saved_comment(
   image : String,
   value : String,
   pending : Bool,
+  target : Element,
+  surface : String,
 ) -> Unit =
-  #|(key, row, col, text, image, value, pending) => {
+  #|(key, row, col, text, image, value, pending, target, surface) => {
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
@@ -1157,11 +1241,11 @@ extern "js" fn render_inline_saved_comment(
   #|  const insert = (target, surface) => {
   #|    if (!target || !target.parentElement) return;
   #|    let holder;
-  #|    if (target.closest?.("tr")) {
-  #|      const rowEl = target.closest("tr");
-  #|      holder = document.createElement("tr");
-  #|      holder.innerHTML = `<td colspan="${Math.max(1, rowEl.children.length)}">${body}</td>`;
-  #|      rowEl.insertAdjacentElement("afterend", holder);
+  #|    const tableCell = target.closest?.("td,th");
+  #|    if (tableCell) {
+  #|      holder = document.createElement("div");
+  #|      holder.innerHTML = body;
+  #|      tableCell.appendChild(holder);
   #|    } else if (target.closest?.("li[data-source-line]")?.parentElement?.matches("ul,ol")) {
   #|      const listItem = target.closest("li[data-source-line]");
   #|      holder = document.createElement("li");
@@ -1186,20 +1270,7 @@ extern "js" fn render_inline_saved_comment(
   #|    holder.dataset.commentCol = String(col);
   #|    holder.dataset.commentSurface = surface;
   #|  };
-  #|  const source = document.querySelector(`td[data-row="${row}"][data-col="1"]:not(#md-preview *)`) || document.querySelector(`.text-line[data-row="${row}"]`) || document.querySelector(`.diff-line[data-row="${row}"]`);
-  #|  let preview = null;
-  #|  if (col > 0) preview = document.querySelector(`#md-preview [data-row="${row}"][data-col="${col}"]`);
-  #|  if (!preview) {
-  #|    const parts = String(key || "").split(":");
-  #|    const anchorTag = parts.length > 2 ? parts[parts.length - 1].toLowerCase() : "";
-  #|    const candidates = Array.from(document.querySelectorAll(`#md-preview [data-source-line="${row + 1}"],#md-preview [data-source-start-line="${row + 1}"]`));
-  #|    preview = anchorTag
-  #|      ? candidates.find((element) => element.tagName.toLowerCase() === anchorTag)
-  #|        || candidates.map((element) => element.querySelector?.(anchorTag)).find(Boolean)
-  #|      : candidates[candidates.length - 1];
-  #|  }
-  #|  insert(preview, "preview");
-  #|  if (source && source !== preview) insert(source, "source");
+  #|  insert(target, surface || "preview");
   #|}
 
 ///|
@@ -1237,24 +1308,21 @@ extern "js" fn show_inline_comment_editor(
   #|  const section = document.createElement("section");
   #|  section.className = "yunomi-inline-comment yunomi-inline-comment-editor is-editing";
   #|  section.dataset.commentKey = String(key || "");
-  #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
   #|  document.querySelectorAll(`.yunomi-inline-comment:not(.yunomi-inline-comment-editor)[data-comment-key="${CSS.escape(String(key || ""))}"]`).forEach(holder => {
-  #|    if (holder.dataset.commentSurface === surface) holder.remove();
+  #|    holder.remove();
   #|  });
+  #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
   #|  section.dataset.commentSurface = surface;
   #|  section.innerHTML = `<div class="yunomi-inline-comment-editor-head"><span class="yunomi-inline-comment-label">${label}</span><span id="cell-preview" class="yunomi-inline-comment-context"></span></div><textarea id="comment-input" aria-label="Comment" placeholder="Comment"></textarea><div class="image-attach-area image-attach-small" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="yunomi-inline-comment-actions"><button type="button" class="comment-action send-now-btn" data-action="cancel">Cancel</button><button type="button" class="comment-action send-now-btn" id="send-now-comment">${singleLabel}</button><button type="button" class="comment-action primary" id="save-comment">${reviewLabel}</button></div>`;
-  #|  const rowEl = target.closest?.("tr");
+  #|  const tableCell = target.closest?.("td,th");
   #|  const listItem = target.closest?.("li[data-source-line]");
   #|  let mount = section;
-  #|  if (rowEl) {
-  #|    mount = document.createElement("tr");
+  #|  if (tableCell) {
+  #|    mount = document.createElement("div");
   #|    mount.className = "yunomi-inline-comment-editor-mount";
   #|    mount.dataset.commentKey = String(key || "");
-  #|    const cell = document.createElement("td");
-  #|    cell.colSpan = Math.max(1, rowEl.children.length);
-  #|    cell.appendChild(section);
-  #|    mount.appendChild(cell);
-  #|    rowEl.insertAdjacentElement("afterend", mount);
+  #|    mount.appendChild(section);
+  #|    tableCell.appendChild(mount);
   #|  } else if (listItem?.parentElement?.matches("ul,ol")) {
   #|    mount = document.createElement("li");
   #|    mount.className = "yunomi-inline-comment-editor-mount";
@@ -1277,7 +1345,7 @@ extern "js" fn show_inline_comment_editor(
   #|  input.value = String(text || "");
   #|  input.addEventListener("input", () => onInput());
   #|  input.addEventListener("keydown", event => {
-  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); event.stopPropagation(); onSave(); }
+  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); onSave(); }
   #|    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onCancel(); }
   #|  });
   #|  section.querySelector('[data-action="cancel"]')?.addEventListener("click", () => onCancel());
@@ -1301,7 +1369,9 @@ extern "js" fn bind_inline_saved_comments(
   #|        : null;
   #|      let anchor = headingDetails?.querySelector(":scope > summary > .md-heading-toggle")
   #|        || holder.previousElementSibling;
-  #|      if (holder.tagName === "TR") {
+  #|      if (holder.parentElement?.matches?.("td,th")) {
+  #|        anchor = holder.parentElement;
+  #|      } else if (holder.tagName === "TR") {
   #|        const col = Number(holder.dataset.commentCol || 0);
   #|        const cells = anchor?.querySelectorAll?.("td,th") || [];
   #|        anchor = col > 0 ? cells[Math.max(0, col - 1)] || cells[0] : cells[0];

@@ -554,9 +554,6 @@ fn build_css() -> String {
     #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
     #|li.yunomi-inline-comment, li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
     #|li.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; }
-    #|.md-layout:has(> #review-loop-panel.review-loop-sidebar:not(.review-loop-sidebar-collapsed):not(:empty)) #md-preview .yunomi-inline-comment-editor {
-    #|  margin-right: calc(var(--review-loop-sidebar-width) + var(--review-loop-sidebar-offset));
-    #|}
     #|.yunomi-inline-comment-editor-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
     #|.yunomi-inline-comment-context { min-width: 0; max-width: 70%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     #|.yunomi-inline-comment-editor textarea {
@@ -569,7 +566,6 @@ fn build_css() -> String {
     #|  background: var(--input-bg);
     #|  color: var(--text);
     #|  padding: 9px 10px;
-    #|  font: inherit;
     #|}
     #|.yunomi-inline-comment-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
     #|.yunomi-inline-comment-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
@@ -805,6 +801,10 @@ fn build_css() -> String {
     #|.preview-highlight + .review-loop-inline-item .review-loop-inline { background: var(--panel); border-color: var(--border); }
     #|.review-loop-inline .review-loop-comment { padding: 0; }
     #|.review-loop-inline .review-loop-comment:last-child { padding-bottom: 0; }
+    #|#md-preview :is(.yunomi-inline-comment, .review-loop-inline) {
+    #|  margin-right: calc(var(--review-loop-sidebar-width) + var(--review-loop-sidebar-offset));
+    #|}
+    #|#md-preview :is(td, th) .yunomi-inline-comment { margin-right: 0; }
     #|.review-loop-inline-highlight { animation: review-loop-inline-highlight 1.2s ease-out; }
     #|@keyframes review-loop-inline-highlight { from { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent); } to { box-shadow: none; border-color: var(--border); } }
     #|.comment-list.collapsed {
@@ -2061,7 +2061,7 @@ fn build_css() -> String {
     #|  .md-layout { flex-direction: column; }
     #|  .md-left { max-width: 100%; flex: 1 1 0; min-height: 0; }
     #|  .md-right { display: none; }
-    #|  .md-layout:has(> #review-loop-panel.review-loop-sidebar:not(.review-loop-sidebar-collapsed):not(:empty)) #md-preview .yunomi-inline-comment-editor { margin-right: 0; }
+    #|  #md-preview :is(.yunomi-inline-comment, .review-loop-inline) { margin-right: 0; }
     #|  #review-loop-panel.review-loop-sidebar {
     #|    inset: auto 12px 12px auto;
     #|    width: calc(100% - 24px);

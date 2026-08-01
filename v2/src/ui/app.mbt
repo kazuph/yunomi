@@ -3,6 +3,7 @@
 struct AppComment {
   row : Int
   col : Int
+  mut surface : String
   mut text : String
   mut image : String
   mut value : String
@@ -153,11 +154,13 @@ fn open_inline_comment_editor(
   active_key.val = key
   selected_comment_row.val = row
   selected_comment_col.val = col
-  selected_comment_el.val = target
+  let insertion_target = inline_comment_insertion_target(target)
+  selected_comment_el.val = insertion_target
   let editor_text = Ref("")
   let comment_value = build_comment_value(target, row, col)
   match comments.get(key) {
     Some(comment) => {
+      comment.surface = inline_comment_surface(insertion_target)
       comment.value = comment_value
       active_original_text.val = comment.text
       active_original_image.val = comment.image
@@ -173,6 +176,7 @@ fn open_inline_comment_editor(
       comments.set(key, {
         row,
         col,
+        surface: inline_comment_surface(insertion_target),
         text: "",
         image: "",
         value: comment_value,
@@ -182,7 +186,7 @@ fn open_inline_comment_editor(
     }
   }
   show_inline_comment_editor(
-    target,
+    insertion_target,
     key,
     row,
     col,
@@ -467,6 +471,24 @@ pub fn init_app() -> Unit {
     on(recovery_discard, "click", fn(_e) { discard_comments() })
   }
   on_doc("keydown", fn(e) {
+    if event_key(e) == "Enter" &&
+      (event_meta_key(e) || event_ctrl_key(e)) {
+      if _event_is_composing(e) {
+        return
+      }
+      let active = get_active_element()
+      let tag = get_tag_name(active)
+      if tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT" {
+        return
+      }
+      let modal = query("#submit-modal")
+      if !is_null(modal) && has_class(modal, "visible") {
+        return
+      }
+      prevent_default(e)
+      show_submit_modal()
+      return
+    }
     if event_key(e) == "Escape" {
       if inline_comment_editor_open() {
         cancel_inline_comment_edit()
@@ -476,6 +498,20 @@ pub fn init_app() -> Unit {
   })
   let global_comment_input = query("#global-comment")
   if !is_null(global_comment_input) {
+    on(global_comment_input, "keydown", fn(e) {
+      let modal = query("#submit-modal")
+      if !is_null(modal) &&
+        has_class(modal, "visible") &&
+        event_key(e) == "Enter" &&
+        (event_meta_key(e) || event_ctrl_key(e)) &&
+        !_event_is_composing(e) {
+        prevent_default(e)
+        stop_propagation(e)
+        pending_decision.val = decision_request_changes
+        pending_action.val = action_final_request_changes
+        submit_review(port)
+      }
+    })
     // Persist the summary/decision draft as the human types it, same as
     // comments — a reload (or the close-abandonment safety net) must never
     // be able to wipe it silently.
@@ -554,6 +590,7 @@ fn load_review_loop_state() -> Unit {
   let url = location_origin() + "/review-state"
   fetch_get(url, fn(data) {
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
+    restore_reload_scroll_state(reload_scroll_key())
   })
 }
 
@@ -694,6 +731,11 @@ fn reload_inflight_key() -> String {
 }
 
 ///|
+fn reload_scroll_key() -> String {
+  "yunomi:reload-scroll:\{get_yunomi_filename()}"
+}
+
+///|
 /// Check for a saved draft (comments, summary, and/or question answers) and
 /// either auto-restore it (if this load follows a reload this app
 /// triggered itself — see reload_inflight_key()) or show the recovery
@@ -754,7 +796,8 @@ fn restore_comments() -> Unit {
         if text.length() > 0 {
           let pending = entry.length() > 5 && entry[5] == "true"
           let sent = entry.length() <= 6 || entry[6] == "true"
-          comments.set(k, { row, col, text, image: "", value, pending, sent })
+          let surface = if entry.length() > 7 { entry[7] } else { "preview" }
+          comments.set(k, { row, col, surface, text, image: "", value, pending, sent })
         }
       }
     }
@@ -792,10 +835,11 @@ fn restore_comments() -> Unit {
         let key = active[0]
         let row = str_to_int(active[1])
         let col = str_to_int(active[2])
+        let surface = if active.length() > 3 { active[3] } else { "preview" }
         ignore(
           set_timeout(
             fn() {
-              let target = resolve_restored_comment_target(key, row, col)
+              let target = resolve_restored_comment_target(key, row, col, surface)
               if !is_null(target) {
                 show_inline_comment(target, key, row, col)
               }
@@ -929,30 +973,15 @@ fn comment_location_label(comment : AppComment) -> String {
 }
 
 ///|
-fn resolve_comment_indicator_target(comment : AppComment) -> Element {
-  if comment.col > 0 {
-    let exact = query(
-      "[data-row=\"\{comment.row}\"][data-col=\"\{comment.col}\"]",
-    )
-    if !is_null(exact) {
-      return exact
-    }
-  }
-  let line_cell = query(
-    "td[data-row=\"\{comment.row}\"][data-col=\"1\"]:not(#md-preview *)",
+fn resolve_comment_indicator_target(key : String, comment : AppComment) -> Element {
+  inline_comment_insertion_target(
+    resolve_restored_comment_target(
+      key,
+      comment.row,
+      comment.col,
+      comment.surface,
+    ),
   )
-  if !is_null(line_cell) {
-    return line_cell
-  }
-  let text_line = query(".text-line[data-row=\"\{comment.row}\"]")
-  if !is_null(text_line) {
-    return text_line
-  }
-  let diff_line = query(".diff-line[data-row=\"\{comment.row}\"]")
-  if !is_null(diff_line) {
-    return diff_line
-  }
-  null_element()
 }
 
 ///|
@@ -964,7 +993,9 @@ fn render_comment_list() -> Unit {
   let buf = StringBuilder::new()
   let mut count = 0
   comments.each(fn(key, comment) {
-    if comment_has_content(comment) {
+    // Sent comments already live in the document as inline threads; listing
+    // them here too would contradict the "drafts" this panel is named after.
+    if comment_has_content(comment) && !comment.sent {
       count = count + 1
       buf.write_string("<li data-key=\"")
       buf.write_string(@core.escape_html(key))
@@ -1007,7 +1038,7 @@ fn render_comment_list() -> Unit {
       let key = get_attr(button, "data-comment-key")
       match comments.get(key) {
         Some(comment) => {
-          let comment_target = resolve_comment_indicator_target(comment)
+          let comment_target = resolve_comment_indicator_target(key, comment)
           if !is_null(comment_target) {
             scroll_into_view(comment_target)
             show_inline_comment(comment_target, key, comment.row, comment.col)
@@ -1070,18 +1101,12 @@ fn send_now_comment() -> Unit {
       close_inline_comment()
       update_comment_indicators()
       persist_draft()
+      // Keep the drafts list up to date, but never pop it open: sending a
+      // comment is not a request to read the draft list, and having it appear
+      // from the top on every send interrupts the review.
       render_comment_list()
-      show_comment_list_panel()
     }
     None => ()
-  }
-}
-
-///|
-fn show_comment_list_panel() -> Unit {
-  let panel = query(".comment-list")
-  if !is_null(panel) {
-    remove_class(panel, "collapsed")
   }
 }
 
@@ -1213,11 +1238,15 @@ fn update_comment_indicators() -> Unit {
     remove_class(el, "has-comment")
   }
   clear_inline_saved_comments()
-  let mut count = 0
+  // A comment that was already sent is not a draft. The pill counts only what
+  // is still unsubmitted, which is what its label and title have always said.
+  let mut draft_count = 0
   comments.each(fn(key, comment) {
     if comment_has_content(comment) {
-      count = count + 1
-      let el = resolve_comment_indicator_target(comment)
+      if !comment.sent {
+        draft_count = draft_count + 1
+      }
+      let el = resolve_comment_indicator_target(key, comment)
       if !is_null(el) {
         add_class(el, "has-comment")
       }
@@ -1229,20 +1258,22 @@ fn update_comment_indicators() -> Unit {
         comment.image,
         comment.value,
         comment.pending,
+        el,
+        comment.surface,
       )
     }
   })
   // Update comment count badge
   let count_el = query("#comment-count")
   if !is_null(count_el) {
-    set_text_content(count_el, count.to_string())
+    set_text_content(count_el, draft_count.to_string())
   }
   let drafts_button = query("#pill-comments")
   if !is_null(drafts_button) {
     set_style(
       drafts_button,
       "display",
-      if count > 0 {
+      if draft_count > 0 {
         "inline-flex"
       } else {
         "none"
@@ -1567,7 +1598,6 @@ fn setup_close_detection(port : Int) -> Unit {
 ///|
 fn submit_review(_port : Int) -> Unit {
   submit_in_flight.val = true
-  close_report_sent.val = true
   let url = location_origin() + "/exit"
   fetch_post(url, build_review_payload(), fn(response) {
     if response.contains("unresolved_comments") {
@@ -1584,6 +1614,9 @@ fn submit_review(_port : Int) -> Unit {
     // the actual tab sees the dialog just sit there and reads it as
     // "Submit didn't work", even though the request succeeded server-side.
     hide_submit_modal()
+    if pending_decision.val == decision_request_changes {
+      submit_in_flight.val = false
+    }
     // A submitted request-for-changes is final for this browser tab too.
     // Loop servers remain alive for `yunomi go`, but the human should not
     // be left staring at a completed review or an inert dialog.
@@ -1766,6 +1799,7 @@ fn apply_live_comment_event(data : String) -> Unit {
           } else {
             existing.col
           },
+          surface: existing.surface,
           text,
           image: existing.image,
           value: existing.value,
@@ -1776,6 +1810,7 @@ fn apply_live_comment_event(data : String) -> Unit {
         comments.set(key, {
           row,
           col,
+          surface: "preview",
           text,
           image: "",
           value: "",
@@ -1796,6 +1831,7 @@ fn setup_sse(_port : Int) -> Unit {
   }
   let es = new_event_source(url)
   sse_on(es, "reload", fn(_e) {
+    save_reload_scroll_state(reload_scroll_key())
     intentional_reload_in_progress.val = true
     // intentional_reload_in_progress is an in-memory flag — it dies with
     // this page's JS realm the instant location_reload() actually
@@ -1813,6 +1849,9 @@ fn setup_sse(_port : Int) -> Unit {
   })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
+    if !suppress_next_round_reload.val {
+      save_reload_scroll_state(reload_scroll_key())
+    }
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
     if suppress_next_round_reload.val {
       suppress_next_round_reload.val = false
@@ -1882,6 +1921,8 @@ fn persist_draft() -> Unit {
     buf.write_string(comment.row.to_string())
     buf.write_string(",\"col\":")
     buf.write_string(comment.col.to_string())
+    buf.write_string(",\"surface\":")
+    buf.write_string(json_encode_string(comment.surface))
     buf.write_string(",\"text\":")
     buf.write_string(json_encode_string(comment.text))
     if comment.value.length() > 0 {
@@ -1913,6 +1954,10 @@ fn persist_draft() -> Unit {
     Some(comment) => comment.col
     None => 0
   }
+  let active_surface = match active_comment {
+    Some(comment) => comment.surface
+    None => "preview"
+  }
   let submit = query("#submit-modal")
   let submit_open = !is_null(submit) && has_class(submit, "visible")
   buf.write_string(",\"ui\":{\"comment_open\":")
@@ -1923,6 +1968,8 @@ fn persist_draft() -> Unit {
   buf.write_string(active_row.to_string())
   buf.write_string(",\"active_col\":")
   buf.write_string(active_col.to_string())
+  buf.write_string(",\"active_surface\":")
+  buf.write_string(json_encode_string(active_surface))
   buf.write_string(",\"submit_open\":")
   buf.write_string(if submit_open { "true" } else { "false" })
   buf.write_char('}')
@@ -2330,6 +2377,9 @@ fn sync_scroll(
   target : Element,
   source_name : String,
 ) -> Unit {
+  if reload_scroll_restore_active() {
+    return
+  }
   if date_now() < scroll_sync_disabled_until.val {
     return
   }

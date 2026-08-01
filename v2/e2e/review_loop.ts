@@ -240,10 +240,10 @@ async function main(): Promise<void> {
       1,
       "the current round summary is immediately replyable",
     );
-    assert.equal(
-      await currentRoundPage.locator("#review-loop-panel [data-review-comment-id^='c-']").count(),
-      0,
-      "showing the current global conversation does not copy any line comment into the sidebar",
+    assert.deepEqual(
+      await currentRoundPage.locator("#review-loop-panel .review-loop-comment[data-review-comment-id^='c-']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-review-comment-id"))),
+      ["c-1-4"],
+      "showing the current global conversation keeps anchored line comments inline and lists only the detached target in the sidebar",
     );
   } finally {
     await currentRoundBrowser.close().catch(() => {});
@@ -295,12 +295,13 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#md-preview > #review-loop-panel").count(), 0, "preview no longer starts with a review-loop panel");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "each anchored unresolved comment renders one inline thread");
     const sidebarText = await page.locator("#review-loop-panel").first().textContent();
-    assert.match(sidebarText || "", /Comments/, "sidebar shows the comments header");
+    assert.match(sidebarText || "", /Review comments/, "sidebar header names what the count refers to: review comments, not the conversation below it");
     assert.equal(await page.locator("#pill-comments").isVisible(), false, "the unrelated Drafts control stays hidden when there are no unsubmitted drafts");
     assert.doesNotMatch(sidebarText || "", /Review items/, "sidebar no longer uses the old panel title");
     assert.match(sidebarText || "", /Round 1 needs a text update/, "sidebar contains the latest global conversation");
     assert.equal(await page.locator("#review-loop-panel .review-loop-index-list, #review-loop-panel .review-loop-index-item").count(), 0, "inline comments never reappear as a sidebar index");
-    assert.equal(await page.locator("#review-loop-panel [data-review-comment-id^='c-']").count(), 0, "line comments never appear in the sidebar, including unanchored and resolved comments");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-comment[data-review-comment-id='c-1-4']").count(), 1, "an unanchored line comment is shown once in the explicit not-in-document section");
+    assert.match(await page.locator("#review-loop-panel .review-loop-unanchored").textContent() || "", /Not shown in document[\s\S]*Please review detached detail/, "the unanchored section explains why the thread is not placed beside unrelated text");
     assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /6 open · 0 resolved/, "header keeps the total unresolved count rather than sidebar row count");
     assert.equal(await page.locator("#review-loop-panel .review-loop-quote").count(), 0, "sidebar never renders source quote blocks");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-reply-form").count(), 1, "latest global conversation has a reply editor");
@@ -393,6 +394,39 @@ async function main(): Promise<void> {
       "clicking an existing inline reply form does not move either scroll position",
     );
     await firstInline.locator("textarea").fill("Human follow-up inside the inline thread");
+    const inlineReplyCountBeforeComposition = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"))
+      .comments.find((comment: { id: string }) => comment.id === "c-1-1")?.replies.length;
+    const inlineReplyComposition = await firstInline.locator("textarea").evaluate((input) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+      });
+      input.dispatchEvent(event);
+      return {
+        value: (input as HTMLTextAreaElement).value,
+        prevented: event.defaultPrevented,
+        submitModalVisible: document.querySelector("#submit-modal")?.classList.contains("visible") || false,
+      };
+    });
+    await page.waitForTimeout(100);
+    const inlineReplyCountAfterComposition = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"))
+      .comments.find((comment: { id: string }) => comment.id === "c-1-1")?.replies.length;
+    assert.deepEqual(
+      {
+        ...inlineReplyComposition,
+        replyCount: inlineReplyCountAfterComposition,
+      },
+      {
+        value: "Human follow-up inside the inline thread",
+        prevented: false,
+        submitModalVisible: false,
+        replyCount: inlineReplyCountBeforeComposition,
+      },
+      "IME変換中のCtrl+Enterはインライン返信を送信せず入力を維持する",
+    );
     await firstInline.locator("input[type='file']").setInputFiles({
       name: "inline-reply-proof.png",
       mimeType: "image/png",
@@ -427,6 +461,7 @@ async function main(): Promise<void> {
       const editorLayoutPage = await editorLayoutContext.newPage();
       await editorLayoutPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
       await editorLayoutPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
+      await editorLayoutPage.waitForSelector("#media-sidebar:not(.hidden)", { state: "visible", timeout: 10000 });
       await editorLayoutPage.locator("#md-preview ol > li[data-source-line]").filter({ hasText: "Ordered next" }).click();
       await editorLayoutPage.waitForSelector(".yunomi-inline-comment-editor #comment-input", { state: "visible" });
       const newCommentEditorLayout = async () => editorLayoutPage.evaluate(() => {
@@ -450,15 +485,27 @@ async function main(): Promise<void> {
       });
       const desktopEditorLayout = await newCommentEditorLayout();
       assert.ok(desktopEditorLayout, "new inline comment editor layout is available");
-      assert.ok((desktopEditorLayout?.separation ?? -1) >= 0, "new inline comment editor stays clear of the expanded global chat");
-      assert.equal(desktopEditorLayout?.marginRight, "308px", "editor clearance reuses the existing 300px sidebar width and 8px offset");
+      assert.ok((desktopEditorLayout?.separation ?? -1) >= 0, "the inline editor stops before the expanded chat");
+      assert.equal(desktopEditorLayout?.marginRight, "308px", "only the comment dialog reserves the fixed chat width");
+      assert.equal(
+        await editorLayoutPage.evaluate(() => getComputedStyle(document.querySelector("#md-preview")!).marginRight),
+        "0px",
+        "the fixed chat does not move or narrow the document",
+      );
       assert.equal(desktopEditorLayout?.cancelText, "Cancel", "new inline comments use a normal Cancel action");
       assert.equal(desktopEditorLayout?.cancelIsIconOnly, false, "the Cancel action is not rendered as the old x icon");
-      assert.equal(desktopEditorLayout?.horizontalOverflow, false, "the narrowed editor does not create page-level horizontal overflow");
-      assert.equal(desktopEditorLayout?.actionsFit, true, "all inline comment actions remain inside the narrowed editor");
+      assert.equal(desktopEditorLayout?.horizontalOverflow, false, "the editor does not create page-level horizontal overflow");
+      assert.equal(desktopEditorLayout?.actionsFit, true, "all inline comment actions remain inside the editor");
+      await editorLayoutPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
+      await editorLayoutPage.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
+      const collapsedEditorLayout = await newCommentEditorLayout();
+      assert.equal(collapsedEditorLayout?.editorRight, desktopEditorLayout?.editorRight, "collapsing chat does not move the inline comment editor");
+      assert.equal(collapsedEditorLayout?.marginRight, "308px", "collapsing chat does not widen the inline comment editor");
+      await editorLayoutPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
+      await editorLayoutPage.waitForFunction(() => !document.querySelector("#review-loop-panel")?.classList.contains("review-loop-sidebar-collapsed"));
       await editorLayoutPage.setViewportSize({ width: 980, height: 900 });
       const narrowDesktopEditorLayout = await newCommentEditorLayout();
-      assert.ok((narrowDesktopEditorLayout?.separation ?? -1) >= 0, "the editor stays clear of chat immediately above the mobile breakpoint");
+      assert.ok((narrowDesktopEditorLayout?.separation ?? -1) >= 0, "the comment dialog stays clear of chat immediately above the mobile breakpoint");
       assert.equal(narrowDesktopEditorLayout?.horizontalOverflow, false, "the breakpoint-adjacent editor keeps the page width stable");
       assert.equal(narrowDesktopEditorLayout?.actionsFit, true, "the breakpoint-adjacent editor keeps every action clickable");
       await editorLayoutPage.locator('.yunomi-inline-comment-editor [data-action="cancel"]').click();
@@ -540,7 +587,7 @@ async function main(): Promise<void> {
     );
     await page.keyboard.press("Tab");
     assert.deepEqual(
-      await page.locator("#review-loop-panel .review-loop-reply-attach").evaluate((label) => {
+      await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-attach").evaluate((label) => {
         const style = getComputedStyle(label);
         return {
           activeClass: document.activeElement?.className || "",
@@ -557,7 +604,7 @@ async function main(): Promise<void> {
     );
     await page.keyboard.press("Tab");
     assert.deepEqual(
-      await page.locator("#review-loop-panel .review-loop-reply-form button[type='submit']").evaluate((button) => {
+      await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form button[type='submit']").evaluate((button) => {
         const style = getComputedStyle(button);
         return {
           activeTag: document.activeElement?.tagName || "",
@@ -573,6 +620,39 @@ async function main(): Promise<void> {
       "the fixed-chat submit button keeps its focus ring inside the clipping ancestors",
     );
     await summaryInput.fill("Sidebar reply remains in the global conversation");
+    const globalReplyCountBeforeComposition = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"))
+      .comments.find((comment: { id: string }) => comment.id === "r-1")?.replies.length;
+    const globalReplyComposition = await summaryInput.evaluate((input) => {
+      const event = new KeyboardEvent("keydown", {
+        key: "Enter",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+        isComposing: true,
+      });
+      input.dispatchEvent(event);
+      return {
+        value: (input as HTMLTextAreaElement).value,
+        prevented: event.defaultPrevented,
+        submitModalVisible: document.querySelector("#submit-modal")?.classList.contains("visible") || false,
+      };
+    });
+    await page.waitForTimeout(100);
+    const globalReplyCountAfterComposition = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"))
+      .comments.find((comment: { id: string }) => comment.id === "r-1")?.replies.length;
+    assert.deepEqual(
+      {
+        ...globalReplyComposition,
+        replyCount: globalReplyCountAfterComposition,
+      },
+      {
+        value: "Sidebar reply remains in the global conversation",
+        prevented: false,
+        submitModalVisible: false,
+        replyCount: globalReplyCountBeforeComposition,
+      },
+      "IME変換中のCtrl+Enterはグローバル返信を送信せず入力を維持する",
+    );
     const attachmentInput = page.locator("#review-loop-panel .review-loop-conversation input[type='file']");
     await attachmentInput.setInputFiles({
       name: "reply-proof.png",
@@ -665,10 +745,59 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "new global comment image survives reload");
     assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /6 open · 0 resolved/, "global conversation does not affect actionable totals");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "global conversation updates leave anchored inline threads in place");
-    assert.equal(await page.locator("#review-loop-panel [data-review-comment-id^='c-']").count(), 0, "the sidebar remains free of line comments after global conversation updates");
-    const previewWidthBeforeMinimize = await page.evaluate(() => document.querySelector<HTMLElement>(".md-left")?.getBoundingClientRect().width || 0);
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-comment[data-review-comment-id='c-1-4']").count(), 1, "global conversation updates keep the unanchored thread explicit without duplicating it");
+    assert.ok(
+      await page.evaluate(() => {
+        const panel = document.querySelector<HTMLElement>("#review-loop-panel");
+        if (!panel) return false;
+        const panelLeft = panel.getBoundingClientRect().left;
+        return Array.from(document.querySelectorAll<HTMLElement>("#md-preview .review-loop-inline"))
+          .every(comment => comment.getBoundingClientRect().right <= panelLeft);
+      }),
+      "inline comment cards stop before the expanded chat",
+    );
+    // The fixed chat intentionally overlays the document instead of moving or
+    // narrowing it when the panel opens.
+    assert.ok(
+      await page.evaluate(() => {
+        const panel = document.querySelector<HTMLElement>("#review-loop-panel");
+        const preview = document.querySelector<HTMLElement>("#md-preview");
+        if (!panel || !preview) return false;
+        return preview.getBoundingClientRect().right > panel.getBoundingClientRect().left;
+      }),
+      "the expanded chat overlays the preview without reserving a blank column",
+    );
+    const settleLayout = () => page.evaluate(async () => {
+      await document.fonts?.ready;
+      await Promise.all(Array.from(document.images).map((image) => image.complete ? Promise.resolve() : image.decode().catch(() => {})));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+    });
+    const layoutWidths = () => page.evaluate(() => {
+      const box = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector);
+        if (!element) return null;
+        const rect = element.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return { width: rect.width, left: rect.left, right: rect.right, display: style.display, flex: style.flex };
+      };
+      return {
+        preview: box("#md-preview"),
+        left: box(".md-left"),
+        right: box(".md-right"),
+        layout: box(".md-layout"),
+        bodyScrollWidth: document.body.scrollWidth,
+        viewportWidth: window.innerWidth,
+      };
+    });
+    await settleLayout();
+    const layoutBeforeMinimize = await layoutWidths();
+    const inlineWidthsBeforeMinimize = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>("#md-preview .review-loop-inline"))
+        .map((comment) => Math.round(comment.getBoundingClientRect().width)),
+    );
     await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
     await page.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
+    await settleLayout();
     assert.equal(await page.locator("#review-loop-panel").evaluate((panel) => Math.round(panel.getBoundingClientRect().width)), 40, "collapsed sidebar becomes an icon-only strip");
     assert.deepEqual(
       await page.locator("#review-loop-panel").evaluate((panel) => {
@@ -698,10 +827,19 @@ async function main(): Promise<void> {
       },
       "collapsed chat has one 40px button frame without an outer border, shadow, or scrollbar",
     );
+    const layoutAfterMinimize = await layoutWidths();
     assert.equal(
-      await page.locator(".md-left").evaluate((left) => left.getBoundingClientRect().width),
-      previewWidthBeforeMinimize,
-      "minimizing the fixed chat does not reflow the preview",
+      layoutAfterMinimize.preview?.width,
+      layoutBeforeMinimize.preview?.width,
+      `minimizing the fixed chat does not reflow the preview: ${JSON.stringify({ before: layoutBeforeMinimize, after: layoutAfterMinimize })}`,
+    );
+    assert.deepEqual(
+      await page.evaluate(() =>
+        Array.from(document.querySelectorAll<HTMLElement>("#md-preview .review-loop-inline"))
+          .map((comment) => Math.round(comment.getBoundingClientRect().width)),
+      ),
+      inlineWidthsBeforeMinimize,
+      "minimizing the fixed chat does not move or widen inline comments",
     );
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
@@ -1057,6 +1195,60 @@ async function main(): Promise<void> {
   );
   assert.equal(blockedApprove.status, 409, "server must reject approve while unresolved comments remain");
 
+  // A round event reloads the tab. Keep the two real split-pane positions
+  // through that navigation, then prove normal preview-to-source sync resumes.
+  writeFileSync(REPORT, ["# Review Loop", "", ...Array.from({ length: 120 }, (_, index) => `Reload scroll line ${index + 1}`)].join("\n"));
+  const reloadBrowser = await chromium.launch({ headless: true });
+  try {
+    const reloadPage = await reloadBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await reloadPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await reloadPage.waitForSelector(".md-left,.md-right", { timeout: 10_000 });
+    const beforeReload = await reloadPage.evaluate(() => {
+      const preview = document.querySelector<HTMLElement>(".md-left")!;
+      const source = document.querySelector<HTMLElement>(".md-right")!;
+      preview.scrollTop = Math.max(0, (preview.scrollHeight - preview.clientHeight) / 2);
+      source.scrollTop = Math.max(0, (source.scrollHeight - source.clientHeight) / 2);
+      return { preview: preview.scrollTop, source: source.scrollTop };
+    });
+    const navigated = reloadPage.waitForEvent("framenavigated", (frame) => frame === reloadPage.mainFrame());
+    assert.equal((await request(port, "POST", "/go")).status, 200, "round signal triggers the SSE reload path");
+    await navigated;
+    await reloadPage.waitForSelector("#review-loop-panel", { timeout: 10_000 });
+    await reloadPage.waitForFunction(() => !(window as typeof window & { __YUNOMI_RELOAD_SCROLL_RESTORING__?: boolean }).__YUNOMI_RELOAD_SCROLL_RESTORING__, undefined, { timeout: 3_000 });
+    const restored = await reloadPage.evaluate(() => {
+      const preview = document.querySelector<HTMLElement>(".md-left")!;
+      const source = document.querySelector<HTMLElement>(".md-right")!;
+      return {
+        preview: preview.scrollTop,
+        source: source.scrollTop,
+        previewMax: Math.max(0, preview.scrollHeight - preview.clientHeight),
+        sourceMax: Math.max(0, source.scrollHeight - source.clientHeight),
+      };
+    });
+    assert.equal(Math.round(restored.preview), Math.round(Math.min(beforeReload.preview, restored.previewMax)), "round reload restores preview scroll or keeps zero when it cannot scroll");
+    assert.equal(Math.round(restored.source), Math.round(Math.min(beforeReload.source, restored.sourceMax)), "round reload restores source scroll or keeps zero when it cannot scroll");
+    const synced = await reloadPage.evaluate(async () => {
+      const preview = document.querySelector<HTMLElement>(".md-left")!;
+      const source = document.querySelector<HTMLElement>(".md-right")!;
+      source.scrollTop = 0;
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const sourceBeforeSync = source.scrollTop;
+      preview.scrollTop = Math.max(0, (preview.scrollHeight - preview.clientHeight) / 3);
+      preview.dispatchEvent(new Event("scroll"));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      return {
+        previewMax: Math.max(0, preview.scrollHeight - preview.clientHeight),
+        sourceMax: Math.max(0, source.scrollHeight - source.clientHeight),
+        sourceBeforeSync,
+        source: source.scrollTop,
+      };
+    });
+    assert.equal(Math.round(synced.sourceBeforeSync), 0, "sync proof resets source to the top after restoring its saved position");
+    assert.equal(synced.previewMax === 0 || synced.sourceMax === 0 ? Math.round(synced.source) : Number(synced.source > synced.sourceBeforeSync), synced.previewMax === 0 || synced.sourceMax === 0 ? 0 : 1, "preview-to-source scroll sync moves source away from zero after round reload");
+  } finally {
+    await reloadBrowser.close().catch(() => {});
+  }
+
   const resolve = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "c-1-1" }));
   assert.equal(resolve.status, 200);
   const resolveImage = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "c-1-2" }));
@@ -1106,8 +1298,12 @@ async function main(): Promise<void> {
   try {
     const approvedPage = await approvedBrowser.newPage({ viewport: { width: 1280, height: 900 } });
     await approvedPage.goto(`http://127.0.0.1:${approvedReopenPort}/`, { waitUntil: "domcontentloaded" });
-    await approvedPage.waitForSelector("#review-loop-panel", { state: "attached" });
-    assert.equal((await approvedPage.locator("#review-loop-panel").textContent() || "").trim(), "", "approved conversation stays closed when the report is reopened");
+    await approvedPage.waitForSelector("#review-loop-panel .review-loop-details", { state: "attached" });
+    // The verdict no longer gates the conversation: an approved review keeps
+    // its history visible so the reviewer can read back what was discussed.
+    const approvedPanelText = (await approvedPage.locator("#review-loop-panel").textContent() || "").trim();
+    assert.notEqual(approvedPanelText, "", "approved conversation stays readable when the report is reopened");
+    assert.equal(await approvedPage.locator(".review-loop-details").count(), 1, "approved reopen renders the conversation panel");
   } finally {
     await approvedBrowser.close().catch(() => {});
   }
@@ -1201,18 +1397,25 @@ async function main(): Promise<void> {
   try {
     const page = await emptyBrowser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`http://127.0.0.1:${emptyPort}/`, { waitUntil: "domcontentloaded" });
-    // Attached, not visible: an empty sidebar is display:none on purpose.
-    await page.waitForSelector("#review-loop-panel", { state: "attached" });
-    const emptyText = await page.locator("#review-loop-panel").textContent();
-    assert.equal((emptyText || "").trim(), "", "an empty review hides its sidebar instead of showing a fixed hint");
-    // An empty sidebar must not reserve its 300px column: the id+class rule
-    // out-specifies `#review-loop-panel:empty` unless that is spelled out too.
-    assert.equal(
-      await page.evaluate(() => getComputedStyle(document.querySelector("#review-loop-panel")!).display),
-      "none",
+    // An empty review keeps the conversation entry point, but as the collapsed
+    // chat icon — never as a fixed hint sentence and never as a 300px column.
+    // Wait for the client render, not just the server-side mount: the panel
+    // ships empty and only gains its collapsed state once the script runs.
+    await page.waitForSelector("#review-loop-panel .review-loop-details", { timeout: 10000 });
+    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 1, "an empty review starts collapsed instead of opening an empty form");
+    assert.equal(await page.locator("#review-loop-panel svg.lucide-message-circle").count(), 1, "an empty review offers the chat icon as its conversation entry point");
+    assert.ok(
+      await page.evaluate(() => document.querySelector("#review-loop-panel")!.getBoundingClientRect().width) <= 64,
       "an empty review sidebar takes no horizontal space from the preview",
     );
     assert.equal(await page.locator("#review-loop-panel .review-loop-ready").count(), 0, "empty review does not show a competing ready message");
+    // Only line comments can be resolved, so with none of them the count is
+    // omitted: "0 open · 0 resolved" above a visible conversation reads as a lie.
+    assert.equal(
+      (await page.locator("#review-loop-panel .review-loop-meta").textContent() || "").trim(),
+      "",
+      "a review with no line comments omits the open/resolved count entirely",
+    );
   } finally {
     await emptyBrowser.close().catch(() => {});
   }

@@ -64,7 +64,21 @@ for (const section of [
   "## Verdict schema",
   "## v3 review commands",
   "## Install this skill permanently",
+  "Writable reviews must use --loop",
   "npx yunomi REPORT.md",
+  "--notify-pane \"$PANE_ID\"",
+  "herdr pane get \"$PANE_ID\"",
+  "YUNOMI_ROUTE=herdr",
+  "YUNOMI_ROUTE=tmux",
+  "If `YUNOMI_ROUTE=herdr`",
+  "If `YUNOMI_ROUTE=tmux`",
+  "no proven yunomi notification route",
+  "`--notify-pane` is Herdr-only",
+  "preconfigured `YUNOMI_NOTIFY_CMD` adapter",
+  "YUNOMI_NOTIFY_CMD=<preconfigured-verified-adapter>",
+  "tmux display-message -p -t \"$TMUX_PANE_ID\"",
+  "`yunomi share` is the explicit read-only exception",
+  "Never start a writable review without a proven notification route",
   "decision: approve | request_changes",
   "yunomi push <review-id> <pr>",
   "attachments: []",
@@ -73,6 +87,10 @@ for (const section of [
 ]) {
   assert(skill.stdout.includes(section), `スキル文書に「${section}」が含まれる`);
 }
+assert(
+  !skill.stdout.includes("herdr run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop\n"),
+  "通知先なしのHerdr起動例をスキル文書に残さない",
+);
 assert(!skill.stdout.includes("YUNOMI_LIVE"), "スキル文書にライブログ行が混ざらない");
 
 // --- no args + TTY: same document (via script(1) pty on macOS/Linux) ---

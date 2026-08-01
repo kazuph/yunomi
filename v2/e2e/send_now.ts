@@ -122,10 +122,13 @@ try {
       const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
       assert(sentDraft.includes('"pending":false') && sentDraft.includes('"sent":true'), "Immediate comments persist as sent, not pending", { sentDraft });
 
-      if (await page.locator(".comment-list:not(.collapsed)").count() === 1) {
-        await page.locator("#comment-list-minimize").click();
-        await page.waitForSelector(".comment-list.collapsed");
-      }
+      // Sending a comment must not pop the drafts panel open from the top: it
+      // interrupts the review and was never a request to read the draft list.
+      assert(await page.locator(".comment-list:not(.collapsed)").count() === 0, "Add single comment leaves the drafts panel closed");
+      // A sent comment is not a draft. It already lives in the document as an
+      // inline thread, so counting it as unsubmitted work contradicts the pill.
+      assert(await page.locator("#comment-count").textContent() === "0", "a sent comment is not counted as a draft");
+      assert(await page.locator("#pill-comments").isVisible() === false, "the drafts pill stays hidden while nothing is unsubmitted");
 
       await page.locator(".text-line[data-row='2']").click();
       await page.locator("#comment-input").fill("pending review comment");
@@ -138,6 +141,10 @@ try {
       }));
       assert(!pendingState.events.some((line) => line.startsWith("comment:") && line.includes("pending review comment")), "Start a review keeps the comment local until Submit review", pendingState);
       assert(pendingState.draft.includes('"pending":true') && pendingState.draft.includes('"sent":false') && pendingState.badges.includes("Pending"), "Pending state and badge persist locally", pendingState);
+      // ...and an actually unsubmitted comment brings the pill back, counting
+      // only itself rather than the comment that was already sent above.
+      assert(await page.locator("#comment-count").textContent() === "1", "an unsubmitted comment counts as exactly one draft");
+      assert(await page.locator("#pill-comments").isVisible() === true, "the drafts pill reappears once there is unsubmitted work");
       await page.locator(".text-line[data-row='0']").click();
       assert(await page.locator("#save-comment").textContent() === "Add review comment", "Later pending actions use GitHub's Add review comment label");
       await page.keyboard.press("Escape");
@@ -153,8 +160,9 @@ try {
         const seen = (window as unknown as { __sendNowSeen?: string[] }).__sendNowSeen || [];
         return seen.some((line) => line.startsWith("reply:"));
       });
-      const listReply = await page.locator("#comment-list li[data-key='1:0'] > .comment-inline-replies").textContent({ timeout: 5000 });
-      assert((listReply || "").includes("agent reply arrived"), "Agent reply renders under the matching comment list entry", { listReply });
+      // A sent comment is not a draft, so it has no entry in the drafts list.
+      // Its reply still has to be visible — on the inline card, asserted below.
+      assert(await page.locator("#comment-list li[data-key='1:0']").count() === 0, "a sent comment keeps no entry in the drafts list");
       const savedInlineReplies = page.locator(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies");
       await savedInlineReplies.first().waitFor({ state: "visible", timeout: 5000 });
       assert(

@@ -2,16 +2,45 @@
 
 ## 開発・テスト時のサーバー起動
 
-### 自分で確認する場合（デフォルト）
-1. `run_in_background: true` でcli.cjsを起動
-2. Playwrightでスクリーンショットを撮影して確認
-3. 確認完了後、ユーザーに報告
-4. **ユーザーを待たせない・中断させない**
+yunomiを起動する前に通知経路を実行時に取得・検証する。Herdrを先に試し、失敗した時だけ検証済みtmux adapterを評価する。
 
-### ユーザーにレビューさせる場合のみ
-- **フォアグラウンドで起動する**（`run_in_background` は使わない）
-- ユーザーがブラウザでSubmit & Exitするまで待機する
-- ユーザーが明示的に「開いて」「見せて」と言った場合のみ
+```bash
+if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')" &&
+   herdr pane get "$PANE_ID" >/dev/null 2>&1; then
+  YUNOMI_ROUTE=herdr
+elif [ -n "${TMUX:-}" ] && [ -n "${YUNOMI_NOTIFY_CMD:-}" ]; then
+  TMUX_PANE_ID="$(tmux display-message -p '#{pane_id}')" || exit 1
+  test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+  YUNOMI_ROUTE=tmux
+else
+  echo "no proven yunomi notification route" >&2
+  exit 1
+fi
+```
+
+- Herdr経路の書込み可能レビューは、自分で確認する場合もユーザーにレビューさせる場合も、必ず `--loop --notify-pane "$PANE_ID"` を付ける。
+- 純tmux経路は、事前検証済みの `YUNOMI_NOTIFY_CMD` が設定されている場合だけ `--loop` で起動する。`yunomi share` はread-only例外。
+- Claude CodeはBashツールの `run_in_background: true` で起動し、exitを検知する。
+- Herdr経路で`--notify-pane`が無い起動、通知経路を実行時に証明できない起動、記憶やfocused paneから通知先を推測する起動は禁止。
+- 通知先を証明できない場合は、yunomiを起動せずfail closedで報告する。
+- `--notify-pane` はHerdr pane専用。tmuxの`%pane`を渡さず、その場でraw `tmux send-keys` fallbackを作らない。Herdrが使えない純tmux環境は、安全なキュー配送と到達性を事前検証済みの `YUNOMI_NOTIFY_CMD` がある場合だけ `--loop` で起動し、それ以外はfail closedにする。
+- yunomi自身がブラウザを開くため、起動後に `open` を追加実行しない。
+
+## この環境のyunomi更新
+
+yunomi本体・UI・生成Skillの確定変更は、ソース変更やMoonBit buildだけで完了扱いにしない。必ず現在のリポジトリから配布物を作り、このMacの標準CLIへ置き換えて実物を検証する。
+
+```bash
+npm run prepack
+mise exec node@22.22.0 -- npm install -g "$PWD"
+shasum -a 256 dist/server/server.js \
+  /Users/kazuph/.local/share/mise/installs/node/22.22.0/lib/node_modules/yunomi/dist/server/server.js
+yunomi --version
+```
+
+- 2つのserver.jsのSHA-256が一致しない状態で完了報告しない。
+- 生成Skillを変更した場合は、`yunomi install <agent> --global` でclaude / codex / cursor / opencode / cline / geminiへ再配布し、各ファイルの存在と通知経路契約を再確認する。
+- 赤テスト用の途中状態はインストールしない。対象E2Eとrelease buildを通過した確定buildだけを標準CLIへ置き換える。
 
 ## 構文エラーの回避
 
@@ -62,13 +91,14 @@ claude plugin update yunomi-plugin@yunomi-plugins
 ### 正しいフロー
 1. 実装 → テスト → エビデンス収集
 2. REPORT.mdに「何を・なぜ・どう変えた」「テスト結果」「確認項目」をまとめる
-3. `npx yunomi .artifacts/<feature>/REPORT.md` でフォアグラウンド起動
+3. 証明済みpaneを渡し、`npx yunomi .artifacts/<feature>/REPORT.md --loop --notify-pane "$PANE_ID"` を `run_in_background: true` で起動
 4. ユーザーがブラウザで確認 → Approve/Request Changes
 
 ### 禁止事項
 - `git diff | yunomi --diff` でコード差分だけ見せる
 - AIエージェント（yunomi-plugin:review-code-security等）にレビューさせる
 - お膳立てなしでいきなりyunomiを開く
+- `--notify-pane` を省略して、人間のコメント・チェックボックス・判定が起動元エージェントへ戻らない状態でレビューを始める
 
 ## 完了フロー（必須）
 

@@ -269,6 +269,15 @@ async function main(): Promise<void> {
       "セル1(login.e2e.ts)を直接クリックするとそのセルのインライン編集が開く",
       cell1Card,
     );
+    const cell1EditorParent = await page.locator(".yunomi-inline-comment-editor").evaluate((editor) => {
+      const cell = editor.closest("td,th");
+      return { row: cell?.getAttribute("data-row"), col: cell?.getAttribute("data-col") };
+    });
+    assert(
+      cell1EditorParent.row === cellsInfo.fileRow && cell1EditorParent.col === cellsInfo.fileCol,
+      "セル1のコメントエディタはクリックしたセル自身の中に開く",
+      cell1EditorParent,
+    );
     await page.locator("#comment-input").fill("cell1 comment: file name");
     await page.locator("#save-comment").click();
     await page.waitForTimeout(150);
@@ -293,6 +302,15 @@ async function main(): Promise<void> {
       "セル2(行番号 15、同じ行の別カラム)を直接クリックするとそのセルのインライン編集が開く",
       cell2Card,
     );
+    const cell2EditorParent = await page.locator(".yunomi-inline-comment-editor").evaluate((editor) => {
+      const cell = editor.closest("td,th");
+      return { row: cell?.getAttribute("data-row"), col: cell?.getAttribute("data-col") };
+    });
+    assert(
+      cell2EditorParent.row === cellsInfo.lineRow && cell2EditorParent.col === cellsInfo.lineCol,
+      "右側セルのコメントエディタは行の左端ではなくクリックした右側セル内に開く",
+      cell2EditorParent,
+    );
     await page.locator("#comment-input").fill("cell2 comment: line number");
     await page.locator("#save-comment").click();
     await page.waitForTimeout(150);
@@ -315,10 +333,23 @@ async function main(): Promise<void> {
       indicatorState.count === 2 &&
         indicatorState.rows[0] === indicatorState.rows[1] &&
         indicatorState.cols[0] !== indicatorState.cols[1] &&
-        indicatorState.texts.includes("login.e2e.ts") &&
-        indicatorState.texts.includes("15"),
+        indicatorState.texts.some(text => text.includes("login.e2e.ts")) &&
+        indicatorState.texts.some(text => text.includes("15")),
       "同じ行の別セル2つが、それぞれ独立した.has-commentとしてハイライトされる（行全体ではない）",
       indicatorState,
+    );
+    const savedCommentParents = await page.evaluate(() =>
+      Array.from(document.querySelectorAll<HTMLElement>("#md-preview .yunomi-inline-comment:not(.yunomi-inline-comment-editor)"))
+        .map(comment => {
+          const cell = comment.closest("td,th");
+          return { row: cell?.getAttribute("data-row"), col: cell?.getAttribute("data-col") };
+        }),
+    );
+    assert(
+      savedCommentParents.some(cell => cell.row === cellsInfo.fileRow && cell.col === cellsInfo.fileCol) &&
+        savedCommentParents.some(cell => cell.row === cellsInfo.lineRow && cell.col === cellsInfo.lineCol),
+      "保存済みコメントもそれぞれクリックしたセル内に残る",
+      savedCommentParents,
     );
 
     await closeCard(page);

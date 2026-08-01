@@ -83,7 +83,7 @@ extern "js" fn js_status_output(
   #|    try {
   #|      const review = JSON.parse(jsons[i] || "{}");
   #|      const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|      const current = rounds.at(-1) || {};
+  #|      const current = rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), rounds[0] || {});
   #|      const decision = current.decision || null;
   #|      if (decision === "approve") continue;
   #|      const comments = Array.isArray(review.comments) ? review.comments : [];
@@ -162,7 +162,7 @@ extern "js" fn js_cleanup_candidates(
   #|    try {
   #|      const review = JSON.parse(jsons[i] || "{}");
   #|      const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|      const current = rounds.at(-1) || {};
+  #|      const current = rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), rounds[0] || {});
   #|      if (current.decision !== "approve") continue;
   #|      const submittedAt = Date.parse(current.submitted_at || "");
   #|      const ageMs = Number.isFinite(submittedAt) ? submittedAt : Number(mtimes[i] || 0);

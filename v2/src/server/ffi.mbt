@@ -105,7 +105,7 @@ extern "js" fn process_cwd() -> String =
 ///|
 /// Check if a process with given PID exists
 extern "js" fn process_exists(pid : Int) -> Bool =
-  #|(pid) => { try { process.kill(pid, 0); return true; } catch(e) { return false; } }
+  #|(pid) => { try { process.kill(pid, 0); return true; } catch(e) { return e?.code === "EPERM"; } }
 
 ///|
 extern "js" fn process_stdout_write(data : String) -> Unit =
@@ -609,9 +609,12 @@ extern "js" fn start_html_preview_server(
   host : String,
   no_open : Bool,
   instance_id : String,
+  max_port_attempts : Int,
+  on_listening : (Int) -> Unit,
+  on_finished : (Int) -> Unit,
   persist_review : (String) -> Unit,
 ) -> Unit =
-  #|(filePath, port, host, noOpen, instanceId, persistReview) => {
+  #|(filePath, port, host, noOpen, instanceId, maxPortAttempts, onListening, onFinished, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -686,6 +689,12 @@ extern "js" fn start_html_preview_server(
   #|    const overlayScript = `(() => {
   #|      if (window.__yunomiHtmlInstalled) return;
   #|      window.__yunomiHtmlInstalled = true;
+  #|      const externalizeLink = (link) => {
+  #|        if (!link) return;
+  #|        link.setAttribute("target", "_blank");
+  #|        link.setAttribute("rel", "noopener noreferrer");
+  #|      };
+  #|      document.querySelectorAll("a[href]").forEach(externalizeLink);
   #|      const comments = [];
   #|      let enabled = true;
   #|      let active = null;
@@ -771,6 +780,11 @@ extern "js" fn start_html_preview_server(
   #|        if (event.target === active) active.classList.remove("yunomi-html-hover");
   #|      }, true);
   #|      document.addEventListener("click", (event) => {
+  #|        const link = event.target.closest?.("a[href]");
+  #|        if (link && !isUi(link)) {
+  #|          externalizeLink(link);
+  #|          return;
+  #|        }
   #|        if (!enabled || isUi(event.target)) return;
   #|        event.preventDefault();
   #|        event.stopPropagation();
@@ -811,12 +825,14 @@ extern "js" fn start_html_preview_server(
   #|      const tag = `<script data-yunomi-html="${instanceId}">${overlayScript.replaceAll("</script", "<\\\\/script")}</script>`;
   #|      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, tag + "</body>") : html + tag;
   #|    };
-  #|    const shell = () => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yunomi html - ${htmlEscape(filename)}</title><style>html,body{margin:0;height:100%;font:13px system-ui,-apple-system,sans-serif;background:#f6faf0;color:#3b2d20}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #d7e2c4;background:rgba(246,250,240,.94)}strong{font-size:14px}span{color:#87735b}iframe{display:block;width:100%;height:calc(100vh - 44px);border:0;background:white}</style></head><body><header><strong>${htmlEscape(filename)}</strong><span>HTML preview</span></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin" src="/__yunomi_html_target"></iframe><script>window.addEventListener("message", event => { if (event.origin !== location.origin || event.data?.type !== "yunomi-html-submit") return; const comments = Array.isArray(event.data.comments) ? event.data.comments : []; const decision = event.data.decision || (comments.length > 0 ? "request_changes" : "approve"); const action = event.data.action || (decision === "approve" ? "final_approve" : "final_request_changes"); fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, decision, summary: event.data.summary || "", comments }) }).then(() => { window.close(); setTimeout(() => location.replace("about:blank"), 400); }); });</script></body></html>`;
+  #|    const shell = () => `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>yunomi html - ${htmlEscape(filename)}</title><style>html,body{margin:0;height:100%;font:13px system-ui,-apple-system,sans-serif;background:#f6faf0;color:#3b2d20}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #d7e2c4;background:rgba(246,250,240,.94)}strong{font-size:14px}span{color:#87735b}iframe{display:block;width:100%;height:calc(100vh - 44px);border:0;background:white}</style></head><body><header><strong>${htmlEscape(filename)}</strong><span>HTML preview</span></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin allow-popups" src="/__yunomi_html_target"></iframe><script>window.addEventListener("message", event => { if (event.origin !== location.origin || event.data?.type !== "yunomi-html-submit") return; const comments = Array.isArray(event.data.comments) ? event.data.comments : []; const decision = event.data.decision || (comments.length > 0 ? "request_changes" : "approve"); const action = event.data.action || (decision === "approve" ? "final_approve" : "final_request_changes"); fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, decision, summary: event.data.summary || "", comments }) }).then(() => { window.close(); setTimeout(() => location.replace("about:blank"), 400); }); });</script></body></html>`;
   #|    const sendFile = (res, target) => {
   #|      const ext = path.extname(target);
   #|      res.writeHead(200, { "Content-Type": mime(ext), "Cache-Control": "no-store" });
   #|      fs.createReadStream(target).pipe(res);
   #|    };
+  #|    const listen = (candidatePort, attempt) => {
+  #|    let boundPort = candidatePort;
   #|    const server = http.createServer((req, res) => {
   #|      const reqUrl = new URL(req.url || "/", "http://127.0.0.1");
   #|      if (req.method === "GET" && reqUrl.pathname === "/healthz") {
@@ -844,7 +860,10 @@ extern "js" fn start_html_preview_server(
   #|          persistReview(JSON.stringify(payload));
   #|          process.stdout.write(toYaml(payload));
   #|          res.writeHead(200, { "Content-Type": "application/json" });
-  #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
+  #|          res.end('{"ok":true}', () => server.close(() => {
+  #|            onFinished(boundPort);
+  #|            process.exit(0);
+  #|          }));
   #|        });
   #|        return;
   #|      }
@@ -872,9 +891,11 @@ extern "js" fn start_html_preview_server(
   #|      res.writeHead(404, { "Content-Type": "text/plain" });
   #|      res.end("Not Found");
   #|    });
-  #|    server.listen(port, host, () => {
+  #|    server.listen(candidatePort, host, () => {
+  #|      boundPort = Number(server.address()?.port || candidatePort);
+  #|      onListening(boundPort);
   #|      const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
-  #|      const url = `http://${displayHost}:${port}`;
+  #|      const url = `http://${displayHost}:${boundPort}`;
   #|      console.log(`yunomi html previewing ${resolvedFile} at ${url}`);
   #|      if (!noOpen) {
   #|        if (process.platform === "darwin") childProcess.spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
@@ -883,11 +904,25 @@ extern "js" fn start_html_preview_server(
   #|      }
   #|    });
   #|    server.on("error", err => {
-  #|      console.error("yunomi html: " + err.message);
-  #|      process.exit(1);
+  #|      if (err?.code === "EADDRINUSE" && candidatePort !== 0) {
+  #|        if (attempt + 1 < maxPortAttempts) {
+  #|          console.log(`Port ${candidatePort} in use, trying ${candidatePort + 1}...`);
+  #|          listen(candidatePort + 1, attempt + 1);
+  #|        } else {
+  #|          console.log(`All ${maxPortAttempts} candidate ports are busy; asking the OS for an ephemeral port`);
+  #|          listen(0, attempt + 1);
+  #|        }
+  #|      } else {
+  #|        console.error("yunomi html: " + err.message);
+  #|        onFinished(0);
+  #|        process.exit(1);
+  #|      }
   #|    });
+  #|    };
+  #|    listen(port, 0);
   #|  }).catch(err => {
   #|    console.error("yunomi html: " + err.message);
+  #|    onFinished(0);
   #|    process.exit(1);
   #|  });
   #|}
@@ -1447,7 +1482,7 @@ extern "js" fn js_external_review_submit(
   #|  if (review.rounds.length === 0) {
   #|    review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
   #|  }
-  #|  const current = review.rounds[review.rounds.length - 1];
+  #|  const current = review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]);
   #|  current.submitted_at = now;
   #|  current.decision = submit.decision || null;
   #|  current.summary = String(submit.summary || "");
@@ -1650,7 +1685,7 @@ extern "js" fn js_review_submit_update(
   #|  review.files = review.files && review.files.length ? review.files : [file];
   #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  if (review.rounds.length === 0) review.rounds.push({ round: 1, started_at: new Date().toISOString(), submitted_at: null, decision: null, summary: "" });
-  #|  const current = review.rounds[review.rounds.length - 1];
+  #|  const current = review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]);
   #|  current.submitted_at = new Date().toISOString();
   #|  current.decision = submit.decision || null;
   #|  current.summary = submit.summary || "";
@@ -1922,18 +1957,91 @@ extern "js" fn js_review_start_next_round(
   #|(json, currentText) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|  const last = review.rounds[review.rounds.length - 1];
+  #|  const last = review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]);
   #|  if (!last || last.submitted_at) {
   #|    const next = last ? Number(last.round || review.rounds.length) + 1 : 1;
   #|    review.rounds.push({ round: next, started_at: new Date().toISOString(), submitted_at: null, decision: null, summary: "" });
   #|  }
   #|  const lines = String(currentText || "").split(/\r?\n/);
+  #|  const normalized = (value) => String(value || "").trim();
+  #|  const contextLines = (value) => {
+  #|    const raw = String(value || "");
+  #|    return raw === "" ? [] : raw.split(/\r?\n/).map(normalized);
+  #|  };
+  #|  const matchingBefore = (index, context) => {
+  #|    let matched = 0;
+  #|    for (let offset = 1; offset <= context.length && index - offset >= 0; offset += 1) {
+  #|      if (normalized(lines[index - offset]) !== context[context.length - offset]) break;
+  #|      matched += 1;
+  #|    }
+  #|    return matched;
+  #|  };
+  #|  const matchingAfter = (index, context) => {
+  #|    let matched = 0;
+  #|    for (let offset = 1; offset <= context.length && index + offset < lines.length; offset += 1) {
+  #|      if (normalized(lines[index + offset]) !== context[offset - 1]) break;
+  #|      matched += 1;
+  #|    }
+  #|    return matched;
+  #|  };
+  #|  const sourceQuote = (...values) => {
+  #|    for (const value of values) {
+  #|      const raw = String(value || "");
+  #|      const marker = " | source: ";
+  #|      const source = raw.includes(marker) ? raw.slice(raw.indexOf(marker) + marker.length) : raw;
+  #|      const line = normalized(source.split(/\r?\n/, 1)[0]);
+  #|      if (line) return line;
+  #|    }
+  #|    return "";
+  #|  };
+  #|  const continuousSnippetCandidates = (snippet) => {
+  #|    const candidates = [];
+  #|    for (let start = 0; start + snippet.length <= lines.length; start += 1) {
+  #|      if (!snippet.every((line, offset) => normalized(lines[start + offset]) === line)) continue;
+  #|      for (let offset = 0; offset < snippet.length; offset += 1) candidates.push(start + offset);
+  #|    }
+  #|    return candidates;
+  #|  };
   #|  for (const c of review.comments || []) {
   #|    if (c.status !== "unresolved") continue;
-  #|    const snippet = c.anchor && c.anchor.snippet ? String(c.anchor.snippet) : "";
-  #|    if (!snippet) continue;
-  #|    const idx = lines.findIndex(line => line === snippet || line.includes(snippet));
-  #|    if (idx >= 0) c.line = idx + 1;
+  #|    const anchor = c.anchor && typeof c.anchor === "object" ? c.anchor : {};
+  #|    const snippet = contextLines(anchor.snippet || c.snippet);
+  #|    const quote = sourceQuote(c.quote, c.element_text, c.value);
+  #|    const before = contextLines(c.context_before || anchor.context_before);
+  #|    const after = contextLines(c.context_after || anchor.context_after);
+  #|    const quoteCandidates = quote ? lines.map((line, index) => normalized(line) === quote ? index : -1).filter(index => index >= 0) : [];
+  #|    const snippetCandidates = snippet.length > 0 ? continuousSnippetCandidates(snippet) : [];
+  #|    const candidateIndexes = quoteCandidates.length > 0
+  #|      ? quoteCandidates
+  #|      : snippetCandidates.length > 0
+  #|        ? snippetCandidates
+  #|        : lines.map((_, index) => index);
+  #|    let candidates = candidateIndexes.map(index => ({ index, before: matchingBefore(index, before), after: matchingAfter(index, after) }));
+  #|    const contextOnly = quoteCandidates.length === 0;
+  #|    if (contextOnly) {
+  #|      if (before.length > 0 && after.length > 0) candidates = candidates.filter(candidate => candidate.before > 0 && candidate.after > 0);
+  #|      else if (before.length > 0) candidates = candidates.filter(candidate => candidate.before > 0);
+  #|      else if (after.length > 0) candidates = candidates.filter(candidate => candidate.after > 0);
+  #|    }
+  #|    if (candidates.length === 0) {
+  #|      c.unanchored = true;
+  #|      continue;
+  #|    }
+  #|    const bestScore = Math.max(...candidates.map(candidate => candidate.before + candidate.after));
+  #|    const scoreCandidates = candidates.filter(candidate => candidate.before + candidate.after === bestScore);
+  #|    const bestBothSides = Math.max(...scoreCandidates.map(candidate => candidate.before > 0 && candidate.after > 0 ? 1 : 0));
+  #|    const matches = scoreCandidates.filter(candidate => (candidate.before > 0 && candidate.after > 0 ? 1 : 0) === bestBothSides);
+  #|    if (matches.length !== 1 || (contextOnly && bestScore === 0)) {
+  #|      c.unanchored = true;
+  #|      continue;
+  #|    }
+  #|    const previousRow = Math.max(0, Number(c.row ?? ((Number(c.line || 1) || 1) - 1)));
+  #|    const previousEndRow = Math.max(previousRow, Number(c.end_row ?? previousRow));
+  #|    const row = matches[0].index;
+  #|    c.row = row;
+  #|    c.line = row + 1;
+  #|    c.end_row = row + (previousEndRow - previousRow);
+  #|    c.unanchored = false;
   #|  }
   #|  return JSON.stringify(review, null, 2);
   #|}
@@ -1998,7 +2106,7 @@ extern "js" fn js_review_response_json(
   #|      if (curr[i] != null && curr[i] !== "") lines.push({ kind: "addition", line: i + 1, text: curr[i] });
   #|    }
   #|  }
-  #|  const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
+  #|  const currentRound = Number(((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0]) || {}).round || 1);
   #|  const actionable = (c) => c && c.scope !== "round";
   #|  const unresolved = currentComments.filter(c => actionable(c) && c.status !== "resolved").length;
   #|  const gateUnresolved = gateEnabled ? currentComments.filter(c => actionable(c) && c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
@@ -2056,7 +2164,8 @@ extern "js" fn js_review_reply(
   #|(json, id, text, author, attachment) => {
   #|  const review = JSON.parse(json || "{}");
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|  const currentRound = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  const latestRound = (rs) => rs.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), rs[0] || {});
+  #|  const currentRound = Number(latestRound(rounds).round || 1);
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  for (const c of review.comments) {
   #|    if (c.id === id) {
@@ -2103,7 +2212,8 @@ extern "js" fn next_global_comment_id(json : String) -> String =
   #|(json) => {
   #|  const review = JSON.parse(json || "{}");
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|  const round = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  const latestRound = (rs) => rs.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), rs[0] || {});
+  #|  const round = Number(latestRound(rounds).round || 1);
   #|  const ids = new Set((review.comments || []).map(c => String(c?.id || "")));
   #|  let sequence = 1;
   #|  while (ids.has(`r-${round}-${sequence}`)) sequence += 1;
@@ -2121,7 +2231,8 @@ extern "js" fn js_review_create_global_comment(
   #|(json, id, text, author, attachment) => {
   #|  const review = JSON.parse(json || "{}");
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|  const currentRound = Number((rounds[rounds.length - 1] || {}).round || 1);
+  #|  const latestRound = (rs) => rs.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), rs[0] || {});
+  #|  const currentRound = Number(latestRound(rounds).round || 1);
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  review.comments.push({
   #|    id,
@@ -2215,7 +2326,7 @@ extern "js" fn js_review_prior_unresolved_count(
   #|(json, currentFile) => {
   #|  try {
   #|    const review = JSON.parse(json || "{}");
-  #|    const currentRound = Number(((review.rounds || []).at(-1) || {}).round || 1);
+  #|    const currentRound = Number(((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0]) || {}).round || 1);
   #|    return (review.comments || []).filter(c => c && c.scope !== "round" && c.file === currentFile && c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
   #|  } catch(e) {
   #|    return 0;
@@ -2313,7 +2424,7 @@ extern "js" fn js_github_pr_sync(
   #|    fs.mkdirSync(path.dirname(reviewPath), { recursive: true });
   #|    fs.writeFileSync(reviewPath, JSON.stringify(normalizeReview(review), null, 2) + "\n");
   #|  };
-  #|  const currentRound = (review) => Number((review.rounds.at(-1) || {}).round || 1) || 1;
+  #|  const currentRound = (review) => Number((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0] || {}).round || 1) || 1;
   #|  const real = (value) => {
   #|    try { return fs.realpathSync(value); } catch { return value; }
   #|  };
@@ -2524,7 +2635,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|        id: review.branch || path.basename(base),
   #|        path: direct,
   #|        branch: review.branch || path.basename(base),
-  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds[review.rounds.length - 1].round || review.rounds.length) : 1,
+  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]).round || review.rounds.length) : 1,
   #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
   #|      }];
   #|    }
@@ -2537,7 +2648,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|        id: entry.name,
   #|        path: p,
   #|        branch: review.branch || entry.name,
-  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds[review.rounds.length - 1].round || review.rounds.length) : 1,
+  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]).round || review.rounds.length) : 1,
   #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
   #|      };
   #|    });
@@ -2575,7 +2686,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!review.files.includes(display)) review.files.push(display);
   #|    review.rounds = Array.isArray(review.rounds) && review.rounds.length ? review.rounds : [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }];
   #|    review.comments = Array.isArray(review.comments) ? review.comments : [];
-  #|    const currentRound = Number((review.rounds[review.rounds.length - 1] || {}).round || 1);
+  #|    const currentRound = Number(((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0]) || {}).round || 1);
   #|    const id = String(args.id || `mcp-${currentRound}-${review.comments.length + 1}`);
   #|    const abs = path.resolve(cwd, file);
   #|    const row = Math.max(0, line - 1);
@@ -2624,11 +2735,12 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    }
   #|    const review = readReview(cwd);
   #|    review.rounds = Array.isArray(review.rounds) ? review.rounds : [];
-  #|    const last = review.rounds[review.rounds.length - 1];
+  #|    const latestRound = (rs) => (rs || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (rs || [])[0]);
+  #|    const last = latestRound(review.rounds);
   #|    const next = last ? Number(last.round || review.rounds.length) + 1 : 1;
   #|    if (!last || last.submitted_at) review.rounds.push({ round: next, started_at: iso(), submitted_at: null, decision: null, summary: "" });
   #|    const p = writeReview(cwd, review);
-  #|    return { notified: false, path: p, round: Number((review.rounds[review.rounds.length - 1] || {}).round || 1) };
+  #|    return { notified: false, path: p, round: Number((latestRound(review.rounds) || {}).round || 1) };
   #|  };
   #|  const tools = [
   #|    { name: "mcp__yunomi__list_reviews", description: "List yunomi review sessions.", inputSchema: { type: "object", properties: { cwd: { type: "string" } } } },
@@ -2658,7 +2770,7 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!msg || !msg.method) return;
   #|    try {
   #|      if (msg.method === "initialize") {
-  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.4.0" } } });
+  #|        send({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "yunomi", version: "2.4.1" } } });
   #|      } else if (msg.method === "tools/list") {
   #|        send({ jsonrpc: "2.0", id: msg.id, result: { tools } });
   #|      } else if (msg.method === "tools/call") {
@@ -2855,6 +2967,84 @@ extern "js" fn js_lock_matches_file(content : String, file : String) -> Bool =
   #|  } catch {
   #|    return true;
   #|  }
+  #|}
+
+///|
+extern "js" fn js_claim_file_lock(dir : String, file : String) -> String =
+  #|(dir, file) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const crypto = process.getBuiltinModule("node:crypto");
+  #|  let resolved;
+  #|  try { resolved = fs.realpathSync(file); } catch { resolved = path.resolve(file); }
+  #|  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  #|  const hash = crypto.createHash("sha256").update(resolved).digest("hex").slice(0, 32);
+  #|  const lockPath = path.join(dir, `file-${hash}.lock`);
+  #|  for (let attempt = 0; attempt < 3; attempt++) {
+  #|    const tempPath = path.join(dir, `file-${hash}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  #|    try {
+  #|      fs.writeFileSync(tempPath, JSON.stringify({ pid: process.pid, port: 0, file: resolved }), { flag: "wx", mode: 0o600 });
+  #|      fs.linkSync(tempPath, lockPath);
+  #|      fs.unlinkSync(tempPath);
+  #|      return JSON.stringify({ status: "claimed", port: 0 });
+  #|    } catch (error) {
+  #|      try { fs.unlinkSync(tempPath); } catch {}
+  #|      if (error?.code !== "EEXIST") return JSON.stringify({ status: "error", port: 0 });
+  #|      let existing = {};
+  #|      try { existing = JSON.parse(fs.readFileSync(lockPath, "utf8")); } catch {}
+  #|      const pid = Number(existing?.pid || 0);
+  #|      if (pid > 0) {
+  #|        try {
+  #|          process.kill(pid, 0);
+  #|          return JSON.stringify({ status: "existing", port: Number(existing?.port || 0) });
+  #|        } catch (error) {
+  #|          if (error?.code !== "ESRCH") {
+  #|            return JSON.stringify({ status: "existing", port: Number(existing?.port || 0) });
+  #|          }
+  #|        }
+  #|      }
+  #|      try { fs.unlinkSync(lockPath); } catch {}
+  #|    }
+  #|  }
+  #|  return JSON.stringify({ status: "error", port: 0 });
+  #|}
+
+///|
+extern "js" fn js_update_file_lock(dir : String, file : String, port : Int) -> Unit =
+  #|(dir, file, port) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const crypto = process.getBuiltinModule("node:crypto");
+  #|  let resolved;
+  #|  try { resolved = fs.realpathSync(file); } catch { resolved = path.resolve(file); }
+  #|  const hash = crypto.createHash("sha256").update(resolved).digest("hex").slice(0, 32);
+  #|  const lockPath = path.join(dir, `file-${hash}.lock`);
+  #|  let existing = {};
+  #|  try { existing = JSON.parse(fs.readFileSync(lockPath, "utf8")); } catch {}
+  #|  if (Number(existing?.pid || 0) !== process.pid) return;
+  #|  const tempPath = path.join(dir, `file-${hash}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  #|  try {
+  #|    fs.writeFileSync(tempPath, JSON.stringify({ pid: process.pid, port: Number(port), file: resolved }), { flag: "wx", mode: 0o600 });
+  #|    fs.renameSync(tempPath, lockPath);
+  #|  } finally {
+  #|    try { fs.unlinkSync(tempPath); } catch {}
+  #|  }
+  #|}
+
+///|
+extern "js" fn js_remove_file_lock(dir : String, file : String) -> Unit =
+  #|(dir, file) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const crypto = process.getBuiltinModule("node:crypto");
+  #|  let resolved;
+  #|  try { resolved = fs.realpathSync(file); } catch { resolved = path.resolve(file); }
+  #|  const hash = crypto.createHash("sha256").update(resolved).digest("hex").slice(0, 32);
+  #|  const lockPath = path.join(dir, `file-${hash}.lock`);
+  #|  let existing = {};
+  #|  try { existing = JSON.parse(fs.readFileSync(lockPath, "utf8")); } catch {}
+  #|  if (Number(existing?.pid || 0) !== process.pid) return;
+  #|  try { fs.unlinkSync(lockPath); } catch {}
   #|}
 
 ///|
@@ -3247,7 +3437,7 @@ extern "js" fn js_update_review_json(
   #|  if (review.rounds.length === 0) {
   #|    review.rounds.push({ round: 1, started_at: now, submitted_at: null, decision: null, summary: "" });
   #|  } else {
-  #|    round = Number(review.rounds[review.rounds.length - 1]?.round || 1) || 1;
+  #|    round = Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0])?.round || 1) || 1;
   #|  }
   #|  let seq = 1;
   #|  for (const c of review.comments) {

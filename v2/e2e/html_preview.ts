@@ -76,6 +76,7 @@ const reviewDir = join(dir, "reviews");
 mkdirSync(reviewDir, { recursive: true });
 const htmlFile = join(dir, "page.html");
 const logoFile = join(dir, "logo.png");
+const linkedFile = join(dir, "linked.html");
 writeFileSync(logoFile, Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
   "base64",
@@ -86,11 +87,13 @@ writeFileSync(htmlFile, [
   "<body>",
   "<main>",
   "<button id=\"cta\">Buy</button>",
+  "<a id=\"docs-link\" href=\"./linked.html\" target=\"_self\" rel=\"opener\">Docs</a>",
   "<img src=\"./logo.png\" alt=\"logo\">",
   "</main>",
   "</body>",
   "</html>",
 ].join("\n"));
+writeFileSync(linkedFile, "<!doctype html><title>Linked HTML target</title><h1>Linked HTML target</h1>");
 
 const proc = spawn("node", [
   SERVER_JS,
@@ -116,7 +119,7 @@ try {
   const shellText = shell.body.toString("utf8");
   assert(shell.status === 200, "HTML preview shell returns 200");
   assert(shellText.includes("<iframe"), "HTML preview shell renders an iframe");
-  assert(shellText.includes("sandbox=\"allow-scripts allow-same-origin\""), "iframe uses the expected sandbox policy");
+  assert(shellText.includes("sandbox=\"allow-scripts allow-same-origin allow-popups\""), "iframe permits user-activated external tabs without relaxing its remaining sandbox");
   assert(shellText.includes("src=\"/__yunomi_html_target\""), "iframe points at the local HTML target");
 
   const target = await httpGet("/__yunomi_html_target");
@@ -135,6 +138,17 @@ try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
     const frame = page.frameLocator("#yunomi-html-frame");
+    const docsLink = frame.locator("#docs-link");
+    assert(await docsLink.getAttribute("target") === "_blank", "HTML preview forces links into an external tab");
+    assert(await docsLink.getAttribute("rel") === "noopener noreferrer", "HTML preview strips opener and referrer access");
+    const shellUrl = page.url();
+    const popupPromise = page.context().waitForEvent("page");
+    await docsLink.click();
+    const popup = await popupPromise;
+    assert(page.url() === shellUrl, "HTML link clicks keep the review shell in its original tab");
+    assert(popup.url().endsWith("/linked.html"), "HTML link clicks open the target in a separate tab");
+    assert(await popup.evaluate(() => window.opener) === null, "HTML external tabs cannot access the review through window.opener");
+    await popup.close();
     const submitButton = frame.locator("#yunomi-html-submit");
     assert(await submitButton.isVisible(), "HTML preview always shows Submit & Exit");
     await frame.locator("#cta").click();

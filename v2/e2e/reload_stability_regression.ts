@@ -89,12 +89,18 @@ function threeQuestionFixture(rev: number): string {
 }
 
 function reviewInputFixture(rev: number): string {
+  const longBody = Array.from(
+    { length: 120 },
+    (_, index) => `## Section ${index + 1}\n\nParagraph ${index + 1} keeps both review panes scrollable.`,
+  );
   return [
     "# Preview refresh keeps review input",
     "",
     "This paragraph is the active review target.",
     "",
     `preview revision ${rev}`,
+    "",
+    ...longBody,
     "",
   ].join("\n");
 }
@@ -457,6 +463,31 @@ async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise
     await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible", timeout: 5000 });
     const commentText = "入力途中のコメントは消えない";
     await page.locator("#comment-input").fill(commentText);
+    const scrollBeforeReload = await page.evaluate(async () => {
+      const preview = document.querySelector<HTMLElement>(".md-left");
+      const source = document.querySelector<HTMLElement>(".md-right");
+      if (!preview || !source) throw new Error("markdown scroll panes are missing");
+      preview.scrollTop = Math.floor((preview.scrollHeight - preview.clientHeight) / 2);
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const sourceMax = Math.max(0, source.scrollHeight - source.clientHeight);
+      source.scrollTop = Math.floor(sourceMax / 3);
+      return {
+        scrollRestoration: history.scrollRestoration,
+        windowX: window.scrollX,
+        windowY: window.scrollY,
+        previewLeft: preview.scrollLeft,
+        previewTop: preview.scrollTop,
+        sourceLeft: source.scrollLeft,
+        sourceTop: source.scrollTop,
+        sourceMax,
+      };
+    });
+    assertTrue(
+      scrollBeforeReload.previewTop > 0
+        && (scrollBeforeReload.sourceMax === 0 || scrollBeforeReload.sourceTop > 0),
+      "スクロール保持テストはスクロール可能なpreview/sourceを非0位置から開始する",
+      scrollBeforeReload,
+    );
 
     const firstRefresh = page.waitForEvent("load", { timeout: 15000 });
     writeFileSync(mdPath, reviewInputFixture(2));
@@ -465,6 +496,52 @@ async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise
     assertTrue(
       await page.locator("#comment-input").inputValue() === commentText,
       "プレビュー更新後も開いていたインライン編集と未保存入力がそのまま残る",
+    );
+    await page.waitForFunction(
+      (expected) => {
+        const preview = document.querySelector<HTMLElement>(".md-left");
+        const source = document.querySelector<HTMLElement>(".md-right");
+        if (!preview || !source) return false;
+        return history.scrollRestoration === expected.scrollRestoration
+          && Math.abs(window.scrollX - expected.windowX) <= 1
+          && Math.abs(window.scrollY - expected.windowY) <= 1
+          && Math.abs(preview.scrollLeft - expected.previewLeft) <= 1
+          && Math.abs(preview.scrollTop - expected.previewTop) <= 1
+          && Math.abs(source.scrollLeft - expected.sourceLeft) <= 1
+          && Math.abs(source.scrollTop - expected.sourceTop) <= 1;
+      },
+      scrollBeforeReload,
+      { timeout: 5000 },
+    ).catch(() => {});
+    const scrollAfterReload = await page.evaluate(() => {
+      const preview = document.querySelector<HTMLElement>(".md-left");
+      const source = document.querySelector<HTMLElement>(".md-right");
+      return {
+        scrollRestoration: history.scrollRestoration,
+        windowX: window.scrollX,
+        windowY: window.scrollY,
+        previewLeft: preview?.scrollLeft || 0,
+        previewTop: preview?.scrollTop || 0,
+        sourceLeft: source?.scrollLeft || 0,
+        sourceTop: source?.scrollTop || 0,
+      };
+    });
+    const expectedScrollPositions = {
+      scrollRestoration: scrollBeforeReload.scrollRestoration,
+      windowX: scrollBeforeReload.windowX,
+      windowY: scrollBeforeReload.windowY,
+      previewLeft: scrollBeforeReload.previewLeft,
+      previewTop: scrollBeforeReload.previewTop,
+      sourceLeft: scrollBeforeReload.sourceLeft,
+      sourceTop: scrollBeforeReload.sourceTop,
+    };
+    assertTrue(
+      scrollAfterReload.scrollRestoration === expectedScrollPositions.scrollRestoration
+        && Object.entries(expectedScrollPositions).every(([key, value]) =>
+          key === "scrollRestoration"
+            || Math.abs(Number(scrollAfterReload[key as keyof typeof scrollAfterReload]) - Number(value)) <= 1),
+      "実ファイル更新のホットリロード後もwindow/preview/sourceのスクロール位置が変わらない",
+      { before: expectedScrollPositions, after: scrollAfterReload },
     );
 
     await page.keyboard.press("Escape");

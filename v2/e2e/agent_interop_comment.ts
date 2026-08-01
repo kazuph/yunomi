@@ -181,13 +181,15 @@ async function main(): Promise<void> {
     if (eventB.includes(text)) {
       throw new Error(`non-matching server received CLI comment\n${eventB}`);
     }
+    // A CLI comment arrives already sent, so it shows up as an inline thread in
+    // the document and never as an unsubmitted draft.
     await page.waitForFunction((needle) => {
       const count = document.querySelector("#comment-count")?.textContent?.trim();
       const inline = Array.from(document.querySelectorAll(".yunomi-inline-comment")).find((el) => {
         const rect = el.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0 && (el.textContent || "").includes(String(needle));
       });
-      return count === "1" && Boolean(inline);
+      return count === "0" && Boolean(inline);
     }, text, { timeout: 5000 });
     const reviewState = await new Promise<string>((resolve, reject) => {
       http.get(`http://127.0.0.1:${portA}/review-state`, (res) => {

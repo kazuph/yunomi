@@ -134,7 +134,7 @@ try {
     });
     const serverInfo = (init as { result?: { serverInfo?: { name?: string; version?: string } } }).result?.serverInfo;
     assert(
-      serverInfo?.name === "yunomi" && serverInfo?.version === "2.4.0",
+      serverInfo?.name === "yunomi" && serverInfo?.version === "2.4.1",
       "MCP initialize returns the published yunomi server identity and version",
       serverInfo,
     );

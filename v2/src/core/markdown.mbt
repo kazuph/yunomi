@@ -271,7 +271,9 @@ fn render_footnotes(
     buf.write_string(render_inline(content, references~, footnotes~))
     buf.write_string(" <a href=\"#footnote-ref-")
     buf.write_string(escape_html(id))
-    buf.write_string("\" aria-label=\"Back to reference\">↩</a></li>")
+    buf.write_string(
+      "\" target=\"_blank\" rel=\"noopener noreferrer\" aria-label=\"Back to reference\">↩</a></li>",
+    )
   })
   if has_footnotes {
     buf.write_string("</ol></section>")
@@ -1018,7 +1020,7 @@ fn render_inline(
             buf.write_string(escape_html(id))
             buf.write_string("\" href=\"#footnote-")
             buf.write_string(escape_html(id))
-            buf.write_string("\">[")
+            buf.write_string("\" target=\"_blank\" rel=\"noopener noreferrer\">[")
             buf.write_string(escape_html(id))
             buf.write_string("]</a></sup>")
             i = footnote_end + 1
@@ -1063,7 +1065,7 @@ fn render_inline(
           } else {
             buf.write_string("<a href=\"")
             buf.write_string(escape_html(link_url))
-            buf.write_string("\">")
+            buf.write_string("\" target=\"_blank\" rel=\"noopener noreferrer\">")
             buf.write_string(
               render_inline(link_text, source_line~, references~, footnotes~),
             )
@@ -1104,7 +1106,9 @@ fn render_inline(
               } else {
                 buf.write_string("<a href=\"")
                 buf.write_string(escape_html(reference_url))
-                buf.write_string("\">")
+                buf.write_string(
+                  "\" target=\"_blank\" rel=\"noopener noreferrer\">",
+                )
                 buf.write_string(
                   render_inline(
                     link_text,
@@ -1237,7 +1241,7 @@ fn render_inline(
           lower.has_prefix("mailto:") {
           buf.write_string("<a href=\"")
           buf.write_string(escape_html(url))
-          buf.write_string("\">")
+          buf.write_string("\" target=\"_blank\" rel=\"noopener noreferrer\">")
           buf.write_string(escape_html(url))
           buf.write_string("</a>")
           i = auto_end + 1
@@ -1567,6 +1571,9 @@ pub fn sanitize_html(input : String) -> String {
       if filtered.length() > 0 {
         buf.write_string(filtered)
       }
+      if !is_closing && tag_name == "a" {
+        buf.write_string(" target=\"_blank\" rel=\"noopener noreferrer\"")
+      }
       // Self-closing check
       if tag_end > 1 && chars[tag_end - 2] == '/' {
         buf.write_string(" /")
@@ -1583,7 +1590,7 @@ pub fn sanitize_html(input : String) -> String {
 
 ///|
 /// Filter HTML attributes, removing event handlers and dangerous URLs
-fn filter_attributes(attr_str : String, _tag_name : String) -> String {
+fn filter_attributes(attr_str : String, tag_name : String) -> String {
   let chars = attr_str.to_array()
   let len = chars.length()
   let buf = StringBuilder::new()
@@ -1642,6 +1649,11 @@ fn filter_attributes(attr_str : String, _tag_name : String) -> String {
     }
     // Filter: skip disallowed attributes
     if !is_allowed_attr(attr_name) {
+      continue
+    }
+    // Link navigation is controlled by yunomi so reviewed documents cannot
+    // replace the review tab or retain access to it through window.opener.
+    if tag_name == "a" && (attr_name == "target" || attr_name == "rel") {
       continue
     }
     // Filter: check URLs in href/src

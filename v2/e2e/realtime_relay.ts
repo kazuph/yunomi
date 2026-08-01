@@ -183,6 +183,48 @@ async function main(): Promise<void> {
   assert.equal(server.exitCode, null);
   await waitForNotify(/\[yunomi\] verdict REPORT\.md decision=request_changes/);
 
+  const tabId = "relay-tab";
+  const activeInstanceId = "relay-instance-current";
+  const open = await request(
+    port,
+    "POST",
+    "/session/open",
+    JSON.stringify({ tabId, instanceId: activeInstanceId }),
+  );
+  assert.equal(open.status, 200);
+  const close = await request(
+    port,
+    "POST",
+    "/close",
+    JSON.stringify({ tabId, instanceId: activeInstanceId, draft: "draft" }),
+  );
+  assert.equal(close.status, 200);
+  const closeNotification = await waitForNotify(/\[yunomi\] tab closed REPORT\.md tab=relay-tab active=0/);
+  const closeCount = () => (existsSync(NOTIFY_LOG) ? readFileSync(NOTIFY_LOG, "utf-8").match(/\[yunomi\] tab closed REPORT\.md/g)?.length || 0 : 0);
+  assert.equal(closeCount(), 1, closeNotification);
+  const duplicateClose = await request(
+    port,
+    "POST",
+    "/close",
+    JSON.stringify({ tabId, instanceId: activeInstanceId, draft: "draft" }),
+  );
+  assert.equal(duplicateClose.status, 200);
+  const reopen = await request(
+    port,
+    "POST",
+    "/session/open",
+    JSON.stringify({ tabId, instanceId: "relay-instance-new" }),
+  );
+  assert.equal(reopen.status, 200);
+  const staleClose = await request(
+    port,
+    "POST",
+    "/close",
+    JSON.stringify({ tabId, instanceId: activeInstanceId, draft: "draft" }),
+  );
+  assert.equal(staleClose.status, 200);
+  assert.equal(closeCount(), 1, "duplicate and stale /close requests do not notify again");
+
   const sseRound = waitForSseRound(port);
   const reply = await request(
     port,

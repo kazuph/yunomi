@@ -220,7 +220,13 @@ async function main(): Promise<void> {
       "画像右上のコメントカードは画像種別・alt・URLを示す",
       imageCard,
     );
-    await page.keyboard.type("keyboard image comment");
+    const imageEditor = page.locator(".yunomi-inline-comment-editor:visible");
+    const imageEditorInputLocator = imageEditor.locator("#comment-input");
+    assert(
+      await imageEditorInputLocator.evaluate((input) => document.activeElement === input),
+      "画像コメントを開くと入力欄へ自動フォーカスする",
+    );
+    await imageEditorInputLocator.pressSequentially("keyboard image comment");
     const imageEditorInput = await page.evaluate(() => {
       const input = document.querySelector<HTMLTextAreaElement>(".yunomi-inline-comment-editor #comment-input");
       const editor = input?.closest<HTMLElement>(".yunomi-inline-comment-editor");
@@ -421,8 +427,10 @@ async function main(): Promise<void> {
     }
     const codeCellCard = await cardState(page);
     assert(codeCellCard.preview.includes("page.goto"), "提出値検証用にコード表セルのコメントカードが開く", codeCellCard);
-    await page.locator("#comment-input").fill("table cell value check");
-    await page.locator("#save-comment").click();
+    const tableEditor = page.locator(".yunomi-inline-comment-editor:visible");
+    await tableEditor.locator("#comment-input").fill("table cell value check");
+    await tableEditor.locator("#save-comment").click();
+    await page.waitForFunction(() => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === "table cell value check"));
 
     await page.evaluate(() => {
       const thumbs = Array.from(document.querySelectorAll<HTMLElement>("#md-preview .video-timeline .timeline-thumb-wrapper"));
@@ -431,8 +439,10 @@ async function main(): Promise<void> {
     });
     const valueTimelineCard = await cardState(page);
     assert(valueTimelineCard.visible, "提出値検証用に動画サムネコメントカードが開く", valueTimelineCard);
-    await page.locator("#comment-input").fill("video timeline value check");
-    await page.locator("#save-comment").click();
+    const timelineEditor = page.locator(".yunomi-inline-comment-editor:visible");
+    await timelineEditor.locator("#comment-input").fill("video timeline value check");
+    await timelineEditor.locator("#save-comment").click();
+    await page.waitForFunction(() => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === "video timeline value check"));
 
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 3000 });

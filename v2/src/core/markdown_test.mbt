@@ -158,7 +158,9 @@ test "parse markdown ordered list" {
 test "parse markdown links" {
   let md = parse_markdown("[click here](https://example.com)")
   debug_inspect(
-    md.html.contains("<a href=\"https://example.com\">click here</a>"),
+    md.html.contains(
+      "<a href=\"https://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">click here</a>",
+    ),
     content=(
       #|true
     ),
@@ -171,13 +173,17 @@ test "parse markdown reference links and footnotes" {
     "See [Yunomi][yunomi] with a note[^design].\n\n[^design]: Keeps source anchors stable.\n\n[yunomi]: https://github.com/kazuph/yunomi",
   )
   debug_inspect(
-    md.html.contains("<a href=\"https://github.com/kazuph/yunomi\">Yunomi</a>"),
+    md.html.contains(
+      "<a href=\"https://github.com/kazuph/yunomi\" target=\"_blank\" rel=\"noopener noreferrer\">Yunomi</a>",
+    ),
     content=(
       #|true
     ),
   )
   debug_inspect(
-    md.html.contains("href=\"#footnote-design\">[design]</a>"),
+    md.html.contains(
+      "href=\"#footnote-design\" target=\"_blank\" rel=\"noopener noreferrer\">[design]</a>",
+    ),
     content=(
       #|true
     ),
@@ -707,7 +713,7 @@ test "markdown coverage: tilde fence and inline combinations" {
   )
   debug_inspect(
     md.html.contains(
-      "<strong>bold <a href=\"https://example.com\">link</a></strong>",
+      "<strong>bold <a href=\"https://example.com\" target=\"_blank\" rel=\"noopener noreferrer\">link</a></strong>",
     ),
     content="true",
   )
@@ -716,7 +722,9 @@ test "markdown coverage: tilde fence and inline combinations" {
     content="true",
   )
   debug_inspect(
-    md.html.contains("<a href=\"https://example.org\">https://example.org</a>"),
+    md.html.contains(
+      "<a href=\"https://example.org\" target=\"_blank\" rel=\"noopener noreferrer\">https://example.org</a>",
+    ),
     content="true",
   )
 }
@@ -977,14 +985,18 @@ test "html block: script inside is stripped" {
 ///|
 test "html block: anchor with badge img keeps href and src" {
   let md = parse_markdown(
-    "<p align=\"center\">\n  <a href=\"https://www.npmjs.com/package/yunomi\"><img src=\"https://img.shields.io/npm/v/yunomi.svg\" alt=\"npm version\"></a>\n</p>",
+    "<p align=\"center\">\n  <a href=\"https://www.npmjs.com/package/yunomi\" target=\"_self\" rel=\"opener\"><img src=\"https://img.shields.io/npm/v/yunomi.svg\" alt=\"npm version\"></a>\n</p>",
   )
   debug_inspect(
-    md.html.contains("<a href=\"https://www.npmjs.com/package/yunomi\""),
+    md.html.contains(
+      "<a href=\"https://www.npmjs.com/package/yunomi\" target=\"_blank\" rel=\"noopener noreferrer\"",
+    ),
     content=(
       #|true
     ),
   )
+  debug_inspect(md.html.contains("target=\"_self\""), content="false")
+  debug_inspect(md.html.contains("rel=\"opener\""), content="false")
   debug_inspect(
     md.html.contains("img.shields.io"),
     content=(

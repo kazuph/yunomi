@@ -275,7 +275,7 @@ fn write_lock(port : Int, file_path : String) -> Unit {
   let resolved_file = if file_path == "<stdin>" {
     file_path
   } else {
-    path_resolve(file_path)
+    realpath_or_resolve(file_path)
   }
   write_file_sync(
     lp,
@@ -290,6 +290,92 @@ fn remove_lock(port : Int) -> Unit {
   if exists_sync(lp) {
     try_call_void(fn() { unlink_sync(lp) })
   }
+}
+
+///|
+/// Return the port of a live server already serving this file.
+fn running_port_for_file(file_path : String) -> Int {
+  ensure_lock_dir()
+  let target = realpath_or_resolve(file_path)
+  for entry in readdir_sync(lock_dir()) {
+    if !entry.has_suffix(".lock") {
+      continue
+    }
+    let lp = path_join(lock_dir(), entry)
+    let content = read_file_safe(lp)
+    let locked_file = json_parse_string("file", content)
+    if locked_file.length() == 0 ||
+      realpath_or_resolve(locked_file) != target {
+      continue
+    }
+    let pid = js_lock_pid(content)
+    if pid <= 0 || !process_exists(pid) {
+      try_call_void(fn() { unlink_sync(lp) })
+      continue
+    }
+    let locked_port = json_parse_int_field("port", content)
+    if locked_port > 0 {
+      return locked_port
+    }
+  }
+  0
+}
+
+///|
+fn claim_file_server(file_path : String) -> (Bool, Int) {
+  let running_port = running_port_for_file(file_path)
+  if running_port > 0 {
+    return (false, running_port)
+  }
+  let claim = js_claim_file_lock(lock_dir(), realpath_or_resolve(file_path))
+  (json_parse_string("status", claim) == "claimed", json_parse_int_field("port", claim))
+}
+
+///|
+fn claim_all_file_servers(files : Array[String]) -> Bool {
+  let claimed : Array[String] = []
+  for file_path in files {
+    let claim = claim_file_server(file_path)
+    if !claim.0 {
+      for owned_file in claimed {
+        js_remove_file_lock(lock_dir(), owned_file)
+      }
+      let existing_location = if claim.1 > 0 {
+        " at http://127.0.0.1:\{claim.1}"
+      } else {
+        " (server startup in progress)"
+      }
+      console_error(
+        "yunomi already serves \{path_basename(file_path)}\{existing_location}",
+      )
+      return false
+    }
+    claimed.push(file_path)
+  }
+  true
+}
+
+///|
+fn cleanup_server_locks() -> Unit {
+  cleanup_live_log()
+  for srv in active_servers {
+    remove_lock(srv.port)
+    if srv.file_path != "<stdin>" {
+      js_remove_file_lock(lock_dir(), srv.file_path)
+    }
+  }
+}
+
+///|
+fn install_server_signal_cleanup() -> Unit {
+  on_process_signal("SIGINT", fn() {
+    cleanup_server_locks()
+    exit_process("SIGINT", 0)
+  })
+  on_process_signal("SIGTERM", fn() {
+    cleanup_server_locks()
+    exit_process("SIGTERM", 0)
+  })
 }
 
 ///|
@@ -319,6 +405,7 @@ fn main {
   for i in 2..<argv.length() {
     args.push(argv[i])
   }
+  install_server_signal_cleanup()
   if args.length() > 0 && args[0] == "live" && args.length() < 2 {
     console_error("yunomi live: target URL is required")
     print_usage()
@@ -481,14 +568,6 @@ fn main {
   server_instance_id.val = gen_instance_id()
   // Initialize live log for real-time comment IPC
   init_live_log()
-  // Cleanup locks and live log on SIGINT
-  on_process_signal("SIGINT", fn() {
-    cleanup_live_log()
-    for srv in active_servers {
-      remove_lock(srv.port)
-    }
-    exit_process("SIGINT", 0)
-  })
   // Pre-load ui.js
   ignore(load_ui_js())
   // No files and stdin is piped: read a diff from stdin
@@ -506,9 +585,12 @@ fn main {
   // [text](media) links hide evidence from the reviewer — refuse and
   // let the caller (usually an AI agent) fix the markdown first.
   enforce_media_discipline(files)
-  // Start servers for each file
-  expected_count.val = files.length()
+  // Refuse to start a second server for a file that is already being served.
   ensure_lock_dir()
+  if !claim_all_file_servers(files) {
+    exit_process("same file already served", 2)
+  }
+  expected_count.val = files.length()
   for idx, file_path in files {
     let current_port = find_available_port(port + idx)
     start_file_server(file_path, current_port, no_open)
@@ -1103,7 +1185,7 @@ fn post_comment_to_running_servers(
   if entries.length() == 0 {
     return "no lock files found in " + lock_dir()
   }
-  let target_abs = path_resolve(target.file)
+  let target_abs = realpath_or_resolve(target.file)
   let body = "{\"type\":\"comment\",\"key\":\"cli-\{target.line}\",\"row\":\{target.line},\"col\":0,\"text\":\{json_encode_value(text)},\"author\":\{json_encode_value(author)}}"
   let mut scanned = 0
   let mut candidates = 0
@@ -1113,16 +1195,28 @@ fn post_comment_to_running_servers(
       continue
     }
     scanned = scanned + 1
-    let port_s = @core.safe_slice_range(entry, 0, entry.length() - 5)
-    let port = @core.parse_int_safe(port_s)
+    let lp = path_join(lock_dir(), entry)
+    let content = read_file_safe(lp)
+    let stored_port = json_parse_int_field("port", content)
+    let port = if stored_port > 0 {
+      stored_port
+    } else {
+      let port_s = @core.safe_slice_range(entry, 0, entry.length() - 5)
+      @core.parse_int_safe(port_s)
+    }
     if port <= 0 {
       last_error = "invalid lock filename: " + entry
       continue
     }
-    let lp = path_join(lock_dir(), entry)
-    let content = read_file_safe(lp)
-    if content.length() > 0 && !js_lock_matches_file(content, target_abs) {
-      continue
+    if content.length() > 0 {
+      if !js_lock_matches_file(content, target_abs) {
+        continue
+      }
+      let pid = js_lock_pid(content)
+      if pid > 0 && !process_exists(pid) {
+        try_call_void(fn() { unlink_sync(lp) })
+        continue
+      }
     }
     candidates = candidates + 1
     let result = spawn_sync_status_args(curl, [
@@ -1353,13 +1447,58 @@ fn print_skill_doc_text() -> String {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Serve it through Herdr from the repository root. `herdr run` keeps
-    #|   the caller pane available for live comment notifications:
+    #|3. Resolve and validate the notification route at runtime. Try Herdr first,
+    #|   but do not exit until the tmux route has also been evaluated:
     #|
     #|   ```bash
-    #|   herdr run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop
+    #|   if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')" &&
+    #|      herdr pane get "$PANE_ID" >/dev/null 2>&1; then
+    #|     YUNOMI_ROUTE=herdr
+    #|   elif [ -n "$TMUX" ] && [ -n "$YUNOMI_NOTIFY_CMD" ]; then
+    #|     TMUX_PANE_ID="$(tmux display-message -p '#{pane_id}')" || exit 1
+    #|     test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = \
+    #|       "$TMUX_PANE_ID" || exit 1
+    #|     YUNOMI_ROUTE=tmux
+    #|   else
+    #|     echo "no proven yunomi notification route" >&2
+    #|     exit 1
+    #|   fi
     #|   ```
     #|
+    #|   If `YUNOMI_ROUTE=herdr`, Codex must use `herdr run` so both live
+    #|   input and process completion return to the launching pane:
+    #|
+    #|   ```bash
+    #|   herdr run --label yunomi --cwd /absolute/path/to/repo -- \
+    #|     npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"
+    #|   ```
+    #|
+    #|   If `YUNOMI_ROUTE=herdr`, Claude Code must run this command with
+    #|   `run_in_background: true`:
+    #|
+    #|   ```bash
+    #|   npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"
+    #|   ```
+    #|
+    #|   If `YUNOMI_ROUTE=tmux`, run this child command with the runtime's
+    #|   managed background facility instead; do not add `--notify-pane`:
+    #|
+    #|   ```bash
+    #|   YUNOMI_NOTIFY_CMD="$YUNOMI_NOTIFY_CMD" npx yunomi REPORT.md --loop
+    #|   ```
+    #|
+    #|   Never start a writable review without a proven notification route,
+    #|   with a guessed pane, or after route validation fails. Fail closed
+    #|   instead. Do not run `open` after launch; yunomi opens the browser itself.
+    #|
+    #|   `--notify-pane` is Herdr-only. Never pass a tmux `%pane` id to it.
+    #|   In a pure tmux environment, start a writable review with `--loop` only
+    #|   when a preconfigured `YUNOMI_NOTIFY_CMD` adapter has already been proven
+    #|   to queue a test message safely to the current agent. The route-selection
+    #|   block above validates its tmux pane. Do not invent an inline
+    #|   `tmux send-keys` fallback. Fail closed if
+    #|   delivery is unproven.
+    #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
     #|   Read `.yunomi/reviews/<branch>/review.json`, fix every unresolved
     #|   thread, update REPORT.md, then run:
@@ -1371,9 +1510,9 @@ fn print_skill_doc_text() -> String {
     #|5. The browser updates to the next round at the same URL, showing the
     #|   previous submitted REPORT.md versus the current REPORT.md diff.
     #|   Comments remain unresolved until the human clicks Resolve.
-    #|6. When yunomi sends a live line comment or sidebar conversation
-    #|   notification through Herdr, act on it immediately. Reply to the exact
-    #|   `c-...` or `r-...` thread id without resolving it yourself:
+    #|6. When yunomi sends a live line comment or sidebar conversation through
+    #|   the proven notification route, act on it immediately. Reply to the
+    #|   exact `c-...` or `r-...` thread id without resolving it yourself:
     #|
     #|   ```bash
     #|   npx yunomi reply c-2-3 'Fixed the Japanese error message wording.'
@@ -1520,13 +1659,14 @@ fn print_skill_doc_text() -> String {
     #|## CLI reference
     #|
     #|```bash
-    #|yunomi <file...> [--loop] [--port n] [--host addr] [--no-open] [-e encoding]
-    #|yunomi <file...> --loop --notify-pane <pane-id>
+    #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--port n] [--host addr] [--no-open] [-e encoding]
+    #|YUNOMI_NOTIFY_CMD=<preconfigured-verified-adapter> yunomi <file...> --loop
     #|yunomi go              # start the next round for this branch
     #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
     #|yunomi comment <file:line> <text> [--author <name>]
     #|yunomi install <agent> [--global|--project] [--list]
-    #|git diff | yunomi      # review a diff from stdin
+    #|yunomi share <file...> # explicit read-only exception
+    #|git diff | yunomi --loop --notify-pane <proven-herdr-pane-id>
     #|yunomi --skill         # print this document again
     #|```
     #|
@@ -1545,9 +1685,11 @@ fn print_skill_doc_text() -> String {
     #|```markdown
     #|---
     #|name: yunomi
-    #|description: Serve finished work to the human as a browsable report
-    #|  for review and approval. Use whenever a task is complete and needs
-    #|  human sign-off before commit/publish/completion.
+    #|description: >-
+    #|  Serve finished work to the human as a browsable report for interactive
+    #|  review and approval. Writable reviews must use --loop and a
+    #|  runtime-validated notification route. Fail closed when neither Herdr nor
+    #|  a preverified tmux adapter is proven. yunomi share is the read-only exception.
     #|---
     #|```
     #|
@@ -1555,8 +1697,10 @@ fn print_skill_doc_text() -> String {
     #|- Codex/agents: ~/.agents/skills/yunomi/SKILL.md
     #|- Project-local alternative: .claude/skills/yunomi/SKILL.md
     #|
-    #|From then on, serve every finished task with `npx yunomi REPORT.md --loop`
-    #|without being asked, and use `npx yunomi go` after each fix round.
+    #|From then on, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
+    #|after resolving and validating a Herdr pane. In pure tmux, use `--loop`
+    #|only with the preconfigured, delivery-proven adapter described above.
+    #|Use `npx yunomi go` after each fix round.
   doc
 }
 
@@ -1898,6 +2042,17 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
       bind_host.val,
       no_open,
       server_instance_id.val,
+      max_port_attempts,
+      fn(bound_port) {
+        ctx.port = bound_port
+        write_lock(bound_port, ctx.file_path)
+        js_update_file_lock(lock_dir(), ctx.file_path, bound_port)
+        write_review_server(ctx.file_path, bound_port, ctx.notify_pane)
+      },
+      fn(bound_port) {
+        remove_lock(bound_port)
+        js_remove_file_lock(lock_dir(), ctx.file_path)
+      },
       fn(body) {
         persist_external_review(
           review_json_path_for_file(ctx.file_path),
@@ -2022,6 +2177,9 @@ fn start_share_server(
   review_mux_mode.val = files.length() > 1
   expected_count.val = files.length()
   ensure_lock_dir()
+  if !claim_all_file_servers(files) {
+    exit_process("same file already served", 2)
+  }
   let actual_port = find_available_port(port)
   let token = create_share_token(files, bind_host.val, actual_port)
   share_token.val = token
@@ -2106,6 +2264,9 @@ fn start_review_mux_server(
   review_mux_mode.val = true
   expected_count.val = files.length()
   ensure_lock_dir()
+  if !claim_all_file_servers(files) {
+    exit_process("same file already served", 2)
+  }
   let actual_port = find_available_port(port)
   for file_path in files {
     let ctx = create_file_context(file_path, actual_port)
@@ -2385,6 +2546,7 @@ fn try_listen(
       try_listen(ctx, port + 1, attempt + 1, no_open)
     } else {
       console_error("Server error")
+      cleanup_server_locks()
       exit_process("server error", 1)
     }
   })
@@ -2398,8 +2560,22 @@ fn try_listen(
       }
     }
     write_lock(bound_port, ctx.file_path)
-    if ctx.file_path != "<stdin>" && !share_mode.val {
-      write_review_server(ctx.file_path, bound_port, ctx.notify_pane)
+    if review_mux_mode.val {
+      for active_ctx in active_servers {
+        js_update_file_lock(lock_dir(), active_ctx.file_path, bound_port)
+        if !share_mode.val {
+          write_review_server(
+            active_ctx.file_path,
+            bound_port,
+            active_ctx.notify_pane,
+          )
+        }
+      }
+    } else if ctx.file_path != "<stdin>" {
+      js_update_file_lock(lock_dir(), ctx.file_path, bound_port)
+      if !share_mode.val {
+        write_review_server(ctx.file_path, bound_port, ctx.notify_pane)
+      }
     }
     let display_host = if host == "0.0.0.0" { "127.0.0.1" } else { host }
     let url = "http://\{display_host}:\{bound_port}"
@@ -3556,6 +3732,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     for srv in active_servers {
       if srv.file_path != "<stdin>" {
         unwatch_file(srv.file_path)
+        js_remove_file_lock(lock_dir(), srv.file_path)
       }
       remove_lock(srv.port)
     }
@@ -3616,6 +3793,15 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   remove_active_tab(ctx, tab_id)
   log_session_event(
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
+  )
+  notify_reviewer(
+    ctx,
+    "[yunomi] tab closed " +
+    ctx.filename +
+    " tab=" +
+    tab_id +
+    " active=" +
+    ctx.active_tabs.length().to_string(),
   )
   // Closing or navigating away only unregisters the tab. The browser has
   // already persisted this draft to localStorage; only an explicit /exit

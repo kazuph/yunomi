@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.4.1 - 2026-08-01
+
+### Fixed
+
+- Markdown, sanitized raw HTML, and static HTML preview links always open in a separate tab with `noopener noreferrer`, leaving the review tab in place.
+- Saved inline comments re-anchor by quoted text and surrounding context, retain a stable order, render once at their canonical target, and remain explicitly unanchored when no unique target exists.
+- Hot reloads preserve preview and source scroll positions, pending comment editors, and Submit Review input.
+- Inline comments stay inside the selected table cell or beside their media block, Draft counts exclude sent threads, and Cmd/Ctrl+Enter shortcuts ignore active IME composition.
+- Stale tabs retire without rejoining a review, completed reviews notify their originating pane once, and concurrent launches for the same report share one server and port.
+
 ## v2.4.0 - 2026-07-29
 
 ### Added

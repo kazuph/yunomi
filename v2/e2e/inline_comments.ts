@@ -112,6 +112,13 @@ async function layoutOverlaps(page: Page): Promise<Array<{ first: string; second
 
 async function exerciseType(page: Page, name: string, selector: string): Promise<void> {
   await clickElement(page, selector);
+  if (name === "image") {
+    const editorPlacement = await page.evaluate(() => {
+      const editor = document.querySelector<HTMLElement>(".yunomi-inline-comment-editor");
+      return { parent: editor?.parentElement?.tagName || "", previous: editor?.previousElementSibling?.tagName || "" };
+    });
+    assert(editorPlacement.parent !== "P" && editorPlacement.previous === "P", "image editor is one valid sibling after its nearest block", editorPlacement);
+  }
   if (name === "heading") {
     const placement = await page.evaluate(() => {
       const heading = document.querySelector<HTMLElement>("#md-preview h1.md-heading-toggle");
@@ -121,9 +128,19 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
       const headingRect = heading.getBoundingClientRect();
       const contentRect = content.getBoundingClientRect();
       const editorRect = editor.getBoundingClientRect();
-      return { headingBottom: headingRect.bottom, editorTop: editorRect.top, editorWidth: editorRect.width, contentWidth: contentRect.width };
+      const rootStyle = getComputedStyle(document.documentElement);
+      const reservedWidth =
+        parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-width")) +
+        parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-offset"));
+      return { headingBottom: headingRect.bottom, editorTop: editorRect.top, editorWidth: editorRect.width, contentWidth: contentRect.width, reservedWidth };
     });
-    assert(placement !== null && placement.editorTop >= placement.headingBottom && Math.abs(placement.editorWidth - placement.contentWidth) <= 1, "heading editor renders below the heading at the full content width", placement);
+    assert(
+      placement !== null
+        && placement.editorTop >= placement.headingBottom
+        && Math.abs(placement.contentWidth - placement.editorWidth - placement.reservedWidth) <= 1,
+      "heading editor renders below the heading at the fixed comment width",
+      placement,
+    );
     const overlaps = await layoutOverlaps(page);
     assert(overlaps.length === 0, "opening an editor does not overlap any rendered block element", overlaps);
   }
@@ -137,7 +154,14 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
     throw new Error(`${name}: saved inline comment did not render; editor=${await page.locator(".yunomi-inline-comment-editor").count()} comments=${await page.locator(".yunomi-inline-comment-text").allTextContents()}\n${error}`);
   });
   const surfaces = await page.locator(`.yunomi-inline-comment-text:text-is("${initial}")`).count();
-  assert(surfaces >= 2, `${name}: saved comment is visible below preview and source`, { surfaces });
+  assert(surfaces === 1, `${name}: saved comment has one canonical inline view`, { surfaces });
+  if (name === "image") {
+    const savedPlacement = await page.locator(`.yunomi-inline-comment-text:text-is("${initial}")`).evaluate((text) => {
+      const holder = text.closest<HTMLElement>(".yunomi-inline-comment");
+      return { parent: holder?.parentElement?.tagName || "", previous: holder?.previousElementSibling?.tagName || "" };
+    });
+    assert(savedPlacement.parent !== "P" && savedPlacement.previous === "P", "image saved view is one valid sibling after its nearest block", savedPlacement);
+  }
   if (name === "unordered-list" || name === "ordered-list" || name === "list-item") {
     const savedListPlacement = await page.locator(`#md-preview .yunomi-inline-comment-text:text-is("${initial}")`).evaluate((text) => {
       const holder = text.closest<HTMLElement>(".yunomi-inline-comment");
@@ -166,7 +190,7 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill(edited);
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
   await page.waitForFunction((text) => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === text), edited, { timeout: 5_000 });
-  assert(await page.locator(`.yunomi-inline-comment-text:text-is("${edited}")`).count() >= 2, `${name}: clicking the inline comment edits it in place`);
+  assert(await page.locator(`.yunomi-inline-comment-text:text-is("${edited}")`).count() === 1, `${name}: clicking the inline comment edits it in place without a duplicate view`);
 
   await page.locator(`.yunomi-inline-comment-view:has-text("${edited}")`).first().click();
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("");
@@ -278,10 +302,15 @@ try {
   ];
   for (const [name, selector] of targets) await exerciseType(page, name, selector);
 
-  await clickElement(page, "#md-preview h1[data-source-line]");
+  if (await page.locator(".md-layout.preview-only").count()) {
+    await page.locator("#view-toggle").click();
+    await page.waitForSelector(".md-layout:not(.preview-only) .md-right", { state: "visible" });
+  }
+  await clickElement(page, "td[data-row]:not(#md-preview *)");
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  await page.locator('.yunomi-inline-comment[data-comment-surface="preview"] .yunomi-inline-comment-view:has-text("survives reload")').click();
+  assert(await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "saved source comment stays at its clicked source surface");
+  await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-view:has-text("survives reload")').click();
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
   const storageBefore = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
   assert(storageBefore.includes("survives reload") && storageBefore.includes('"pending":true') && storageBefore.includes('"sent":false'), "localStorage preserves the pending review state");
@@ -353,11 +382,13 @@ try {
     previewViews: document.querySelectorAll('.yunomi-inline-comment[data-comment-surface="preview"] .yunomi-inline-comment-view').length,
     sourceViews: document.querySelectorAll('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-view').length,
   }));
-  assert(restoredEditingState.editors === 1 && restoredEditingState.previewViews === 0 && restoredEditingState.sourceViews === 1, "restore shows one editor without a duplicate Pending view on the editing surface", restoredEditingState);
+  assert(restoredEditingState.editors === 1 && restoredEditingState.previewViews === 0 && restoredEditingState.sourceViews === 0, "restore shows one editor without any duplicate saved view", restoredEditingState);
+  assert(await page.locator('.yunomi-inline-comment-editor[data-comment-surface="source"]').count() === 1, "reload restores the source editor at its clicked surface");
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  await page.waitForFunction(() => document.querySelectorAll('.yunomi-inline-comment-view:has(.yunomi-inline-comment-text)').length >= 2);
-  assert(await page.locator('.yunomi-inline-comment-text:text-is("survives reload")').count() >= 2, "reload restore recreates preview and source inline comments after editing finishes");
-  assert(await page.locator('.yunomi-inline-comment-view:has-text("survives reload") .yunomi-inline-comment-pending').count() >= 2, "reload restore keeps the Pending badge on both inline surfaces");
+  await page.waitForFunction(() => document.querySelectorAll('.yunomi-inline-comment-view:has(.yunomi-inline-comment-text)').length === 1);
+  assert(await page.locator('.yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "reload restore recreates one canonical inline comment after editing finishes");
+  assert(await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "reload restore keeps the saved view at its clicked source surface");
+  assert(await page.locator('.yunomi-inline-comment-view:has-text("survives reload") .yunomi-inline-comment-pending').count() === 1, "reload restore keeps one Pending badge on the canonical view");
   if (EVIDENCE_DIR) {
     await page.screenshot({ path: join(EVIDENCE_DIR, "03-comment-restored-after-reload.png"), fullPage: true });
   }
