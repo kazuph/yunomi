@@ -783,16 +783,47 @@ extern "js" fn fetch_get(url : String, callback : (String) -> Unit) -> Unit =
   #|(url, cb) => fetch(url).then(r => r.text()).then(cb).catch(() => cb("[]"))
 
 ///|
+extern "js" fn focus_durable_review_comment(key : String) -> Bool =
+  #|(key) => {
+  #|  const id = String(key || "");
+  #|  if (!window.__YUNOMI_UNRESOLVED_COMMENT_IDS__?.has(id)) return false;
+  #|  const selector = `[data-review-comment-id="${CSS.escape(id)}"]`;
+  #|  const inlineThread = document.querySelector(`.review-loop-inline${selector}`);
+  #|  const sidebarThread = document.querySelector(`.review-loop-sidebar-card${selector}`);
+  #|  const thread = inlineThread || sidebarThread;
+  #|  if (thread) {
+  #|    const panel = document.querySelector("#review-loop-panel");
+  #|    if (sidebarThread && panel?.classList.contains("review-loop-sidebar-collapsed")) {
+  #|      panel.querySelector(".review-loop-sidebar-toggle")?.click();
+  #|    }
+  #|    thread.scrollIntoView({ block: "nearest" });
+  #|    thread.querySelector("textarea, button, input")?.focus();
+  #|  }
+  #|  return true;
+  #|}
+
+///|
 extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|(json) => {
   #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (!panel) return 0;
+  #|  const captureScroll = (selector) => {
+  #|    const element = panel.querySelector(selector);
+  #|    return element ? {
+  #|      top: element.scrollTop,
+  #|      followsLatest: element.scrollTop + element.clientHeight >= element.scrollHeight,
+  #|    } : { top: 0, followsLatest: true };
+  #|  };
+  #|  const previousScroll = {
+  #|    conversation: captureScroll(".review-loop-conversation-stream"),
+  #|    unanchored: captureScroll(".review-loop-unanchored"),
+  #|  };
   #|  const mobileQuery = matchMedia("(max-width: 960px), (max-device-width: 960px)");
   #|  const clearPanel = () => {
   #|    panel.innerHTML = "";
   #|  };
   #|  let state;
-  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
+  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  // The latest round is the highest round number, never the last array
@@ -807,8 +838,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const currentRound = Number(round.round || 1);
   #|  const actionableComments = comments.filter(c => c.scope !== "round");
+  #|  window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(actionableComments.map(c => String(c.id || "")).filter(Boolean));
   #|  const roundThreads = comments.filter(c => c.scope === "round");
   #|  const unresolved = actionableComments.filter(c => c.status !== "resolved");
+  #|  window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(unresolved.map(c => String(c.id || "")).filter(Boolean));
   #|  // Only line comments can be resolved, so only they are counted. When there
   #|  // are none the count is omitted entirely: printing "0 open · 0 resolved"
   #|  // above a visible conversation reads as if the conversation did not exist.
@@ -817,33 +850,9 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-  #|  const ja = /^ja\b/i.test(navigator.language || "");
-  #|  const t = ja ? {
-  #|    header: "レビューコメント",
-  #|    counts: (open, resolved) => `未解決 ${open} ・ 解決済み ${resolved}`,
-  #|    you: "あなた",
-  #|    agent: "AI",
-  #|    resolved: "解決済み",
-  #|    resolve: "会話を解決",
-  #|    resolveTitle: "このスレッドを解決済みにする",
-  #|    collapseTitle: "サイドバーを最小化",
-  #|    expandTitle: "サイドバーを広げる",
-  #|    diffLabel: "前回からの差分",
-  #|    allResolved: "すべて解決済み — お茶をどうぞ",
-  #|    reply: "返信",
-  #|    replyPlaceholder: "この会話に返信",
-  #|    newGlobalComment: "新しい会話",
-  #|    newGlobalPlaceholder: "新しい論点を入力",
-  #|    create: "作成",
-  #|    attachImage: "画像を添付",
-  #|    removeImage: "画像を削除",
-  #|    attachedImage: "添付画像",
-  #|    notInDocument: "本文内に表示できません",
-  #|  } : {
+  #|  const t = {
   #|    header: "Review comments",
   #|    counts: (open, resolved) => `${open} open · ${resolved} resolved`,
-  #|    you: "you",
-  #|    agent: "agent",
   #|    resolved: "Resolved",
   #|    resolve: "Resolve conversation",
   #|    resolveTitle: "Mark this thread resolved",
@@ -861,6 +870,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    attachedImage: "Attached image",
   #|    notInDocument: "Not shown in document",
   #|  };
+  #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
   #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
   #|  const baseName = (file) => String(file || "").split("/").filter(Boolean).pop() || String(file || "");
   #|  const lineText = (line) => String((line && line.text) || "");
@@ -1055,14 +1065,14 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      });
   #|    });
   #|  };
-  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach">${esc(t.attachImage)}<input class="review-loop-reply-file" type="file" accept="image/*" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
+  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
   #|  const reviewLoopCard = (c, includeSnippet, options = {}) => {
   #|    const replies = Array.isArray(c.replies) ? c.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
   #|    const threadLine = (r) => {
   #|      const human = r.author === "human";
   #|      const className = human ? "review-loop-thread-line is-human" : "review-loop-thread-line is-agent";
   #|      const attachments = (Array.isArray(r.attachments) ? r.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<div class="${className}"><span>${esc(r.author === "human" ? t.you : t.agent)}</span>${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
+  #|      return `<div class="${className}">${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
   #|    };
   #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] })]
   #|      .concat(replies.map(threadLine)).join("");
@@ -1170,7 +1180,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const messages = [{ author: "human", text: activeRoundThread.text, attachments: activeRoundThread.attachments || [] }].concat(replies).map(message => {
   #|      const human = message.author === "human";
   #|      const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}"><strong>${esc(human ? t.you : t.agent)}</strong>${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
+  #|      return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
   #|    }).join("");
   #|    const replyForm = conversationForm(activeRoundThread.id, "/reply-comment", t.replyPlaceholder, t.reply);
   #|    return `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread.id)}"><div class="review-loop-conversation-stream">${messages}</div>${replyForm}</section>`;
@@ -1188,8 +1198,9 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // With nothing said yet the panel starts as the chat icon: an empty form
   #|  // is not worth 300px of the document. A stored choice always wins.
   #|  const storedSidebar = localStorage.getItem(sidebarStorageKey);
+  #|  const hasSidebarContent = Boolean(activeRoundThread || unanchoredHtml || resolved.length);
   #|  const collapsed = storedSidebar === "collapsed"
-  #|    || (storedSidebar !== "expanded" && (mobileQuery.matches || comments.length === 0));
+  #|    || (storedSidebar !== "expanded" && (mobileQuery.matches || !hasSidebarContent));
   #|  panel.classList.toggle("review-loop-sidebar-collapsed", collapsed);
   #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
   #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
@@ -1199,8 +1210,18 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const countsText = countable ? t.counts(unresolved.length, resolved.length) : "";
   #|  const toggleLabel = countable ? `${toggleTitle}: ${countsText}` : toggleTitle;
   #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(countsText)}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(countsText)}">${countable ? unresolved.length : ""}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleLabel)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}${unanchoredSection}${diffSection}</div></section>`;
+  #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
+  #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
+  #|  }
   #|  bindResolveButtons(panel);
   #|  bindReplyForms(panel);
+  #|  const restoreScroll = (selector, previous) => {
+  #|    const element = panel.querySelector(selector);
+  #|    if (!element) return;
+  #|    element.scrollTop = previous.followsLatest ? element.scrollHeight : previous.top;
+  #|  };
+  #|  restoreScroll(".review-loop-conversation-stream", previousScroll.conversation);
+  #|  restoreScroll(".review-loop-unanchored", previousScroll.unanchored);
   #|  const togglePanel = () => {
   #|    const button = panel.querySelector(".review-loop-sidebar-toggle");
   #|    const next = !panel.classList.contains("review-loop-sidebar-collapsed");
@@ -1233,6 +1254,7 @@ extern "js" fn render_inline_saved_comment(
   surface : String,
 ) -> Unit =
   #|(key, row, col, text, image, value, pending, target, surface) => {
+  #|  if (window.__YUNOMI_DURABLE_COMMENT_IDS__?.has(String(key || ""))) return;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);

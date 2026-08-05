@@ -39,13 +39,15 @@ extern "js" fn restore_reload_scroll_state(key : String) -> Unit =
   #|  };
   #|  window.__YUNOMI_RELOAD_SCROLL_RESTORING__ = true;
   #|  history.scrollRestoration = "manual";
-  #|  window.scrollTo({ left: number(state.window?.left), top: number(state.window?.top), behavior: "instant" });
-  #|  restore(".md-left", state.preview);
-  #|  restore(".md-right", state.source);
-  #|  requestAnimationFrame(() => requestAnimationFrame(() => {
-  #|    window.__YUNOMI_RELOAD_SCROLL_RESTORING__ = false;
-  #|    history.scrollRestoration = state.scrollRestoration === "manual" ? "manual" : "auto";
-  #|  }));
+  #|  requestAnimationFrame(() => {
+  #|    window.scrollTo({ left: number(state.window?.left), top: number(state.window?.top), behavior: "instant" });
+  #|    restore(".md-left", state.preview);
+  #|    restore(".md-right", state.source);
+  #|    requestAnimationFrame(() => {
+  #|      window.__YUNOMI_RELOAD_SCROLL_RESTORING__ = false;
+  #|      history.scrollRestoration = state.scrollRestoration === "manual" ? "manual" : "auto";
+  #|    });
+  #|  });
   #|}
 
 ///|

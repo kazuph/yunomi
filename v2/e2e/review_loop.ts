@@ -167,8 +167,9 @@ async function main(): Promise<void> {
   const uiJs = await request(port, "GET", "/ui.js");
   assert.equal(uiJs.status, 200);
   assert.match(uiJs.body, /Comments/, "review loop UI uses the familiar comments header");
+  assert.doesNotMatch(uiJs.body, /レビューコメント|あなた|会話を解決|返信|画像を添付/, "review loop labels stay English regardless of browser locale");
   assert.match(uiJs.body, /review-loop-thread-line is-human/, "review loop UI renders the human message inside a thread");
-  assert.match(uiJs.body, /r\.author === "human" \? t\.you : t\.agent/, "review loop UI renders reply authors inside the same thread");
+  assert.doesNotMatch(uiJs.body, /you: "human"|agent: "agent"/, "review loop omits redundant speaker labels from message bubbles");
   assert.match(uiJs.body, /Diff since last round/, "review loop UI keeps the collapsed round diff");
   assert.doesNotMatch(uiJs.body, /Previous request|AI reply|Review flow|Check status|Review target|Original target/, "review loop removes duplicated labels and fixed guidance");
   assert.match(uiJs.body, /All resolved — enjoy your tea/, "review loop UI keeps the tea-themed approve-ready moment for when every thread is resolved");
@@ -212,6 +213,14 @@ async function main(): Promise<void> {
   assert.equal(firstComment?.status, "unresolved");
   assert.match(firstComment?.anchor.snippet || "", /# Review Loop/, "review loop anchor keeps nearby source context");
   assert.match(firstComment?.anchor.snippet || "", /Before line/, "review loop anchor includes the referenced line");
+  const detachedComment = review.comments.find((comment: { id: string }) => comment.id === "c-1-4");
+  assert.ok(detachedComment, "the detached fixture comment is persisted");
+  detachedComment.replies.push({
+    author: "agent",
+    round: 1,
+    text: Array.from({ length: 30 }, (_, index) => `Detached conversation line ${index + 1}`).join("\n"),
+    attachments: [],
+  });
   review.comments.push({
     id: "foreign-file-comment",
     file: "OTHER.md",
@@ -302,6 +311,74 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#review-loop-panel .review-loop-index-list, #review-loop-panel .review-loop-index-item").count(), 0, "inline comments never reappear as a sidebar index");
     assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-comment[data-review-comment-id='c-1-4']").count(), 1, "an unanchored line comment is shown once in the explicit not-in-document section");
     assert.match(await page.locator("#review-loop-panel .review-loop-unanchored").textContent() || "", /Not shown in document[\s\S]*Please review detached detail/, "the unanchored section explains why the thread is not placed beside unrelated text");
+    const unanchored = page.locator("#review-loop-panel .review-loop-unanchored");
+    const unanchoredLayout = await unanchored.evaluate((element) => ({
+      overflowY: getComputedStyle(element).overflowY,
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    }));
+    assert.equal(unanchoredLayout.overflowY, "auto", "the not-in-document conversation owns vertical scrolling");
+    assert.ok(unanchoredLayout.scrollHeight > unanchoredLayout.clientHeight, "a long not-in-document conversation overflows inside the fixed chat");
+    assert.ok(unanchoredLayout.scrollTop + unanchoredLayout.clientHeight >= unanchoredLayout.scrollHeight, "the not-in-document conversation initially shows its latest message");
+    await unanchored.hover();
+    await page.mouse.wheel(0, -5000);
+    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) === 0);
+    assert.equal(await unanchored.evaluate((element) => element.scrollTop), 0, "mouse-wheel input reaches older messages at the top");
+    await page.mouse.wheel(0, 5000);
+    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) > 0);
+    const unanchoredScrolled = await unanchored.evaluate((element) => {
+      const reply = element.querySelector<HTMLElement>(".review-loop-reply-form");
+      if (!reply) return null;
+      const sectionBox = element.getBoundingClientRect();
+      const replyBox = reply.getBoundingClientRect();
+      return {
+        scrollTop: element.scrollTop,
+        atBottom: Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1,
+        replyTop: replyBox.top,
+        replyBottom: replyBox.bottom,
+        sectionTop: sectionBox.top,
+        sectionBottom: sectionBox.bottom,
+      };
+    });
+    assert.ok((unanchoredScrolled?.scrollTop || 0) > 0, "mouse-wheel input moves the not-in-document conversation");
+    assert.equal(unanchoredScrolled?.atBottom, true, "mouse-wheel input reaches the bottom of the not-in-document conversation");
+    assert.ok(
+      (unanchoredScrolled?.replyTop ?? -1) >= (unanchoredScrolled?.sectionTop ?? Number.MAX_SAFE_INTEGER)
+        && (unanchoredScrolled?.replyBottom ?? Number.MAX_SAFE_INTEGER) <= (unanchoredScrolled?.sectionBottom ?? -1),
+      "the reply editor is fully reachable at the bottom of the not-in-document conversation",
+    );
+    const detachedReply = unanchored.locator(".review-loop-reply-form");
+    await detachedReply.locator("textarea").fill("Newest human detached reply");
+    await detachedReply.locator("button[type='submit']").click();
+    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Newest human detached reply"));
+    const afterHumanReply = await unanchored.evaluate((element) => ({
+      atBottom: element.scrollTop + element.clientHeight >= element.scrollHeight,
+      latestVisible: (() => {
+        const messages = element.querySelectorAll<HTMLElement>(".review-loop-thread-line");
+        const latest = messages[messages.length - 1];
+        if (!latest) return false;
+        const sectionBox = element.getBoundingClientRect();
+        const latestBox = latest.getBoundingClientRect();
+        return latestBox.bottom > sectionBox.top && latestBox.top < sectionBox.bottom;
+      })(),
+    }));
+    assert.deepEqual(afterHumanReply, { atBottom: true, latestVisible: true }, "a human reply stays visible instead of resetting the conversation to the top");
+    const detachedAgentReply = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "c-1-4", text: "Newest agent detached reply", author: "agent" }));
+    assert.equal(detachedAgentReply.status, 200);
+    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Newest agent detached reply"));
+    const afterAgentReply = await unanchored.evaluate((element) => ({
+      atBottom: element.scrollTop + element.clientHeight >= element.scrollHeight,
+      text: element.querySelector(".review-loop-thread-line:last-child p")?.textContent || "",
+    }));
+    assert.deepEqual(afterAgentReply, { atBottom: true, text: "Newest agent detached reply" }, "an agent reply also stays visible instead of resetting the conversation to the top");
+    await unanchored.hover();
+    await page.mouse.wheel(0, -5000);
+    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) === 0);
+    const detachedReplyWhileReading = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "c-1-4", text: "Agent reply while reading history", author: "agent" }));
+    assert.equal(detachedReplyWhileReading.status, 200);
+    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Agent reply while reading history"));
+    assert.equal(await unanchored.evaluate((element) => element.scrollTop), 0, "a new reply does not pull the reviewer away from older messages they are reading");
     assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /6 open · 0 resolved/, "header keeps the total unresolved count rather than sidebar row count");
     assert.equal(await page.locator("#review-loop-panel .review-loop-quote").count(), 0, "sidebar never renders source quote blocks");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-reply-form").count(), 1, "latest global conversation has a reply editor");
@@ -318,11 +395,52 @@ async function main(): Promise<void> {
         width: Math.round(panelRect.width),
         position: panelStyle.position,
         overflowY: panelStyle.overflowY,
+        panelResize: panelStyle.resize,
+        inlineWidth: Math.round(inline.getBoundingClientRect().width),
+        inlineMaxWidth: getComputedStyle(inline).maxWidth,
+        inlineResize: getComputedStyle(inline).resize,
+        configuredMaxWidth: getComputedStyle(document.documentElement).getPropertyValue("--review-loop-sidebar-width").trim(),
+        replyForm: (() => {
+          const form = inline.querySelector<HTMLElement>(".review-loop-reply-form");
+          const actions = inline.querySelector<HTMLElement>(".review-loop-reply-actions");
+          if (!form || !actions) return null;
+          const formStyle = getComputedStyle(form);
+          const actionsStyle = getComputedStyle(actions);
+          return {
+            gap: formStyle.rowGap,
+            paddingTop: formStyle.paddingTop,
+            actionsGap: actionsStyle.columnGap,
+          };
+        })(),
+        bubble: (() => {
+          const line = inline.querySelector<HTMLElement>(".review-loop-thread-line");
+          if (!line) return null;
+          const style = getComputedStyle(line);
+          return {
+            display: style.display,
+            paddingTop: style.paddingTop,
+            paddingRight: style.paddingRight,
+            borderTopWidth: style.borderTopWidth,
+          };
+        })(),
+        bubbleAlignment: (() => {
+          const human = inline.querySelector<HTMLElement>(".review-loop-thread-line.is-human");
+          const agent = inline.querySelector<HTMLElement>(".review-loop-thread-line.is-agent");
+          if (!human || !agent) return null;
+          const humanStyle = getComputedStyle(human);
+          const agentStyle = getComputedStyle(agent);
+          return {
+            humanLeft: humanStyle.marginLeft,
+            humanRight: humanStyle.marginRight,
+            agentLeft: agentStyle.marginLeft,
+            agentRight: agentStyle.marginRight,
+          };
+        })(),
         columnLefts: (() => {
           const left = (el: Element | null | undefined) => (el ? Math.round(el.getBoundingClientRect().left) : -1);
           return {
             file: left(inline.querySelector(".review-loop-comment-head strong")),
-            speaker: left(inline.querySelector(".review-loop-thread-line > span")),
+            message: left(inline.querySelector(".review-loop-thread-line > p")),
           };
         })(),
         resolve: (() => {
@@ -332,11 +450,30 @@ async function main(): Promise<void> {
           const actions = inline.querySelector(".review-loop-thread-actions");
           const button = inline.querySelector(".review-loop-resolve");
           const reply = inline.querySelector(".review-loop-reply-form");
-          if (!card || !head || !thread || !actions || !button || !reply) return null;
+          const replyButton = reply?.querySelector("button[type='submit']");
+          if (!card || !head || !thread || !actions || !button || !reply || !replyButton) return null;
           const children = Array.from(card.children);
+          const controlStyle = (control: Element) => {
+            const style = getComputedStyle(control);
+            return {
+              height: style.height,
+              paddingLeft: style.paddingLeft,
+              paddingRight: style.paddingRight,
+              borderTopWidth: style.borderTopWidth,
+              borderTopColor: style.borderTopColor,
+              borderRadius: style.borderRadius,
+              backgroundColor: style.backgroundColor,
+              color: style.color,
+              fontFamily: style.fontFamily,
+              fontSize: style.fontSize,
+              fontWeight: style.fontWeight,
+            };
+          };
           return {
             height: Math.round(button.getBoundingClientRect().height),
             label: button.textContent?.trim() || "",
+            style: controlStyle(button),
+            replyStyle: controlStyle(replyButton),
             inHeader: head.contains(button),
             threadIndex: children.indexOf(thread),
             actionsIndex: children.indexOf(actions),
@@ -346,16 +483,33 @@ async function main(): Promise<void> {
       };
     });
     assert.ok(inlineLayout, "review loop inline layout is available");
-    assert.ok((inlineLayout?.width || 0) >= 280 && (inlineLayout?.width || 0) <= 320, "review sidebar keeps the specified fixed width");
+    assert.equal(inlineLayout?.width, Number.parseFloat(inlineLayout?.configuredMaxWidth || "0") * 1.5, "review sidebar starts at one and a half times the base width");
     assert.equal(inlineLayout?.position, "fixed", "global conversation is a fixed bottom-right chat");
     assert.equal(inlineLayout?.overflowY, "hidden", "the fixed chat shell never scrolls the reply form away");
-    assert.equal(
-      inlineLayout?.columnLefts.speaker,
-      inlineLayout?.columnLefts.file,
-      "inline thread starts on the same column as its file name",
-    );
+    assert.equal(inlineLayout?.panelResize, "horizontal", "bottom-right chat can be resized horizontally");
+    assert.equal(inlineLayout?.inlineWidth, Number.parseFloat(inlineLayout?.configuredMaxWidth || "0") * 1.5, "inline conversation starts at one and a half times the base width");
+    assert.equal(inlineLayout?.inlineResize, "horizontal", "inline conversation can be resized horizontally");
+    assert.deepEqual(inlineLayout?.replyForm, { gap: "10px", paddingTop: "10px", actionsGap: "10px" }, "reply form keeps consistent spacing between its textarea and actions");
+    assert.deepEqual(inlineLayout?.bubble, { display: "grid", paddingTop: "8px", paddingRight: "10px", borderTopWidth: "0px" }, "inline messages render as padded borderless bubbles");
+    assert.deepEqual(inlineLayout?.bubbleAlignment, { humanLeft: "16px", humanRight: "0px", agentLeft: "0px", agentRight: "16px" }, "human bubbles sit slightly right and agent bubbles sit slightly left");
+    assert.ok((inlineLayout?.columnLefts.message || 0) > (inlineLayout?.columnLefts.file || 0), "bubble padding keeps message text clear of the card edge");
+    const resizedWidths = await page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>("#review-loop-panel");
+      const inline = document.querySelector<HTMLElement>(".review-loop-inline");
+      if (!panel || !inline) return null;
+      const before = { panel: panel.getBoundingClientRect().width, inline: inline.getBoundingClientRect().width };
+      panel.style.width = "600px";
+      inline.style.width = "600px";
+      const after = { panel: panel.getBoundingClientRect().width, inline: inline.getBoundingClientRect().width };
+      panel.style.removeProperty("width");
+      inline.style.removeProperty("width");
+      return { before, after };
+    });
+    assert.ok((resizedWidths?.after.panel || 0) > (resizedWidths?.before.panel || 0), "bottom-right chat accepts a wider user-resized width");
+    assert.ok((resizedWidths?.after.inline || 0) > (resizedWidths?.before.inline || 0), "inline conversation accepts a wider user-resized width within its parent");
     assert.equal(inlineLayout?.resolve?.height, 28, "Resolve conversation uses the same full-height control as reply actions");
     assert.equal(inlineLayout?.resolve?.label, "Resolve conversation", "Resolve conversation uses GitHub's full action label");
+    assert.deepEqual(inlineLayout?.resolve?.replyStyle, inlineLayout?.resolve?.style, "Reply and Resolve conversation use the same size, padding, border, colors, radius, and font");
     assert.equal(inlineLayout?.resolve?.inHeader, false, "Resolve conversation is not squeezed into the file header");
     assert.ok(
       (inlineLayout?.resolve?.threadIndex ?? -1) < (inlineLayout?.resolve?.actionsIndex ?? -1)
@@ -366,7 +520,20 @@ async function main(): Promise<void> {
     const firstInline = page.locator(".review-loop-inline[data-review-comment-id='c-1-1']");
     assert.match(await firstInline.textContent() || "", /Please update this line/, "human message is visible next to its target");
     assert.match(await firstInline.textContent() || "", /I will revise it/, "agent reply remains in the same inline thread");
+    assert.equal(
+      await firstInline.locator(".review-loop-thread-line").evaluateAll((lines) => lines.filter((line) =>
+        Array.from(line.children).some((child) => ["human", "agent"].includes((child.textContent || "").trim())),
+      ).length),
+      0,
+      "inline bubbles omit human and agent labels",
+    );
     assert.equal(await firstInline.locator(".review-loop-reply-form").count(), 1, "an unresolved inline thread has its own reply editor");
+    assert.equal(await firstInline.locator(".review-loop-reply-form button[type='submit']").textContent(), "Reply", "reply action stays English like the preceding comment actions");
+    const attachControl = firstInline.locator(".review-loop-reply-attach");
+    assert.equal((await attachControl.textContent() || "").trim(), "", "attachment control shows no text label");
+    assert.equal(await attachControl.locator("svg").count(), 1, "attachment control reuses the existing media icon asset");
+    assert.equal(await attachControl.getAttribute("aria-label"), "Attach image", "icon-only attachment control keeps an accessible label");
+    assert.equal(await attachControl.locator("input[type='file']").getAttribute("aria-label"), "Attach image", "hidden file input keeps the same accessible name");
     const scrollBeforeInlineWidgetClick = await page.evaluate(() => ({
       window: scrollY,
       preview: document.querySelector<HTMLElement>(".md-left")?.scrollTop || 0,
@@ -471,11 +638,15 @@ async function main(): Promise<void> {
         if (!editor || !panel || !cancel) return null;
         const editorBox = editor.getBoundingClientRect();
         const panelBox = panel.getBoundingClientRect();
+        const rootStyle = getComputedStyle(document.documentElement);
+        const baseWidth = Number.parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-width"));
+        const offset = Number.parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-offset"));
         return {
           editorRight: Math.round(editorBox.right),
           panelLeft: Math.round(panelBox.left),
           separation: Math.round(panelBox.left - editorBox.right),
           marginRight: getComputedStyle(editor).marginRight,
+          expectedMarginRight: `${baseWidth * 1.5 + offset}px`,
           cancelText: cancel.textContent?.trim() || "",
           cancelIsIconOnly: cancel.classList.contains("icon-only"),
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -486,7 +657,7 @@ async function main(): Promise<void> {
       const desktopEditorLayout = await newCommentEditorLayout();
       assert.ok(desktopEditorLayout, "new inline comment editor layout is available");
       assert.ok((desktopEditorLayout?.separation ?? -1) >= 0, "the inline editor stops before the expanded chat");
-      assert.equal(desktopEditorLayout?.marginRight, "308px", "only the comment dialog reserves the fixed chat width");
+      assert.equal(desktopEditorLayout?.marginRight, desktopEditorLayout?.expectedMarginRight, "only the comment dialog reserves the initial resizable chat width");
       assert.equal(
         await editorLayoutPage.evaluate(() => getComputedStyle(document.querySelector("#md-preview")!).marginRight),
         "0px",
@@ -500,7 +671,7 @@ async function main(): Promise<void> {
       await editorLayoutPage.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
       const collapsedEditorLayout = await newCommentEditorLayout();
       assert.equal(collapsedEditorLayout?.editorRight, desktopEditorLayout?.editorRight, "collapsing chat does not move the inline comment editor");
-      assert.equal(collapsedEditorLayout?.marginRight, "308px", "collapsing chat does not widen the inline comment editor");
+      assert.equal(collapsedEditorLayout?.marginRight, desktopEditorLayout?.expectedMarginRight, "collapsing chat does not widen the inline comment editor");
       await editorLayoutPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
       await editorLayoutPage.waitForFunction(() => !document.querySelector("#review-loop-panel")?.classList.contains("review-loop-sidebar-collapsed"));
       await editorLayoutPage.setViewportSize({ width: 980, height: 900 });
@@ -1147,9 +1318,17 @@ async function main(): Promise<void> {
       await jaPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
       await jaPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       const jaSidebarText = await jaPage.locator("#review-loop-panel").first().textContent();
-      assert.match(jaSidebarText || "", /コメント/, "Japanese review loop sidebar uses the comments title");
-      assert.doesNotMatch(jaSidebarText || "", /確認項目/, "Japanese review loop sidebar no longer exposes the old title");
-      assert.match(jaSidebarText || "", /前回からの差分/, "Japanese sidebar diff label is concise");
+      assert.match(jaSidebarText || "", /Review comments/, "review conversation title stays English in a Japanese browser");
+      assert.match(jaSidebarText || "", /Reply/, "review conversation reply action stays English in a Japanese browser");
+      assert.equal(
+        await jaPage.locator(".review-loop-thread-line, .review-loop-conversation-message").evaluateAll((lines) => lines.filter((line) =>
+          Array.from(line.children).some((child) => ["human", "agent"].includes((child.textContent || "").trim())),
+        ).length),
+        0,
+        "Japanese browser also omits human and agent labels from bubbles",
+      );
+      assert.doesNotMatch(jaSidebarText || "", /レビューコメント|あなた|会話を解決|返信|画像を添付|前回からの差分/, "Japanese browser does not switch only the review conversation to Japanese");
+      assert.match(jaSidebarText || "", /Diff since last round/, "review conversation diff label stays English with the other conversation actions");
       await jaPage.click("#send-and-exit");
       assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /未解決の確認項目が 5 件あるため、承認できません。/, "Japanese submit modal explains why approval is blocked");
       assert.equal(await jaPage.locator("#review-unresolved-action").textContent(), "未解決の確認項目を見る", "Japanese submit modal labels the recovery action");

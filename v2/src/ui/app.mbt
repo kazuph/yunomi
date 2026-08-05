@@ -145,6 +145,9 @@ fn open_inline_comment_editor(
   row : Int,
   col : Int,
 ) -> Unit {
+  if focus_durable_review_comment(key) {
+    return
+  }
   if get_tag_name(target) == "SUMMARY" {
     let details = closest(target, "details")
     if !is_null(details) {
@@ -586,11 +589,21 @@ pub fn init_app() -> Unit {
 }
 
 ///|
+let review_loop_state_loading : Ref[Bool] = Ref(false)
+let review_loop_state_loaded : Ref[Bool] = Ref(false)
+
+///|
 fn load_review_loop_state() -> Unit {
+  if review_loop_state_loading.val {
+    return
+  }
+  review_loop_state_loading.val = true
   let url = location_origin() + "/review-state"
   fetch_get(url, fn(data) {
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
     restore_reload_scroll_state(reload_scroll_key())
+    review_loop_state_loaded.val = true
+    review_loop_state_loading.val = false
   })
 }
 
@@ -1872,7 +1885,10 @@ fn setup_sse(_port : Int) -> Unit {
   })
   sse_on(es, "decision", fn(e) { apply_task_decision_event(sse_event_data(e)) })
   sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
-  sse_on(es, "send-now", fn(e) { mark_send_now_event(sse_event_data(e)) })
+  sse_on(es, "send-now", fn(e) {
+    mark_send_now_event(sse_event_data(e))
+    load_review_loop_state()
+  })
   sse_on(es, "hello", fn(e) {
     let id = sse_event_data(e)
     if sse_server_instance.val == "" {
@@ -1886,11 +1902,14 @@ fn setup_sse(_port : Int) -> Unit {
   })
   // SSE connection status tracking
   sse_on_open(es, fn() {
-    let label = if sse_was_connected.val { "Reconnected" } else { "Connected" }
+    let reconnected = sse_was_connected.val
+    let label = if reconnected { "Reconnected" } else { "Connected" }
     set_sse_status("connected", label)
     sse_was_connected.val = true
     set_send_buttons_enabled(true)
-    load_review_loop_state()
+    if reconnected || !review_loop_state_loaded.val {
+      load_review_loop_state()
+    }
   })
   sse_on_error_status(es, fn() {
     set_sse_status("reconnecting", "Reconnecting...")

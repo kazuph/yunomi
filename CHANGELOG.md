@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.4.2 - 2026-08-05
+
+### Fixed
+
+- Durable inline conversations replace duplicate local sent cards, and reopening the same unresolved location focuses the existing conversation instead of creating another comment.
+- Review conversations use a bounded, horizontally resizable layout with padded left/right message bubbles, icon-only image attachment controls, and consistent English actions.
+- Long unanchored conversations scroll inside the fixed chat, keep the reply form reachable, and follow new human or agent replies without pulling reviewers away from older messages they are reading.
+- Human and agent labels are omitted from bubbles, while Reply and Resolve conversation share the same size, padding, border, colors, radius, and typography.
+
 ## v2.4.1 - 2026-08-01
 
 ### Fixed

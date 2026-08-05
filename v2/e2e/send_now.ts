@@ -161,15 +161,24 @@ try {
         return seen.some((line) => line.startsWith("reply:"));
       });
       // A sent comment is not a draft, so it has no entry in the drafts list.
-      // Its reply still has to be visible — on the inline card, asserted below.
+      // Once the durable conversation arrives, it becomes the only inline
+      // surface for that comment instead of duplicating the local saved card.
       assert(await page.locator("#comment-list li[data-key='1:0']").count() === 0, "a sent comment keeps no entry in the drafts list");
-      const savedInlineReplies = page.locator(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies");
-      await savedInlineReplies.first().waitFor({ state: "visible", timeout: 5000 });
+      const durableInline = page.locator(".review-loop-inline[data-review-comment-id='1:0']");
+      await durableInline.waitFor({ state: "visible", timeout: 5000 });
       assert(
-        await savedInlineReplies.count() >= 1
-          && (await savedInlineReplies.allTextContents()).every((text) => text.includes("agent reply arrived")),
-        "Agent reply renders inside every matching inline card",
-        { inlineReplies: await savedInlineReplies.allTextContents() },
+        await durableInline.count() === 1
+          && (await durableInline.textContent() || "").includes("agent reply arrived")
+          && await page.locator(".yunomi-inline-comment[data-comment-key='1:0']").count() === 0,
+        "the durable inline conversation replaces the local sent card without duplicating its content",
+        { durableInline: await durableInline.allTextContents() },
+      );
+
+      await page.locator(".text-line[data-row='1']").click();
+      assert(await page.locator(".yunomi-inline-comment-editor").count() === 0, "clicking the same unresolved location does not reopen a new comment editor");
+      assert(
+        await durableInline.locator("textarea:focus, button:focus, input:focus").count() === 1,
+        "clicking the same unresolved location focuses its durable conversation",
       );
 
       const afterReply = JSON.parse(readFileSync(reviewPath, "utf8"));
@@ -182,12 +191,14 @@ try {
       const restoreVisible = await restore.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
       if (restoreVisible) await restore.click();
       await page.waitForFunction(() => {
-        const replies = Array.from(document.querySelectorAll(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies"));
-        return replies.length >= 1 && replies.every((item) => item.textContent?.includes("agent reply arrived"));
+        const durable = document.querySelector(".review-loop-inline[data-review-comment-id='1:0']");
+        const local = document.querySelector(".yunomi-inline-comment[data-comment-key='1:0']");
+        return Boolean(durable?.textContent?.includes("agent reply arrived")) && !local;
       }, undefined, { timeout: 5000 });
       assert(
-        await page.locator(".yunomi-inline-comment[data-comment-key='1:0'] .comment-inline-replies").count() >= 1,
-        "Agent reply remains inside every inline card after reload",
+        await page.locator(".review-loop-inline[data-review-comment-id='1:0']").count() === 1
+          && await page.locator(".yunomi-inline-comment[data-comment-key='1:0']").count() === 0,
+        "reload restores exactly one durable inline conversation",
       );
     });
   } finally {

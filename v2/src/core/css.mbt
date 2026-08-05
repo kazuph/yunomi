@@ -652,10 +652,10 @@ fn build_css() -> String {
     #|#review-loop-panel:empty, #review-loop-panel.review-loop-sidebar:empty { display: none; }
     #|#review-loop-panel.review-loop-sidebar {
     #|  order: 4;
-    #|  flex: 0 0 var(--review-loop-sidebar-width);
-    #|  width: var(--review-loop-sidebar-width);
-    #|  min-width: 280px;
-    #|  max-width: 320px;
+    #|  flex: 0 0 calc(var(--review-loop-sidebar-width) * 1.5);
+    #|  width: calc(var(--review-loop-sidebar-width) * 1.5);
+    #|  min-width: var(--review-loop-sidebar-width);
+    #|  max-width: calc(100vw - var(--review-loop-sidebar-offset) * 2);
     #|  height: 60vh;
     #|  max-height: 60vh;
     #|  position: fixed;
@@ -664,6 +664,7 @@ fn build_css() -> String {
     #|  bottom: var(--review-loop-sidebar-offset);
     #|  z-index: 80;
     #|  overflow: hidden;
+    #|  resize: horizontal;
     #|  margin: 0;
     #|  padding: 10px;
     #|  border: 1px solid var(--border);
@@ -687,6 +688,7 @@ fn build_css() -> String {
     #|  background: transparent;
     #|  box-shadow: none;
     #|  overflow: hidden;
+    #|  resize: none;
     #|  transition: none;
     #|}
     #|.review-loop-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
@@ -723,9 +725,8 @@ fn build_css() -> String {
     #|.review-loop-actions { display: flex; justify-content: flex-end; margin-left: auto; }
     #|.review-loop-resolved { color: var(--muted); font-size: 12px; }
     #|.review-loop-thread-actions { display: flex; justify-content: flex-end; padding-top: 6px; }
-    #|.review-loop-resolve { padding: 0 12px; height: 28px; font-size: 12px; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: var(--button-bg); color: var(--text); cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
-    #|.review-loop-resolve:hover { color: var(--text); }
-    #|.review-loop-resolve:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+    #|.review-loop-resolve, .review-loop-reply-form button[type="submit"] { height: 28px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+    #|.review-loop-resolve:hover, .review-loop-reply-form button[type="submit"]:hover { background: var(--hover-bg); border-color: var(--border-strong); color: var(--text); }
     #|/* 15px = status dot (8px) + its gap (7px), so the quote and the thread
     #|   line up with the file name instead of stepping left or right. */
     #|.review-loop-snippet { border: 0; display: grid; gap: 4px; padding: 0 0 0 15px; background: transparent; }
@@ -740,16 +741,18 @@ fn build_css() -> String {
     #|.review-loop-snippet { gap: 4px; }
     #|.review-loop-quote { margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
     #|.review-loop-change { color: var(--muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
-    #|.review-loop-thread { display: grid; gap: 5px; padding-left: 15px; }
-    #|.review-loop-thread-line { overflow-wrap: anywhere; }
-    #|.review-loop-thread-line > span { color: var(--muted); font-size: 11px; font-weight: 700; margin-right: 7px; }
-    #|.review-loop-thread-line > p { display: inline; margin: 0; font-size: inherit; line-height: 1.55; }
+    #|.review-loop-thread { display: grid; gap: 8px; padding-left: 15px; }
+    #|.review-loop-thread-line { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); overflow-wrap: anywhere; }
+    #|.review-loop-thread-line.is-human { margin-left: 16px; background: var(--accent-soft); }
+    #|.review-loop-thread-line.is-agent { margin-right: 16px; }
+    #|.review-loop-thread-line > p { margin: 0; font-size: inherit; line-height: 1.55; }
     #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
     #|.review-loop-conversation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-bottom: 5px; }
     #|.review-loop-conversation-head > strong { font-size: 12px; font-weight: 800; }
-    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; min-width: 0; min-height: 0; overflow-y: auto; }
-    #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 6px 0; border-top: 1px solid var(--border); }
-    #|.review-loop-conversation-message > strong { color: var(--muted); font-size: 11px; font-weight: 700; }
+    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; }
+    #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); }
+    #|.review-loop-conversation-message.is-human { margin-left: 16px; background: var(--accent-soft); }
+    #|.review-loop-conversation-message.is-agent { margin-right: 16px; }
     #|.review-loop-conversation-message > p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     #|.review-loop-conversation-image { display: block; width: auto; max-width: 100%; max-height: 180px; margin-top: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
     #|.review-loop-conversation.is-resolved .review-loop-conversation-stream { opacity: .76; }
@@ -760,6 +763,7 @@ fn build_css() -> String {
     #|.review-loop-resolved-details > summary { cursor: pointer; font-size: 12px; font-weight: 700; }
     #|.review-loop-conversation-history { margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
     #|.review-loop-conversation-history .review-loop-conversation-stream { margin-top: 5px; }
+    #|.review-loop-unanchored { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
     #|.review-loop-resolved-list, .review-loop-fallback-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
     #|.review-loop-resolved-list { margin-top: 8px; }
     #|.review-loop-fallback, .review-loop-resolved-item { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
@@ -780,7 +784,7 @@ fn build_css() -> String {
     #|.review-loop-resolved-item { color: var(--muted); opacity: .76; }
     #|.review-loop-resolved-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #|.review-loop-sidebar-card.is-resolved { background: var(--bg); border-color: var(--border); color: var(--muted); opacity: .76; }
-    #|.review-loop-reply-form { display: grid; gap: 5px; padding-top: 6px; border-top: 1px solid var(--border); }
+    #|.review-loop-reply-form { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
     #|#review-loop-panel .review-loop-conversation > .review-loop-reply-form { flex: 0 0 auto; background: var(--panel-solid); }
     #|.review-loop-reply-form textarea, .review-loop-reply-form input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; line-height: 1.45; resize: vertical; }
     #|.review-loop-reply-preview:empty { display: none; }
@@ -788,21 +792,21 @@ fn build_css() -> String {
     #|.review-loop-reply-preview img { display: block; max-width: 100%; max-height: 120px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
     #|.review-loop-reply-remove { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
     #|.review-loop-reply-remove:hover { color: var(--text); text-decoration: underline; }
-    #|.review-loop-reply-actions { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-    #|.review-loop-reply-attach { position: relative; display: inline-flex; align-items: center; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); font-size: 11px; cursor: pointer; }
+    #|.review-loop-reply-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    #|.review-loop-reply-attach { position: relative; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); cursor: pointer; }
+    #|.review-loop-reply-attach svg { display: block; width: 16px; height: 16px; }
     #|.review-loop-reply-attach:hover { background: var(--hover-bg); color: var(--text); }
     #|.review-loop-reply-attach:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
     #|.review-loop-reply-file { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; }
-    #|.review-loop-reply-form button { height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); cursor: pointer; }
     #|#review-loop-panel .review-loop-reply-form :focus-visible { outline-offset: -2px; }
     #|#review-loop-panel .review-loop-reply-attach:focus-within { outline-offset: -2px; }
-    #|.review-loop-inline { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); }
+    #|.review-loop-inline { box-sizing: border-box; width: min(100%, calc(var(--review-loop-sidebar-width) * 1.5)); min-width: min(100%, var(--review-loop-sidebar-width)); max-width: 100%; margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); overflow: hidden; resize: horizontal; }
     #|.review-loop-inline-item { list-style: none; margin: 0; padding: 0; background: var(--panel); }
     #|.preview-highlight + .review-loop-inline-item .review-loop-inline { background: var(--panel); border-color: var(--border); }
     #|.review-loop-inline .review-loop-comment { padding: 0; }
     #|.review-loop-inline .review-loop-comment:last-child { padding-bottom: 0; }
     #|#md-preview :is(.yunomi-inline-comment, .review-loop-inline) {
-    #|  margin-right: calc(var(--review-loop-sidebar-width) + var(--review-loop-sidebar-offset));
+    #|  margin-right: calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset));
     #|}
     #|#md-preview :is(td, th) .yunomi-inline-comment { margin-right: 0; }
     #|.review-loop-inline-highlight { animation: review-loop-inline-highlight 1.2s ease-out; }
