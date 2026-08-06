@@ -414,7 +414,7 @@ async function main(): Promise<void> {
 
         await page.evaluate(() => {
           localStorage.setItem(
-            "yunomi:comments:preview-regression.md",
+            `yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`,
             JSON.stringify({
               comments: {
                 "27:0": { row: 27, col: 0, text: "restored image note" },
@@ -545,7 +545,7 @@ async function main(): Promise<void> {
         const state = await page.evaluate(() => {
           const card = document.querySelector(".yunomi-inline-comment-editor");
           const modal = document.querySelector("#submit-modal");
-          const key = "yunomi:comments:preview-regression.md";
+          const key = `yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`;
           return {
             cardVisible: !!card && getComputedStyle(card).display !== "none",
             submitVisible: !!modal && modal.classList.contains("visible"),

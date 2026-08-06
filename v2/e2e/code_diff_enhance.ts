@@ -138,7 +138,7 @@ try {
 
       await page.locator("#diff-split-toggle").click();
       const splitClass = await page.evaluate(() => document.body.classList.contains("diff-split"));
-      const storedMode = await page.evaluate(() => localStorage.getItem("yunomi:diff-view:changes.diff"));
+      const storedMode = await page.evaluate(() => localStorage.getItem(`yunomi:diff-view:${window.__YUNOMI_STORAGE_SCOPE__}`));
       assert(splitClass && storedMode === "split", "Split toggle applies and persists to localStorage", { splitClass, storedMode });
 
       await page.reload({ waitUntil: "domcontentloaded" });
@@ -148,7 +148,7 @@ try {
       const firstBox = page.locator(".diff-viewed-checkbox").first();
       assert(await page.locator(".diff-viewed-state").first().textContent() === "Unreviewed", "viewed control explains the initial unreviewed state");
       await firstBox.check();
-      const viewedState = await page.evaluate(() => localStorage.getItem("yunomi:diff-viewed:changes.diff") || "");
+      const viewedState = await page.evaluate(() => localStorage.getItem(`yunomi:diff-viewed:${window.__YUNOMI_STORAGE_SCOPE__}`) || "");
       const viewedBlock = await page.locator(".diff-file-block").first().evaluate((el) => el.classList.contains("viewed"));
       assert(viewedState.includes("alpha.txt") && viewedBlock, "viewed checkbox persists and marks the file block", { viewedState, viewedBlock });
       assert(await page.locator(".diff-viewed-state").first().textContent() === "Reviewed", "viewed control shows the reviewed state after checking");
@@ -167,7 +167,7 @@ try {
         editorDisplay: getComputedStyle(document.querySelector(".yunomi-inline-comment-editor")!).display,
         inputValue: (document.querySelector("#comment-input") as HTMLTextAreaElement | null)?.value || "",
         allStorage: Object.fromEntries(Object.keys(localStorage).map(key => [key, localStorage.getItem(key)])),
-        storedComments: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`),
+        storedComments: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`),
       }));
       assert(
         beforeSave.inputValue === "inline diff comment stays here" && Boolean(beforeSave.storedComments?.includes("inline diff comment stays here")),

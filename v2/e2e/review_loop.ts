@@ -790,6 +790,24 @@ async function main(): Promise<void> {
       },
       "the fixed-chat submit button keeps its focus ring inside the clipping ancestors",
     );
+    const unsentConversationDraft = "Unsent sidebar reply survives refresh";
+    await summaryInput.fill(unsentConversationDraft);
+    const draftStorageBeforeRefresh = await page.evaluate(() =>
+      localStorage.getItem(`yunomi:conversation-drafts:${window.__YUNOMI_STORAGE_SCOPE__}`) || "",
+    );
+    assert.match(draftStorageBeforeRefresh, /Unsent sidebar reply survives refresh/, "typing in a conversation persists its unsent text under the path-scoped draft key");
+    const agentRefreshWhileTyping = await request(port, "POST", "/reply-comment", JSON.stringify({
+      id: "r-1",
+      text: "Agent update while the human is typing",
+      author: "agent",
+    }));
+    assert.equal(agentRefreshWhileTyping.status, 200);
+    await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("Agent update while the human is typing"), undefined, { timeout: 3000 });
+    assert.equal(await summaryInput.inputValue(), unsentConversationDraft, "an SSE conversation rerender restores the unsent reply text");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#review-loop-panel .review-loop-conversation textarea", { timeout: 3000 });
+    assert.equal(await summaryInput.inputValue(), unsentConversationDraft, "a full page reload restores the unsent reply text");
+
     await summaryInput.fill("Sidebar reply remains in the global conversation");
     const globalReplyCountBeforeComposition = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"))
       .comments.find((comment: { id: string }) => comment.id === "r-1")?.replies.length;
@@ -834,6 +852,11 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#review-loop-panel .review-loop-reply-preview img").count(), 1, "selected reply image is previewed before sending");
     await summaryInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
     await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("Sidebar reply remains in the global conversation"), undefined, { timeout: 3000 });
+    assert.doesNotMatch(
+      await page.evaluate(() => localStorage.getItem(`yunomi:conversation-drafts:${window.__YUNOMI_STORAGE_SCOPE__}`) || ""),
+      /Sidebar reply remains in the global conversation/,
+      "a successfully sent conversation reply clears its local draft",
+    );
     assert.equal(await page.locator("#submit-modal.visible").count(), 0, "Cmd/Ctrl+Enter in the global conversation sends that reply without opening Submit");
     await page.waitForSelector("#review-loop-panel .review-loop-conversation-message .review-loop-conversation-image", { timeout: 3000 });
     const reviewAfterImageReply = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"));

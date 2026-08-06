@@ -113,13 +113,15 @@ try {
         return seen.some((line) => line.startsWith("send-now:"));
       });
       const sendEvents = await page.evaluate(() => (window as unknown as { __sendNowSeen: string[] }).__sendNowSeen.filter((line) => line.startsWith("send-now:")));
-      assert(sendEvents.length === 1 && sendEvents[0].includes("\"key\":\"1:0\""), "Add single comment emits a dedicated SSE event with the comment key", { sendEvents });
+      const storageScope = await page.evaluate(() => window.__YUNOMI_STORAGE_SCOPE__);
+      const durableCommentId = `${storageScope}|1:0`;
+      assert(sendEvents.length === 1 && sendEvents[0].includes(`\"key\":${JSON.stringify(durableCommentId)}`), "Add single comment emits a path-scoped SSE comment key", { sendEvents, durableCommentId });
 
       const reviewPath = join(REVIEW_DIR, "review.json");
       const review = existsSync(reviewPath) ? JSON.parse(readFileSync(reviewPath, "utf8")) : {};
-      const stored = Array.isArray(review.comments) ? review.comments.find((comment: { id?: string }) => comment.id === "1:0") : null;
-      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Add single comment writes the sent comment to review.json");
-      const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
+      const stored = Array.isArray(review.comments) ? review.comments.find((comment: { id?: string }) => comment.id === durableCommentId) : null;
+      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Add single comment writes a path-scoped durable ID to review.json");
+      const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "");
       assert(sentDraft.includes('"pending":false') && sentDraft.includes('"sent":true'), "Immediate comments persist as sent, not pending", { sentDraft });
 
       // Sending a comment must not pop the drafts panel open from the top: it
@@ -136,7 +138,7 @@ try {
       await page.waitForTimeout(200);
       const pendingState = await page.evaluate(() => ({
         events: (window as unknown as { __sendNowSeen?: string[] }).__sendNowSeen || [],
-        draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "",
+        draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "",
         badges: Array.from(document.querySelectorAll(".yunomi-inline-comment-pending")).map((element) => element.textContent),
       }));
       assert(!pendingState.events.some((line) => line.startsWith("comment:") && line.includes("pending review comment")), "Start a review keeps the comment local until Submit review", pendingState);
@@ -152,7 +154,7 @@ try {
       const replyResponse = await fetch(`http://127.0.0.1:${server.port}/reply-comment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: "1:0", text: "agent reply arrived", author: "agent" }),
+        body: JSON.stringify({ id: durableCommentId, text: "agent reply arrived", author: "agent" }),
       });
       assert(replyResponse.ok, "/reply-comment accepts the agent reply");
 
@@ -163,13 +165,13 @@ try {
       // A sent comment is not a draft, so it has no entry in the drafts list.
       // Once the durable conversation arrives, it becomes the only inline
       // surface for that comment instead of duplicating the local saved card.
-      assert(await page.locator("#comment-list li[data-key='1:0']").count() === 0, "a sent comment keeps no entry in the drafts list");
-      const durableInline = page.locator(".review-loop-inline[data-review-comment-id='1:0']");
+      assert(await page.locator(`#comment-list li[data-key="${durableCommentId}"]`).count() === 0, "a sent comment keeps no entry in the drafts list");
+      const durableInline = page.locator(`.review-loop-inline[data-review-comment-id="${durableCommentId}"]`);
       await durableInline.waitFor({ state: "visible", timeout: 5000 });
       assert(
         await durableInline.count() === 1
           && (await durableInline.textContent() || "").includes("agent reply arrived")
-          && await page.locator(".yunomi-inline-comment[data-comment-key='1:0']").count() === 0,
+          && await page.locator(`.yunomi-inline-comment[data-comment-key="${durableCommentId}"]`).count() === 0,
         "the durable inline conversation replaces the local sent card without duplicating its content",
         { durableInline: await durableInline.allTextContents() },
       );
@@ -182,7 +184,7 @@ try {
       );
 
       const afterReply = JSON.parse(readFileSync(reviewPath, "utf8"));
-      const replied = afterReply.comments.find((comment: { id?: string }) => comment.id === "1:0");
+      const replied = afterReply.comments.find((comment: { id?: string }) => comment.id === durableCommentId);
       assert(replied?.replies?.[0]?.text === "agent reply arrived", "Agent reply is persisted in review.json history");
 
       await page.evaluate(() => (window as unknown as { __sendNowEs?: EventSource }).__sendNowEs?.close());
@@ -190,14 +192,14 @@ try {
       const restore = page.locator("#recovery-restore");
       const restoreVisible = await restore.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
       if (restoreVisible) await restore.click();
-      await page.waitForFunction(() => {
-        const durable = document.querySelector(".review-loop-inline[data-review-comment-id='1:0']");
-        const local = document.querySelector(".yunomi-inline-comment[data-comment-key='1:0']");
+      await page.waitForFunction((commentId) => {
+        const durable = document.querySelector(`.review-loop-inline[data-review-comment-id="${CSS.escape(commentId)}"]`);
+        const local = document.querySelector(`.yunomi-inline-comment[data-comment-key="${CSS.escape(commentId)}"]`);
         return Boolean(durable?.textContent?.includes("agent reply arrived")) && !local;
-      }, undefined, { timeout: 5000 });
+      }, durableCommentId, { timeout: 5000 });
       assert(
-        await page.locator(".review-loop-inline[data-review-comment-id='1:0']").count() === 1
-          && await page.locator(".yunomi-inline-comment[data-comment-key='1:0']").count() === 0,
+        await page.locator(`.review-loop-inline[data-review-comment-id="${durableCommentId}"]`).count() === 1
+          && await page.locator(`.yunomi-inline-comment[data-comment-key="${durableCommentId}"]`).count() === 0,
         "reload restores exactly one durable inline conversation",
       );
     });

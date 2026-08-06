@@ -1942,12 +1942,23 @@ fn load_and_build_html(ctx : ServerContext) -> String {
     }
   }
   let with_switcher = inject_review_file_switcher(ctx, html)
-  let with_vim_config = inject_vim_key_config(with_switcher)
+  let with_storage_scope = inject_storage_scope(with_switcher, ctx.file_path)
+  let with_vim_config = inject_vim_key_config(with_storage_scope)
   if share_mode.val {
     inject_share_readonly_ui(with_vim_config)
   } else {
     with_vim_config
   }
+}
+
+///|
+fn inject_storage_scope(html : String, file_path : String) -> String {
+  js_inject_before_body_end(
+    html,
+    "<script>window.__YUNOMI_STORAGE_SCOPE__=\"" +
+    @core.escape_js_string(file_path) +
+    "\";</script>",
+  )
 }
 
 ///|

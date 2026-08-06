@@ -270,7 +270,7 @@ try {
   const fullscreenFocus = await page.evaluate(() => ({
     editorCount: document.querySelectorAll(".yunomi-inline-comment-editor").length,
     hiddenTextareaFocused: document.activeElement?.matches("#comment-input,.yunomi-inline-comment-editor textarea") || false,
-    draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "",
+    draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "",
   }));
   assert(fullscreenFocus.editorCount === 0 && !fullscreenFocus.hiddenTextareaFocused && fullscreenFocus.draft.includes("draft before fullscreen"), "opening fullscreen closes the editor, moves focus, and preserves the local draft", fullscreenFocus);
   const draftBeforeFullscreenShortcuts = fullscreenFocus.draft;
@@ -278,7 +278,7 @@ try {
   await page.keyboard.press("Enter");
   const fullscreenShortcutState = await page.evaluate(() => ({
     editorCount: document.querySelectorAll(".yunomi-inline-comment-editor").length,
-    draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "",
+    draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "",
   }));
   assert(fullscreenShortcutState.editorCount === 0 && fullscreenShortcutState.draft === draftBeforeFullscreenShortcuts, "fullscreen blocks i and Enter comment shortcuts without creating a draft", fullscreenShortcutState);
   await page.locator("#img-fs-close").click();
@@ -312,7 +312,7 @@ try {
   assert(await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "saved source comment stays at its clicked source surface");
   await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-view:has-text("survives reload")').click();
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
-  const storageBefore = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_FILENAME__}`) || "");
+  const storageBefore = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "");
   assert(storageBefore.includes("survives reload") && storageBefore.includes('"pending":true') && storageBefore.includes('"sent":false'), "localStorage preserves the pending review state");
   assert(
     /^Drafts\s+\d+$/.test(await page.locator("#pill-comments").textContent() || ""),

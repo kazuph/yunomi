@@ -426,6 +426,10 @@ extern "js" fn get_yunomi_filename() -> String =
   #|() => window.__YUNOMI_FILENAME__ || ""
 
 ///|
+extern "js" fn get_yunomi_storage_scope() -> String =
+  #|() => window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || ""
+
+///|
 extern "js" fn get_yunomi_server_instance() -> String =
   #|() => window.__YUNOMI_SERVER_INSTANCE__ || ""
 
@@ -818,6 +822,18 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    conversation: captureScroll(".review-loop-conversation-stream"),
   #|    unanchored: captureScroll(".review-loop-unanchored"),
   #|  };
+  #|  const storageScope = String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current");
+  #|  const replyDraftStorageKey = `yunomi:conversation-drafts:${storageScope}`;
+  #|  let replyDrafts = {};
+  #|  try { replyDrafts = JSON.parse(localStorage.getItem(replyDraftStorageKey) || "{}"); } catch (_) { replyDrafts = {}; }
+  #|  const saveReplyDraft = (key, text) => {
+  #|    if (text) replyDrafts[key] = text;
+  #|    else delete replyDrafts[key];
+  #|    try {
+  #|      if (Object.keys(replyDrafts).length > 0) localStorage.setItem(replyDraftStorageKey, JSON.stringify(replyDrafts));
+  #|      else localStorage.removeItem(replyDraftStorageKey);
+  #|    } catch (_) {}
+  #|  };
   #|  const mobileQuery = matchMedia("(max-width: 960px), (max-device-width: 960px)");
   #|  const clearPanel = () => {
   #|    panel.innerHTML = "";
@@ -1002,6 +1018,11 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      const editor = form.querySelector("textarea, input[type='text']");
   #|      const picker = form.querySelector("input[type='file']");
   #|      const preview = form.querySelector(".review-loop-reply-preview");
+  #|      const endpoint = form.getAttribute("data-review-endpoint") || "/reply-comment";
+  #|      const threadId = form.getAttribute("data-review-comment-id") || "new";
+  #|      const draftKey = `${endpoint}:${threadId}`;
+  #|      if (editor) editor.value = String(replyDrafts[draftKey] || "");
+  #|      editor?.addEventListener("input", () => saveReplyDraft(draftKey, String(editor.value || "")));
   #|      let image = "";
   #|      let submitting = false;
   #|      const renderPreview = () => {
@@ -1033,7 +1054,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const text = String(editor?.value || "").trim();
   #|        if (submitting || (!text && !image)) return;
   #|        submitting = true;
-  #|        fetch(form.getAttribute("data-review-endpoint") || "/reply-comment", {
+  #|        fetch(endpoint, {
   #|          method: "POST",
   #|          headers: { "Content-Type": "application/json" },
   #|          body: JSON.stringify({ id: form.getAttribute("data-review-comment-id") || "", text, image, author: "human" })
@@ -1041,6 +1062,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|          if (!response.ok) throw new Error(`conversation request failed: ${response.status}`);
   #|        }).then(() => {
   #|          if (editor) editor.value = "";
+  #|          saveReplyDraft(draftKey, "");
   #|          if (picker) picker.value = "";
   #|          image = "";
   #|          renderPreview();
@@ -1194,7 +1216,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // "All resolved" belongs to line comments too — with none of them there is
   #|  // nothing that was ever resolved, so the banner would be a false claim.
   #|  const status = countable && unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
-  #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
+  #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
   #|  // With nothing said yet the panel starts as the chat icon: an empty form
   #|  // is not worth 300px of the document. A stored choice always wins.
   #|  const storedSidebar = localStorage.getItem(sidebarStorageKey);

@@ -362,10 +362,14 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
 }
 
 ///|
-/// Get localStorage key for comment storage (cli.cjs compatible)
+/// Get the localStorage key for this exact file, including its resolved path.
 fn get_storage_key() -> String {
-  let filename = get_yunomi_filename()
-  "yunomi:comments:\{filename}"
+  "yunomi:comments:\{get_yunomi_storage_scope()}"
+}
+
+///|
+fn new_comment_key(location_key : String) -> String {
+  "\{get_yunomi_storage_scope()}|\{location_key}"
 }
 
 ///|
@@ -541,8 +545,8 @@ pub fn init_app() -> Unit {
     "markdown" => setup_csv_clicks()
     _ => setup_text_clicks()
   }
-  setup_diff_enhancements_dom(get_yunomi_filename())
-  setup_vim_review_keyboard(get_yunomi_filename())
+  setup_diff_enhancements_dom(get_yunomi_storage_scope())
+  setup_vim_review_keyboard(get_yunomi_storage_scope())
   // Setup scroll sync and preview click for markdown mode
   if mode == "markdown" {
     setup_scroll_sync()
@@ -674,7 +678,7 @@ fn setup_csv_clicks() -> Unit {
       let target = event_target(e)
       let row_str = get_attr(target, "data-row")
       let col_str = get_attr(target, "data-col")
-      let key = "\{row_str}:\{col_str}"
+      let key = new_comment_key("\{row_str}:\{col_str}")
       show_inline_comment(target, key, str_to_int(row_str), str_to_int(col_str))
     })
     on(cell, "mousedown", fn(e) {
@@ -699,7 +703,7 @@ fn setup_diff_clicks() -> Unit {
       if !is_null(target) {
         let file = get_attr(target, "data-file")
         let content = get_text_content(target)
-        let key = "\{file}:\{truncate(content, 20)}"
+        let key = new_comment_key("\{file}:\{truncate(content, 20)}")
         show_inline_comment(target, key, row, 0)
       }
     })
@@ -717,7 +721,7 @@ fn setup_text_clicks() -> Unit {
       let target = closest(event_target(e), ".text-line")
       if !is_null(target) {
         let row_str = get_attr(target, "data-row")
-        let key = "\{row_str}:0"
+        let key = new_comment_key("\{row_str}:0")
         show_inline_comment(target, key, str_to_int(row_str), 0)
       }
     })
@@ -740,12 +744,12 @@ fn setup_text_clicks() -> Unit {
 /// file, same as the draft itself. See setup_sse()'s "reload" handler for
 /// where it's set, and check_recovery() for where it's consumed.
 fn reload_inflight_key() -> String {
-  "yunomi:reload-inflight:\{get_yunomi_filename()}"
+  "yunomi:reload-inflight:\{get_yunomi_storage_scope()}"
 }
 
 ///|
 fn reload_scroll_key() -> String {
-  "yunomi:reload-scroll:\{get_yunomi_filename()}"
+  "yunomi:reload-scroll:\{get_yunomi_storage_scope()}"
 }
 
 ///|
@@ -1039,7 +1043,7 @@ fn render_comment_list() -> Unit {
     return
   }
   set_inner_html(list, buf.to_string())
-  render_comment_replies_for_file(get_yunomi_filename())
+  render_comment_replies_for_file(get_yunomi_storage_scope())
   let entries = query_all(".comment-list-entry")
   for entry in entries {
     on(entry, "click", fn(e) {
@@ -1881,7 +1885,7 @@ fn setup_sse(_port : Int) -> Unit {
   })
   sse_on(es, "reply", fn(e) {
     suppress_next_round_reload.val = true
-    apply_comment_reply_event(get_yunomi_filename(), sse_event_data(e))
+    apply_comment_reply_event(get_yunomi_storage_scope(), sse_event_data(e))
   })
   sse_on(es, "decision", fn(e) { apply_task_decision_event(sse_event_data(e)) })
   sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
@@ -2548,11 +2552,12 @@ fn finish_drag() -> Unit {
   } else {
     drag_end_row.val
   }
-  let key = if start == end {
+  let location_key = if start == end {
     start.to_string() + ":0"
   } else {
     start.to_string() + "-" + end.to_string()
   }
+  let key = new_comment_key(location_key)
   let target_el = query(
     "[data-row=\"" + start.to_string() + "\"]:not(#md-preview *)",
   )
@@ -3301,7 +3306,7 @@ fn select_source_range(
       anchor_tag == "video" ||
       (anchor_tag == "div" && has_class(preview_el, "markdown-html-block"))
     )
-  let key = if start_row == actual_end {
+  let location_key = if start_row == actual_end {
     let base = (start_row - 1).to_string() + ":" + col.to_string()
     if needs_tag_key {
       base + ":" + anchor_tag
@@ -3311,6 +3316,7 @@ fn select_source_range(
   } else {
     (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
   }
+  let key = new_comment_key(location_key)
   selected_comment_row.val = start_row - 1
   selected_comment_col.val = col
   selected_comment_el.val = preview_el
