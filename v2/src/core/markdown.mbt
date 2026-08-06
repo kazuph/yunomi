@@ -5,7 +5,7 @@ pub fn parse_markdown(input : String) -> MarkdownData {
     return { source: "", html: "", frontmatter: {}, questions: [] }
   }
   let lines = split_to_lines(input)
-  let frontmatter : Map[String, String] = {}
+  let frontmatter : Map[String, String] = Map([])
   let mut content_start = 0
   // Parse YAML frontmatter
   if lines.length() > 0 && lines[0] == "---" {
@@ -200,8 +200,8 @@ fn make_heading_key(text : String, counter : Int) -> String {
 fn collect_markdown_definitions(
   lines : Array[String],
 ) -> (Map[String, String], Map[String, String]) {
-  let references : Map[String, String] = {}
-  let footnotes : Map[String, String] = {}
+  let references : Map[String, String] = Map([])
+  let footnotes : Map[String, String] = Map([])
   for line in lines {
     let trimmed = trim(line)
     let chars = trimmed.to_array()
@@ -293,8 +293,8 @@ fn render_footnotes(
 fn render_markdown_lines(
   lines : Array[String],
   line_offset? : Int = 0,
-  references? : Map[String, String] = {},
-  footnotes? : Map[String, String] = {},
+  references? : Map[String, String] = Map([]),
+  footnotes? : Map[String, String] = Map([]),
 ) -> String {
   heading_counter.val = 0
   let buf = StringBuilder::new()
@@ -688,8 +688,8 @@ fn render_markdown_list(
   line_offset : Int,
   indent : Int,
   kind : Int,
-  references? : Map[String, String] = {},
-  footnotes? : Map[String, String] = {},
+  references? : Map[String, String] = Map([]),
+  footnotes? : Map[String, String] = Map([]),
 ) -> (String, Int) {
   let buf = StringBuilder::new()
   let tag = if kind == 1 { "ul" } else { "ol" }
@@ -924,8 +924,8 @@ fn parse_table_row(line : String) -> Array[String] {
 fn render_inline(
   text : String,
   source_line? : Int = 0,
-  references? : Map[String, String] = {},
-  footnotes? : Map[String, String] = {},
+  references? : Map[String, String] = Map([]),
+  footnotes? : Map[String, String] = Map([]),
 ) -> String {
   let chars = text.to_array()
   let len = chars.length()
@@ -1020,7 +1020,9 @@ fn render_inline(
             buf.write_string(escape_html(id))
             buf.write_string("\" href=\"#footnote-")
             buf.write_string(escape_html(id))
-            buf.write_string("\" target=\"_blank\" rel=\"noopener noreferrer\">[")
+            buf.write_string(
+              "\" target=\"_blank\" rel=\"noopener noreferrer\">[",
+            )
             buf.write_string(escape_html(id))
             buf.write_string("]</a></sup>")
             i = footnote_end + 1
@@ -1065,7 +1067,9 @@ fn render_inline(
           } else {
             buf.write_string("<a href=\"")
             buf.write_string(escape_html(link_url))
-            buf.write_string("\" target=\"_blank\" rel=\"noopener noreferrer\">")
+            buf.write_string(
+              "\" target=\"_blank\" rel=\"noopener noreferrer\">",
+            )
             buf.write_string(
               render_inline(link_text, source_line~, references~, footnotes~),
             )

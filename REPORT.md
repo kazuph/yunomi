@@ -1,35 +1,49 @@
-# 同名 `REPORT.md` のコメント下書きを絶対パス単位に分離
+# MoonBit toolchainを0.10.5へ更新し、7日ルール適合版へ固定
 
-> 「はい、直して。REPROT.mdって別のdirに何個もあるので。」
+> 「ちなみにムーンビットのバージョンが更新されている場合、そちらの更新作業を今から行ってください。依存しているものもすべて更新してもらう方向で大丈夫です。もちろん7日間ルールがあるのでそこだけ注意をお願いします。」
 
 ## Why
 
-コメント下書きのlocalStorageキーが `yunomi:comments:REPORT.md` のようにファイル名だけで作られていたため、同じlocalhostポートを再利用すると、別ディレクトリの同名 `REPORT.md` に以前の下書きが現れていました。
+ローカルとCIはMoonBit 0.10.0（2026-06-08系）を使い、CIは毎回`latest`を取得していました。このままでは開発環境が古い一方、公開時だけ7日未満のtoolchainへ予告なく変わる状態でした。
+
+npm依存もcaret指定だったため、lockfileを作り直すタイミングによって7日未満のPlaywrightが選ばれます。
 
 ## How
 
-画面表示やサーバー送信に使うファイル名は変えず、ブラウザ保存専用の識別子として解決済み絶対パスをHTMLへ渡しました。コメント下書き、リロード状態、返信キャッシュ、diff表示状態など、ファイル別のlocalStorageキーはこの識別子を共通利用します。
+2026-08-06時点から満7日を経過した公式releaseだけを候補にしました。
 
-古いファイル名だけのキーは、別ファイルの内容か判定できないため自動移行しません。
+- MoonBit: `0.10.5+5e7afb0c0`。公式releaseは2026-07-28、toolchain内の`moon`と`moonrun`は2026-07-29です。
+- Playwright: `1.61.1`をexact pin。`1.62.0`は日付条件を満たしますが、新しいChromiumの追加インストールが必要になり、既存のブラウザだけで全回帰できないため採用しませんでした。
+- `1.62.1`は2026-07-30 16:38 UTC公開で、調査時点では満7日に約2時間足りないため除外しました。
+
+ローカルtoolchainは旧版を削除せず、`~/.moon/toolchain-backups/0.10.0-20260806`へ退避してから更新しました。CIも同じMoonBit releaseへ固定しています。
 
 ## What
 
-- `/first/REPORT.md` は `yunomi:comments:/first/REPORT.md`
-- `/second/REPORT.md` は `yunomi:comments:/second/REPORT.md`
-- 同じポートを再利用して順番に開いても、1件目の下書きは2件目へ復元されません。
-- 追加E2Eを通常の `test:v2` に登録しました。
-- 会話の返信textareaも絶対パス・会話ID単位で入力時にlocalStorageへ保存します。
-- エージェント返信によるSSE再描画とページ全体のリロード後に未送信テキストを復元し、送信成功時だけ削除します。
-- 新規インラインコメントの永続IDも `絶対パス|位置` とし、別ファイルの同じ行・列に残る過去コメントとの衝突を防ぎます。
+- `moon 0.1.20260729`、`moonc v0.10.5+5e7afb0c0`、`moonrun 0.1.20260729`へ更新。
+- `moon.mod`の`source`を現行トップレベル構文へ移行。
+- server/UI packageを`is-main`から`pkgtype(kind: "executable")`へ移行。
+- 空Map初期値を曖昧な`{}`から`Map([])`へ移行。
+- `moon fmt`と`moon info`を新版で実行し、自動生成`.mbti`は追跡対象外に設定。
+- `@playwright/test`と`playwright`を`1.61.1`へexact pin。
+- inline editor幅とVim選択outlineのE2Eを、実際に描画されるCSS契約へ合わせました。製品CSSは変更していません。
 
 ## Verification
 
-- `npm run build`: 成功。既存の未使用関数警告5件、エラー0件。
-- `moon test --target js`: 190/190成功。
-- `storage_scope_isolation.ts`: 同じポートで別ディレクトリの同名 `REPORT.md` を順番に開き、キー分離と誤復元なしを実ブラウザで確認。
-- `code_diff_enhance.ts`: 21/21成功。
-- `send_now.ts`: 20/20成功。
-- `preview_interaction_regression.ts`: 12/12成功。
-- `review_loop.ts`: 入力中のSSE再描画、ページリロード、送信後削除を含めて成功。
-- `send_now.ts`: パス付きIDでの即時保存、エージェント返信、再読込後の単一表示を確認。
-- `inline_comments.ts`: 保存・復元を含む対象項目は成功。ただし今回変更していないエディタ固定幅の既存チェック1件が、期待幅ではなく900pxとなり失敗。単独再実行でも同じ結果で、CSSや幅の期待値はこの修正では変更していません。
+- `moon tree`: 外部mooncakes依存なし。
+- `moon fmt`: 成功。
+- `moon info`: 成功。既存の未使用helper警告5件、エラー0件。
+- `npm audit`: 脆弱性0件。
+- `npm test`: 成功。
+  - MoonBit unit tests: 190/190。
+  - Complex markdown showcase: 28/28。
+  - Inline comment mode layout: 14/14。
+  - HTML preview: 39/39。
+  - Structured comment schema: 33/33。
+  - Vim keys: 20/20。
+  - その他の全E2Eも失敗0件。
+- `npm pack --dry-run`: 成功。`yunomi@2.4.5`、6ファイル、213.9 kB。
+
+## Decision
+
+- ✅ MoonBit 0.10.5更新と7日ルール対応を承認する

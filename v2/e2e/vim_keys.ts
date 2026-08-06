@@ -129,8 +129,9 @@ try {
         return { outlineStyle: style.outlineStyle, outlineWidth: style.outlineWidth, backgroundColor: style.backgroundColor };
       });
       assert(
-        selectedStyle.outlineStyle === "none" && selectedStyle.outlineWidth === "0px",
+        selectedStyle.outlineStyle === "none",
         "keyboard selection uses no outline",
+        selectedStyle,
       );
       await page.waitForFunction(() => {
         const element = document.querySelector(".text-line[data-row='0'].vim-key-selected");

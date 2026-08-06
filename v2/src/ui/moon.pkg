@@ -4,7 +4,8 @@ import {
   "moonbitlang/core/strconv",
 }
 
+pkgtype(kind: "executable")
+
 options(
-  "is-main": true,
   link: { "js": { "exports": [ "init_app" ], "format": "esm" } },
 )

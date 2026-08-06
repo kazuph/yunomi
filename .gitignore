@@ -4,6 +4,7 @@ npm-debug.log*
 .DS_Store
 playwright-report/
 test-results/
+pkg.generated.mbti
 .artifacts/*
 dist/
 scripts/_rec/

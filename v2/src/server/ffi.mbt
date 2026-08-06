@@ -3010,7 +3010,11 @@ extern "js" fn js_claim_file_lock(dir : String, file : String) -> String =
   #|}
 
 ///|
-extern "js" fn js_update_file_lock(dir : String, file : String, port : Int) -> Unit =
+extern "js" fn js_update_file_lock(
+  dir : String,
+  file : String,
+  port : Int,
+) -> Unit =
   #|(dir, file, port) => {
   #|  const fs = process.getBuiltinModule("node:fs");
   #|  const path = process.getBuiltinModule("node:path");

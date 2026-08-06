@@ -128,10 +128,7 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
       const headingRect = heading.getBoundingClientRect();
       const contentRect = content.getBoundingClientRect();
       const editorRect = editor.getBoundingClientRect();
-      const rootStyle = getComputedStyle(document.documentElement);
-      const reservedWidth =
-        parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-width")) +
-        parseFloat(rootStyle.getPropertyValue("--review-loop-sidebar-offset"));
+      const reservedWidth = parseFloat(getComputedStyle(editor).marginRight);
       return { headingBottom: headingRect.bottom, editorTop: editorRect.top, editorWidth: editorRect.width, contentWidth: contentRect.width, reservedWidth };
     });
     assert(

@@ -304,8 +304,7 @@ fn running_port_for_file(file_path : String) -> Int {
     let lp = path_join(lock_dir(), entry)
     let content = read_file_safe(lp)
     let locked_file = json_parse_string("file", content)
-    if locked_file.length() == 0 ||
-      realpath_or_resolve(locked_file) != target {
+    if locked_file.length() == 0 || realpath_or_resolve(locked_file) != target {
       continue
     }
     let pid = js_lock_pid(content)
@@ -328,7 +327,10 @@ fn claim_file_server(file_path : String) -> (Bool, Int) {
     return (false, running_port)
   }
   let claim = js_claim_file_lock(lock_dir(), realpath_or_resolve(file_path))
-  (json_parse_string("status", claim) == "claimed", json_parse_int_field("port", claim))
+  (
+    json_parse_string("status", claim) == "claimed",
+    json_parse_int_field("port", claim),
+  )
 }
 
 ///|

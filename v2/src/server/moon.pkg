@@ -2,7 +2,8 @@ import {
   "kazuph/yunomi/core",
 }
 
+pkgtype(kind: "executable")
+
 options(
-  "is-main": true,
   link: { "js": { "exports": [ ], "format": "esm" } },
 )

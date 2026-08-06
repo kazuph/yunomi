@@ -13,7 +13,7 @@ struct AppComment {
 
 ///|
 /// Application state
-let comments : Map[String, AppComment] = {}
+let comments : Map[String, AppComment] = Map([])
 
 ///|
 /// Currently active inline comment target
@@ -474,8 +474,7 @@ pub fn init_app() -> Unit {
     on(recovery_discard, "click", fn(_e) { discard_comments() })
   }
   on_doc("keydown", fn(e) {
-    if event_key(e) == "Enter" &&
-      (event_meta_key(e) || event_ctrl_key(e)) {
+    if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
       if _event_is_composing(e) {
         return
       }
@@ -590,6 +589,8 @@ pub fn init_app() -> Unit {
 
 ///|
 let review_loop_state_loading : Ref[Bool] = Ref(false)
+
+///|
 let review_loop_state_loaded : Ref[Bool] = Ref(false)
 
 ///|
@@ -810,7 +811,16 @@ fn restore_comments() -> Unit {
           let pending = entry.length() > 5 && entry[5] == "true"
           let sent = entry.length() <= 6 || entry[6] == "true"
           let surface = if entry.length() > 7 { entry[7] } else { "preview" }
-          comments.set(k, { row, col, surface, text, image: "", value, pending, sent })
+          comments.set(k, {
+            row,
+            col,
+            surface,
+            text,
+            image: "",
+            value,
+            pending,
+            sent,
+          })
         }
       }
     }
@@ -852,7 +862,9 @@ fn restore_comments() -> Unit {
         ignore(
           set_timeout(
             fn() {
-              let target = resolve_restored_comment_target(key, row, col, surface)
+              let target = resolve_restored_comment_target(
+                key, row, col, surface,
+              )
               if !is_null(target) {
                 show_inline_comment(target, key, row, col)
               }
@@ -986,7 +998,10 @@ fn comment_location_label(comment : AppComment) -> String {
 }
 
 ///|
-fn resolve_comment_indicator_target(key : String, comment : AppComment) -> Element {
+fn resolve_comment_indicator_target(
+  key : String,
+  comment : AppComment,
+) -> Element {
   inline_comment_insertion_target(
     resolve_restored_comment_target(
       key,
