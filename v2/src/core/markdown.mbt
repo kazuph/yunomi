@@ -1986,23 +1986,23 @@ fn build_video_fullscreen(buf : StringBuilder) -> Unit {
   buf.write_string(
     "<div class=\"video-settings-panel\" id=\"video-settings-panel\">",
   )
-  buf.write_string("<h4>タイムライン設定</h4>")
+  buf.write_string("<h4>Timeline settings</h4>")
   buf.write_string(
-    "<p class=\"video-settings-desc\">シーン感度: 映像変化の検出しきい値</p>",
+    "<p class=\"video-settings-desc\">Scene sensitivity: visual change threshold</p>",
   )
   buf.write_string(
     "<div class=\"video-settings-buttons\" id=\"scene-buttons\">",
   )
-  buf.write_string("<button data-scene=\"0.3\">少なめ</button>")
-  buf.write_string("<button data-scene=\"0.1\">やや少</button>")
+  buf.write_string("<button data-scene=\"0.3\">Fewer</button>")
+  buf.write_string("<button data-scene=\"0.1\">Slightly fewer</button>")
   buf.write_string(
-    "<button data-scene=\"0.01\" class=\"selected\">標準</button>",
+    "<button data-scene=\"0.01\" class=\"selected\">Standard</button>",
   )
-  buf.write_string("<button data-scene=\"0.003\">やや多</button>")
-  buf.write_string("<button data-scene=\"0.001\">多め</button>")
+  buf.write_string("<button data-scene=\"0.003\">Slightly more</button>")
+  buf.write_string("<button data-scene=\"0.001\">More</button>")
   buf.write_string("</div>")
   buf.write_string(
-    "<p class=\"video-settings-desc\">グルーピング: 連続する変化をまとめる秒数</p>",
+    "<p class=\"video-settings-desc\">Grouping: seconds used to merge consecutive changes</p>",
   )
   buf.write_string("<div class=\"video-settings-buttons\" id=\"stab-buttons\">")
   buf.write_string("<button data-stab=\"0.5\">0.5s</button>")

@@ -118,7 +118,7 @@ async function scenarioSummaryShownInsteadOfVanishing(browser: Browser): Promise
     const FREETEXT_ANSWER = "コメント機能はとても重要だと思います。";
     await page.locator('.question-card[data-qid="q2-freetext"] .q-answer').fill(FREETEXT_ANSWER);
     const nextLabelOnLast = await page.locator("#yunomi-questions-next").textContent();
-    assertTrue(nextLabelOnLast === "完了", "最終問のNextボタンは「完了」ラベル", {
+    assertTrue(nextLabelOnLast === "Done", "最終問のNextボタンはDoneラベル", {
       nextLabelOnLast,
     });
     await page.locator("#yunomi-questions-next").click();
@@ -146,11 +146,11 @@ async function scenarioSummaryShownInsteadOfVanishing(browser: Browser): Promise
       { summaryTexts },
     );
     const nextLabel = await page.locator("#yunomi-questions-next").textContent();
-    assertTrue(nextLabel === "確定して閉じる", "サマリ画面のNextボタンは「確定して閉じる」ラベル", {
+    assertTrue(nextLabel === "Confirm and close", "サマリ画面のNextボタンはConfirm and closeラベル", {
       nextLabel,
     });
     const laterLabel = await page.locator("#yunomi-questions-later").textContent();
-    assertTrue(laterLabel === "戻る", "サマリ画面のLaterボタンは「戻る」ラベルに切り替わる", {
+    assertTrue(laterLabel === "Back", "サマリ画面のLaterボタンはBackラベルに切り替わる", {
       laterLabel,
     });
 
@@ -273,7 +273,7 @@ async function scenarioLaterAbandonSkipsSummary(browser: Browser): Promise<void>
     await page.waitForSelector('.question-card[data-qid="q2-freetext"].step-active');
 
     const laterLabel = await page.locator("#yunomi-questions-later").textContent();
-    assertTrue(laterLabel === "後で回答する", "質問未完了の間はLaterボタンが「後で回答する」のまま", {
+    assertTrue(laterLabel === "Answer later", "質問未完了の間はLaterボタンがAnswer laterのまま", {
       laterLabel,
     });
     await page.locator("#yunomi-questions-later").click();

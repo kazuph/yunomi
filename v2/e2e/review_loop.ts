@@ -164,6 +164,11 @@ async function main(): Promise<void> {
   const initialHtml = await request(port, "GET", "/");
   assert.equal(initialHtml.status, 200);
   assert.match(initialHtml.body, /id="review-loop-panel"[^>]*class="review-loop-sidebar"|class="review-loop-sidebar"[^>]*id="review-loop-panel"/, "markdown page renders the review loop mount as a sidebar");
+  assert.doesNotMatch(
+    initialHtml.body,
+    /閉じる|回答を入力|解決済み|後で回答する|未回答の質問を開く|タイムライン設定|シーン感度|少なめ|標準|多め|グルーピング/,
+    "server-rendered controls do not switch to Japanese",
+  );
   const uiJs = await request(port, "GET", "/ui.js");
   assert.equal(uiJs.status, 200);
   assert.match(uiJs.body, /Comments/, "review loop UI uses the familiar comments header");
@@ -176,6 +181,11 @@ async function main(): Promise<void> {
   assert.match(uiJs.body, /New conversation/, "review loop UI can start a global conversation when none exists");
   assert.doesNotMatch(uiJs.body, /Past conversation/, "global conversation has no per-thread resolved history");
   assert.match(uiJs.body, /review-loop-submit-state/, "submit modal must render review loop status text");
+  assert.doesNotMatch(
+    uiJs.body,
+    /未解決の確認項目|確定して閉じる|後で回答する|確認済み|未確認/,
+    "client-rendered controls do not switch to Japanese",
+  );
 
   const firstSubmit = await request(
     port,
@@ -1353,11 +1363,43 @@ async function main(): Promise<void> {
       assert.doesNotMatch(jaSidebarText || "", /レビューコメント|あなた|会話を解決|返信|画像を添付|前回からの差分/, "Japanese browser does not switch only the review conversation to Japanese");
       assert.match(jaSidebarText || "", /Diff since last round/, "review conversation diff label stays English with the other conversation actions");
       await jaPage.click("#send-and-exit");
-      assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /未解決の確認項目が 5 件あるため、承認できません。/, "Japanese submit modal explains why approval is blocked");
-      assert.equal(await jaPage.locator("#review-unresolved-action").textContent(), "未解決の確認項目を見る", "Japanese submit modal labels the recovery action");
+      assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /5 review items remain unresolved/, "Japanese browser keeps the blocked approval explanation in English");
+      assert.equal(await jaPage.locator("#review-unresolved-action").textContent(), "Review unresolved items", "Japanese browser keeps the recovery action in English");
     } finally {
       await jaContext.close().catch(() => {});
     }
+
+    while (await page.locator(".review-loop-inline .review-loop-resolve").count() > 0) {
+      const before = await page.locator(".review-loop-inline .review-loop-resolve").count();
+      await page.locator(".review-loop-inline .review-loop-resolve").first().click();
+      await page.waitForFunction(
+        (count) => document.querySelectorAll(".review-loop-inline .review-loop-resolve").length < count,
+        before,
+      );
+    }
+    const panel = page.locator("#review-loop-panel");
+    if (!await panel.evaluate((element) => element.classList.contains("review-loop-sidebar-collapsed"))) {
+      await panel.locator(".review-loop-sidebar-toggle").click();
+    }
+    await page.click("#send-and-exit");
+    assert.equal(await page.locator("#review-unresolved-action").textContent(), "Review unresolved item", "the final detached thread uses the singular English recovery action");
+    await page.click("#review-unresolved-action");
+    const detachedRecovery = await page.evaluate(() => {
+      const modal = document.querySelector<HTMLElement>("#submit-modal");
+      const panel = document.querySelector<HTMLElement>("#review-loop-panel");
+      const comment = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-sidebar-card[data-review-comment-id='c-1-4']");
+      const rect = comment?.getBoundingClientRect();
+      return {
+        modalVisible: modal?.classList.contains("visible"),
+        panelExpanded: !panel?.classList.contains("review-loop-sidebar-collapsed"),
+        targetFocused: document.activeElement === comment,
+        targetVisible: !!rect && rect.bottom > 0 && rect.top < window.innerHeight,
+      };
+    });
+    assert.equal(detachedRecovery.modalVisible, false, "detached recovery closes the submit modal");
+    assert.equal(detachedRecovery.panelExpanded, true, "detached recovery expands the review sidebar");
+    assert.equal(detachedRecovery.targetFocused, true, "detached recovery focuses the unresolved sidebar card");
+    assert.equal(detachedRecovery.targetVisible, true, "detached recovery scrolls the unresolved sidebar card into view");
   } finally {
     await browser.close().catch(() => {});
   }

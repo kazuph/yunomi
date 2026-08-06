@@ -787,12 +787,15 @@ extern "js" fn fetch_get(url : String, callback : (String) -> Unit) -> Unit =
   #|(url, cb) => fetch(url).then(r => r.text()).then(cb).catch(() => cb("[]"))
 
 ///|
-extern "js" fn focus_durable_review_comment(key : String) -> Bool =
-  #|(key) => {
+extern "js" fn focus_durable_review_comment(
+  key : String,
+  focus_card : Bool,
+) -> Bool =
+  #|(key, focusCard) => {
   #|  const id = String(key || "");
   #|  if (!window.__YUNOMI_UNRESOLVED_COMMENT_IDS__?.has(id)) return false;
   #|  const selector = `[data-review-comment-id="${CSS.escape(id)}"]`;
-  #|  const inlineThread = document.querySelector(`.review-loop-inline${selector}`);
+  #|  const inlineThread = document.querySelector(`.review-loop-inline .review-loop-comment${selector}`);
   #|  const sidebarThread = document.querySelector(`.review-loop-sidebar-card${selector}`);
   #|  const thread = inlineThread || sidebarThread;
   #|  if (thread) {
@@ -801,7 +804,12 @@ extern "js" fn focus_durable_review_comment(key : String) -> Bool =
   #|      panel.querySelector(".review-loop-sidebar-toggle")?.click();
   #|    }
   #|    thread.scrollIntoView({ block: "nearest" });
-  #|    thread.querySelector("textarea, button, input")?.focus();
+  #|    if (focusCard) {
+  #|      thread.tabIndex = -1;
+  #|      thread.focus();
+  #|    } else {
+  #|      thread.querySelector("textarea, button, input")?.focus();
+  #|    }
   #|  }
   #|  return true;
   #|}
@@ -1428,10 +1436,6 @@ extern "js" fn bind_inline_saved_comments(
 ///|
 extern "js" fn get_review_loop_status_text() -> String =
   #|() => String(window.__YUNOMI_REVIEW_LOOP_STATUS__ || "")
-
-///|
-extern "js" fn is_japanese_locale() -> Bool =
-  #|() => /^ja\b/i.test(navigator.language || "")
 
 ///|
 /// Paste event handler for images
@@ -2264,12 +2268,9 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|  if (!shell) return;
   #|  const viewKey = `yunomi:diff-view:${filename}`;
   #|  const viewedKey = `yunomi:diff-viewed:${filename}`;
-  #|  const ja = /^ja\b/i.test(navigator.language || "");
-  #|  const reviewedText = ja ? "確認済み" : "Reviewed";
-  #|  const unreviewedText = ja ? "未確認" : "Unreviewed";
-  #|  const reviewLabel = (file, isViewed) => ja
-  #|    ? `${file} を${isViewed ? "確認済み" : "未確認"}にする`
-  #|    : `Mark ${file} as ${isViewed ? "reviewed" : "unreviewed"}`;
+  #|  const reviewedText = "Reviewed";
+  #|  const unreviewedText = "Unreviewed";
+  #|  const reviewLabel = (file, isViewed) => `Mark ${file} as ${isViewed ? "reviewed" : "unreviewed"}`;
   #|  const getViewed = () => {
   #|    try { return JSON.parse(localStorage.getItem(viewedKey) || "{}") || {}; } catch (_) { return {}; }
   #|  };

@@ -190,7 +190,7 @@ try {
       );
       await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
-      assert(await page.locator("#comment-list li[data-key='0:0']").count() === 1, "Cmd/Ctrl+Enter saves an open keyboard comment");
+      assert(await page.locator("#comment-list li[data-key$='|0:0']").count() === 1, "Cmd/Ctrl+Enter saves an open keyboard comment with a path-scoped key");
 
       await page.keyboard.press("Escape");
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
@@ -239,7 +239,10 @@ try {
       await page.waitForSelector(".vim-key-help:not(.hidden)");
       assert((await page.locator(".vim-key-help").textContent() || "").includes("Keyboard review"), "? opens keyboard help");
       await page.locator("[data-vim-toggle]").click();
-      assert(await page.evaluate(() => localStorage.getItem("yunomi:vim-keys:vim.txt") === "off"), "keyboard help toggles Vim keys off in localStorage");
+      assert(await page.evaluate(() => {
+        const scope = String((window as unknown as { __YUNOMI_STORAGE_SCOPE__?: string }).__YUNOMI_STORAGE_SCOPE__ || "");
+        return scope.length > 0 && localStorage.getItem(`yunomi:vim-keys:${scope}`) === "off";
+      }), "keyboard help toggles Vim keys off in path-scoped localStorage");
       await page.mouse.click(5, 5);
       await page.keyboard.press("j");
       assert(await page.locator(".text-line[data-row='1'].vim-key-selected").count() === 0, "localStorage off disables j/k navigation");

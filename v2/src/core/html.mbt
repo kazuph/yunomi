@@ -381,7 +381,7 @@ fn build_questions_modal(
   }
   buf.write_string("</span>")
   buf.write_string(
-    "<button class=\"yunomi-questions-close\" id=\"yunomi-questions-close\" title=\"閉じる\" aria-label=\"閉じる\">&times;</button>",
+    "<button class=\"yunomi-questions-close\" id=\"yunomi-questions-close\" title=\"Close\" aria-label=\"Close\">&times;</button>",
   )
   buf.write_string("</div>")
   buf.write_string(
@@ -435,7 +435,7 @@ fn build_questions_modal(
     }
     buf.write_string("<textarea class=\"q-answer\" data-qi=\"")
     buf.write_string(i.to_string())
-    buf.write_string("\" placeholder=\"回答を入力\">")
+    buf.write_string("\" placeholder=\"Enter your answer\">")
     buf.write_string(escape_html(q.answer))
     buf.write_string("</textarea>")
     buf.write_string("</div>")
@@ -459,7 +459,7 @@ fn build_questions_modal(
   if resolved_count > 0 {
     buf.write_string("<div class=\"yunomi-resolved-section\">")
     buf.write_string(
-      "<button type=\"button\" class=\"yunomi-resolved-toggle\"><span class=\"arrow\">\u{25B8}</span>解決済み (",
+      "<button type=\"button\" class=\"yunomi-resolved-toggle\"><span class=\"arrow\">\u{25B8}</span>Resolved (",
     )
     buf.write_string(resolved_count.to_string())
     buf.write_string(")</button><div class=\"yunomi-resolved-list\">")
@@ -484,18 +484,18 @@ fn build_questions_modal(
   buf.write_string("</div>")
   buf.write_string("<div class=\"yunomi-questions-footer\">")
   buf.write_string(
-    "<button type=\"button\" class=\"yunomi-questions-later\" id=\"yunomi-questions-later\" title=\"後で回答する\">後で回答する</button>",
+    "<button type=\"button\" class=\"yunomi-questions-later\" id=\"yunomi-questions-later\" title=\"Answer later\">Answer later</button>",
   )
   buf.write_string(
     "<button type=\"button\" class=\"yunomi-questions-next\" id=\"yunomi-questions-next\">",
   )
-  buf.write_string(if unresolved_count <= 1 { "完了" } else { "次へ" })
+  buf.write_string(if unresolved_count <= 1 { "Done" } else { "Next" })
   buf.write_string("</button>")
   buf.write_string("</div></div></div>")
   // Minimal floating pill (replaces the old full-width sentence banner):
   // just an icon + numeric badge, no explanatory copy, no emoji.
   buf.write_string(
-    "<button type=\"button\" class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar-open\" title=\"未回答の質問を開く\" aria-label=\"未回答の質問を開く\">",
+    "<button type=\"button\" class=\"yunomi-questions-bar\" id=\"yunomi-questions-bar-open\" title=\"Open unanswered questions\" aria-label=\"Open unanswered questions\">",
   )
   // Two icons, pre-rendered and toggled via the `.done` class (see
   // app.mbt's flash_answered_pill()) — swapping which one is visible is a

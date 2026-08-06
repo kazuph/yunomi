@@ -222,7 +222,7 @@ async function main(): Promise<void> {
     const q2Card = page.locator('.question-card[data-qid="q2-freetext"]');
 
     // --- Stepper: only the first question is on screen ---
-    await assertVisibleStep(q1Card, q2Card, "1/2", "次へ");
+    await assertVisibleStep(q1Card, q2Card, "1/2", "Next");
 
     // --- (d)/(e): no internal id, no emoji, anywhere in the visible modal ---
     const overlayText = (await page.locator("#yunomi-questions-overlay").innerText()) ?? "";
@@ -290,7 +290,7 @@ async function main(): Promise<void> {
     );
 
     // --- Stepper advanced to the second (and last) question ---
-    await assertVisibleStep(q2Card, q1Card, "2/2", "完了");
+    await assertVisibleStep(q2Card, q1Card, "2/2", "Done");
 
     // --- (b): close mid-typing on Q2, reload, Restore -> position + text survive ---
     await q2Card.locator(".q-answer").fill(PARTIAL_ANSWER);

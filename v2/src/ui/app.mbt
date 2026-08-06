@@ -145,7 +145,7 @@ fn open_inline_comment_editor(
   row : Int,
   col : Int,
 ) -> Unit {
-  if focus_durable_review_comment(key) {
+  if focus_durable_review_comment(key, false) {
     return
   }
   if get_tag_name(target) == "SUMMARY" {
@@ -423,22 +423,18 @@ pub fn init_app() -> Unit {
       let mut resolve = query(".review-loop-inline .review-loop-resolve")
       if is_null(resolve) {
         resolve = query(
-          "#review-loop-panel .review-loop-fallback .review-loop-resolve",
+          "#review-loop-panel .review-loop-sidebar-card .review-loop-resolve",
         )
       }
-      let mut comment = closest(resolve, ".review-loop-comment")
-      if is_null(comment) {
-        comment = closest(resolve, ".review-loop-fallback")
-      }
+      let comment = closest(resolve, ".review-loop-comment")
       if !is_null(comment) {
-        let details = closest(comment, "details")
-        if !is_null(details) {
-          set_attribute(details, "open", "")
-        }
         hide_submit_modal()
-        set_attribute(comment, "tabindex", "-1")
-        scroll_into_view(comment)
-        focus_element(comment)
+        let id = get_attr(resolve, "data-review-comment-id")
+        if id.length() == 0 || !focus_durable_review_comment(id, true) {
+          set_attribute(comment, "tabindex", "-1")
+          scroll_into_view(comment)
+          focus_element(comment)
+        }
       }
     })
   }
@@ -1341,47 +1337,29 @@ fn show_submit_modal() -> Unit {
     let has_unresolved_threads = unresolved_count > 0
     set_disabled(approve, has_unresolved_threads)
     if has_unresolved_threads {
-      let japanese = is_japanese_locale()
-      if japanese {
-        set_attribute(
-          approve, "title", "未解決の確認項目をすべて解決してから承認してください",
-        )
-      } else {
-        set_attribute(
-          approve, "title", "Resolve all open review threads before approving",
-        )
-      }
+      set_attribute(
+        approve, "title", "Resolve all open review threads before approving",
+      )
       set_attribute(approve, "aria-describedby", "approve-blocked-reason")
       if !is_null(blocked_reason) {
         let message = query("#approve-blocked-reason .approve-blocked-message")
         if !is_null(message) {
-          if japanese {
-            set_text_content(
-              message,
-              "未解決の確認項目が " +
-              unresolved_count.to_string() +
-              " 件あるため、承認できません。",
-            )
+          let item_label = if unresolved_count == 1 {
+            " review item remains"
           } else {
-            let item_label = if unresolved_count == 1 {
-              " review item remains"
-            } else {
-              " review items remain"
-            }
-            set_text_content(
-              message,
-              "Approval is unavailable while " +
-              unresolved_count.to_string() +
-              item_label +
-              " unresolved.",
-            )
+            " review items remain"
           }
+          set_text_content(
+            message,
+            "Approval is unavailable while " +
+            unresolved_count.to_string() +
+            item_label +
+            " unresolved.",
+          )
         }
         let action = query("#review-unresolved-action")
         if !is_null(action) {
-          if japanese {
-            set_text_content(action, "未解決の確認項目を見る")
-          } else if unresolved_count == 1 {
+          if unresolved_count == 1 {
             set_text_content(action, "Review unresolved item")
           } else {
             set_text_content(action, "Review unresolved items")
@@ -4038,10 +4016,10 @@ fn render_question_step() -> Unit {
       set_inner_html(progress_el, count.to_string() + "/" + count.to_string())
     }
     if !is_null(next_btn) {
-      set_inner_html(next_btn, "確定して閉じる")
+      set_inner_html(next_btn, "Confirm and close")
     }
     if !is_null(later_btn) {
-      set_inner_html(later_btn, "戻る")
+      set_inner_html(later_btn, "Back")
     }
     return
   }
@@ -4059,10 +4037,10 @@ fn render_question_step() -> Unit {
     set_inner_html(progress_el, (idx + 1).to_string() + "/" + count.to_string())
   }
   if !is_null(next_btn) {
-    set_inner_html(next_btn, if idx == count - 1 { "完了" } else { "次へ" })
+    set_inner_html(next_btn, if idx == count - 1 { "Done" } else { "Next" })
   }
   if !is_null(later_btn) {
-    set_inner_html(later_btn, "後で回答する")
+    set_inner_html(later_btn, "Answer later")
   }
 }
 
