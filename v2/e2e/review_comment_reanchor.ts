@@ -53,6 +53,7 @@ const initial = [
   "# Reanchor", "", "before A", "", "TARGET", "RANGE END A", "", "after A", "", "before B", "TARGET", "after B", "",
   "before keep", "STAYS", "after keep", "", "before replace", "TARGET REPLACE", "after replace", "", "before deleted", "DELETE ME", "after deleted", "",
   "before ambiguous", "AMBIGUOUS", "after ambiguous", "", "| Left | Right |", "|---|---|", "| same | same |", "",
+  "before loose", "Loose Left | Loose Right", "after loose", "",
 ].join("\n");
 const revised = [
   "# Reanchor", "", "inserted before every target", "", "before keep", "STAYS", "after keep", "",
@@ -60,6 +61,7 @@ const revised = [
   "before A", "", "TARGET", "RANGE END A", "", "after A changed", "", "before ambiguous", "AMBIGUOUS", "after ambiguous", "",
   "before ambiguous", "AMBIGUOUS", "after ambiguous", "",
   "before replace", "REPLACED", "after replace", "",
+  "before loose", "Loose Left |", "after loose", "",
 ].join("\n");
 
 function rowOf(text: string, marker: string, occurrence = 0): number {
@@ -95,6 +97,7 @@ writeFileSync(join(REVIEW_DIR, "review.json"), JSON.stringify({
     { id: "c-1-8", file: "REPORT.md", row: rowOf(initial, "AMBIGUOUS"), col: 0, end_row: rowOf(initial, "AMBIGUOUS"), end_col: 0, line: rowOf(initial, "AMBIGUOUS") + 1, round: 1, text: "ambiguous target", quote: "AMBIGUOUS", status: "unresolved", replies: [], anchor: { snippet: "AMBIGUOUS", context_before: "before ambiguous", context_after: "after ambiguous" } },
     { id: "c-1-12", file: "REPORT.md", row: rowOf(initial, "TARGET", 1), col: 0, end_row: rowOf(initial, "TARGET", 1), end_col: 0, line: rowOf(initial, "TARGET", 1) + 1, round: 1, text: "continuous snippet", status: "unresolved", replies: [], anchor: { snippet: "before B\nTARGET\nafter B", context_before: "before B", context_after: "after B" } },
     { id: "c-1-13", file: "REPORT.md", row: rowOf(initial, "TARGET REPLACE"), col: 0, end_row: rowOf(initial, "TARGET REPLACE"), end_col: 0, line: rowOf(initial, "TARGET REPLACE") + 1, round: 1, text: "replaced target", quote: "TARGET REPLACE", status: "unresolved", replies: [], anchor: { snippet: "TARGET REPLACE", context_before: "before replace", context_after: "after replace" } },
+    { id: "c-1-15", file: "REPORT.md", row: rowOf(initial, "Loose Left | Loose Right"), col: 2, end_row: rowOf(initial, "Loose Left | Loose Right"), end_col: 2, line: rowOf(initial, "Loose Left | Loose Right") + 1, round: 1, text: "removed loose table cell", status: "unresolved", replies: [], anchor: { snippet: "Loose Left | Loose Right", context_before: "before loose", context_after: "after loose" } },
   ],
 }, null, 2));
 
@@ -125,6 +128,7 @@ try {
   assert.equal(byId.get("c-1-8")?.unanchored, true, "identical quote and context candidates fail closed instead of choosing one");
   assert.equal(byId.get("c-1-12")?.unanchored, false, "continuous legacy snippet resolves only at its matching target row");
   assert.equal(byId.get("c-1-13")?.unanchored, false, "a changed quote resolves when both preserved contexts uniquely identify its replacement row");
+  assert.equal(byId.get("c-1-15")?.unanchored, true, "a missing cell in a pipe table without an outer boundary fails closed");
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -148,7 +152,7 @@ try {
       ["c-1-6", "c-1-11", "c-1-2", "c-1-12", "c-1-3", "c-1-4", "c-1-1", "c-1-10", "c-1-5", "c-1-9", "c-1-13"],
       "document order is stable and comments sharing one target preserve review.json array order",
     );
-    assert.equal(rendered.length, 11, "14 unresolved comments render 11 anchored inline threads");
+    assert.equal(rendered.length, 11, "15 unresolved comments render 11 anchored inline threads");
     assert.equal(new Set(rendered.map((entry) => entry.id)).size, 11, "each anchored comment has exactly one inline thread");
     assert.deepEqual(
       rendered.filter((entry) => entry.id === "c-1-3" || entry.id === "c-1-4").map((entry) => entry.cell),
@@ -163,13 +167,10 @@ try {
     assert.equal(duplicateRanges.length, 2, "both duplicate TARGET threads render once");
     assert.ok(duplicateRanges.every((entry) => entry.start <= rowOf(revised, "TARGET", entry.id === "c-1-1" ? 1 : 0) + 1 && rowOf(revised, "TARGET", entry.id === "c-1-1" ? 1 : 0) + 1 <= entry.end), "each duplicate thread's server-resolved source line is inside its rendered target range", duplicateRanges);
     assert.notEqual(duplicateRanges[0]?.sourceStart, duplicateRanges[1]?.sourceStart, "duplicate TARGET threads use separate context ranges rather than the first matching block");
-    assert.equal(rendered.some((entry) => entry.id === "c-1-7" || entry.id === "c-1-8" || entry.id === "c-1-14"), false, "deleted, ambiguous, and missing-column comments never render at an old or arbitrary target");
-    const unanchoredCards = page.locator("#review-loop-panel .review-loop-unanchored > .review-loop-list > .review-loop-comment");
-    assert.equal(await unanchoredCards.count(), 3, "deleted, ambiguous, and missing-column comments remain visible as explicit unanchored cards");
-    assert.deepEqual(await unanchoredCards.evaluateAll((cards) => cards.map(card => card.getAttribute("data-review-comment-id"))), ["c-1-14", "c-1-7", "c-1-8"], "unanchored sidebar cards identify only the comments that cannot be placed safely");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-reply-form").count(), 3, "unanchored cards retain reply actions");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-resolve").count(), 3, "unanchored cards retain resolve actions");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /14 open/, "unanchored comments remain in the unresolved count and gate");
+    assert.equal(rendered.some((entry) => entry.id === "c-1-7" || entry.id === "c-1-8" || entry.id === "c-1-14" || entry.id === "c-1-15"), false, "deleted, ambiguous, and missing-column comments never render at an old or arbitrary target");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "unanchored comments do not create a second sidebar feature");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-comment[data-review-comment-id='c-1-14'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-15'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-7'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-8']").count(), 0, "comments without a current document target stay out of the chat-only panel");
+    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /11 open/, "only actionable anchored comments remain in the review count");
   };
   await assertRendered();
   await page.reload({ waitUntil: "domcontentloaded" });

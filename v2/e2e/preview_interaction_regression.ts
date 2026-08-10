@@ -379,6 +379,52 @@ async function main(): Promise<void> {
       }
     });
 
+    await runScenario("preview text selection remains available after comment targeting", async () => {
+      const { context, page } = await createPage(browser!);
+      try {
+        await gotoFixture(page, port);
+        await page.waitForSelector(".md-preview");
+
+        const selectionTarget = await page.locator(".md-preview p").first().evaluate((element) => {
+          const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+          const node = walker.nextNode();
+          if (!node || !node.textContent?.trim()) {
+            return null;
+          }
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0);
+          const first = rects[0];
+          const last = rects[rects.length - 1];
+          if (!first || !last) {
+            return null;
+          }
+          return {
+            text: node.textContent,
+            start: { x: first.left + 2, y: first.top + first.height / 2 },
+            end: { x: last.right - 2, y: last.top + last.height / 2 },
+          };
+        });
+        assert.ok(selectionTarget, "preview text should expose a selectable range");
+
+        await page.mouse.move(selectionTarget!.start.x, selectionTarget!.start.y);
+        await page.mouse.down();
+        await page.mouse.move(selectionTarget!.end.x, selectionTarget!.end.y, { steps: 5 });
+        await page.mouse.up();
+        await waitForCommentCard(page);
+        await page.waitForTimeout(100);
+
+        const selection = await page.evaluate(() => {
+          const current = window.getSelection();
+          return { text: current?.toString() || "", collapsed: current?.isCollapsed ?? true };
+        });
+        assert.ok(selection.text.trim().length > 0, "selected preview text should remain available for copying");
+        assert.equal(selection.collapsed, false, "comment targeting must not collapse the native text selection");
+      } finally {
+        await context.close();
+      }
+    });
+
     await runScenario("preview-only keeps the comment card off the clicked element", async () => {
       const { context, page } = await createPage(browser!, { width: 1280, height: 900 });
       try {

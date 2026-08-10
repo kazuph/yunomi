@@ -175,7 +175,7 @@ async function main(): Promise<void> {
   assert.doesNotMatch(uiJs.body, /レビューコメント|あなた|会話を解決|返信|画像を添付/, "review loop labels stay English regardless of browser locale");
   assert.match(uiJs.body, /review-loop-thread-line is-human/, "review loop UI renders the human message inside a thread");
   assert.doesNotMatch(uiJs.body, /you: "human"|agent: "agent"/, "review loop omits redundant speaker labels from message bubbles");
-  assert.match(uiJs.body, /Diff since last round/, "review loop UI keeps the collapsed round diff");
+  assert.doesNotMatch(uiJs.body, /Diff since last round|review-loop-diff-block/, "review loop UI is chat-only and has no diff panel");
   assert.doesNotMatch(uiJs.body, /Previous request|AI reply|Review flow|Check status|Review target|Original target/, "review loop removes duplicated labels and fixed guidance");
   assert.match(uiJs.body, /All resolved — enjoy your tea/, "review loop UI keeps the tea-themed approve-ready moment for when every thread is resolved");
   assert.match(uiJs.body, /New conversation/, "review loop UI can start a global conversation when none exists");
@@ -261,8 +261,8 @@ async function main(): Promise<void> {
     );
     assert.deepEqual(
       await currentRoundPage.locator("#review-loop-panel .review-loop-comment[data-review-comment-id^='c-']").evaluateAll((nodes) => nodes.map((node) => node.getAttribute("data-review-comment-id"))),
-      ["c-1-4"],
-      "showing the current global conversation keeps anchored line comments inline and lists only the detached target in the sidebar",
+      [],
+      "showing the current global conversation keeps anchored line comments inline without adding a fallback sidebar thread",
     );
   } finally {
     await currentRoundBrowser.close().catch(() => {});
@@ -292,7 +292,7 @@ async function main(): Promise<void> {
 
   const state = await waitForRound(port, 2);
   assert.equal(state.unresolved_count, 6);
-  assert.equal(state.gate_unresolved_count, 6, "an unresolved round thread does not enter the approve gate");
+  assert.equal(state.gate_unresolved_count, 5, "an unanchored comment does not enter the approve gate");
   assert.equal(state.review.comments.find((comment: { id: string }) => comment.id === "c-1-1")?.id, "c-1-1");
   assert.equal(
     state.review.comments.some((comment: { id: string }) => comment.id === "foreign-file-comment"),
@@ -319,81 +319,32 @@ async function main(): Promise<void> {
     assert.doesNotMatch(sidebarText || "", /Review items/, "sidebar no longer uses the old panel title");
     assert.match(sidebarText || "", /Round 1 needs a text update/, "sidebar contains the latest global conversation");
     assert.equal(await page.locator("#review-loop-panel .review-loop-index-list, #review-loop-panel .review-loop-index-item").count(), 0, "inline comments never reappear as a sidebar index");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-comment[data-review-comment-id='c-1-4']").count(), 1, "an unanchored line comment is shown once in the explicit not-in-document section");
-    assert.match(await page.locator("#review-loop-panel .review-loop-unanchored").textContent() || "", /Not shown in document[\s\S]*Please review detached detail/, "the unanchored section explains why the thread is not placed beside unrelated text");
-    const unanchored = page.locator("#review-loop-panel .review-loop-unanchored");
-    const unanchoredLayout = await unanchored.evaluate((element) => ({
-      overflowY: getComputedStyle(element).overflowY,
-      scrollTop: element.scrollTop,
-      scrollHeight: element.scrollHeight,
-      clientHeight: element.clientHeight,
-    }));
-    assert.equal(unanchoredLayout.overflowY, "auto", "the not-in-document conversation owns vertical scrolling");
-    assert.ok(unanchoredLayout.scrollHeight > unanchoredLayout.clientHeight, "a long not-in-document conversation overflows inside the fixed chat");
-    assert.ok(unanchoredLayout.scrollTop + unanchoredLayout.clientHeight >= unanchoredLayout.scrollHeight, "the not-in-document conversation initially shows its latest message");
-    await unanchored.hover();
-    await page.mouse.wheel(0, -5000);
-    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) === 0);
-    assert.equal(await unanchored.evaluate((element) => element.scrollTop), 0, "mouse-wheel input reaches older messages at the top");
-    await page.mouse.wheel(0, 5000);
-    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) > 0);
-    const unanchoredScrolled = await unanchored.evaluate((element) => {
-      const reply = element.querySelector<HTMLElement>(".review-loop-reply-form");
-      if (!reply) return null;
-      const sectionBox = element.getBoundingClientRect();
-      const replyBox = reply.getBoundingClientRect();
-      return {
-        scrollTop: element.scrollTop,
-        atBottom: Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1,
-        replyTop: replyBox.top,
-        replyBottom: replyBox.bottom,
-        sectionTop: sectionBox.top,
-        sectionBottom: sectionBox.bottom,
-      };
-    });
-    assert.ok((unanchoredScrolled?.scrollTop || 0) > 0, "mouse-wheel input moves the not-in-document conversation");
-    assert.equal(unanchoredScrolled?.atBottom, true, "mouse-wheel input reaches the bottom of the not-in-document conversation");
-    assert.ok(
-      (unanchoredScrolled?.replyTop ?? -1) >= (unanchoredScrolled?.sectionTop ?? Number.MAX_SAFE_INTEGER)
-        && (unanchoredScrolled?.replyBottom ?? Number.MAX_SAFE_INTEGER) <= (unanchoredScrolled?.sectionBottom ?? -1),
-      "the reply editor is fully reachable at the bottom of the not-in-document conversation",
-    );
-    const detachedReply = unanchored.locator(".review-loop-reply-form");
-    await detachedReply.locator("textarea").fill("Newest human detached reply");
-    await detachedReply.locator("button[type='submit']").click();
-    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Newest human detached reply"));
-    const afterHumanReply = await unanchored.evaluate((element) => ({
-      atBottom: element.scrollTop + element.clientHeight >= element.scrollHeight,
-      latestVisible: (() => {
-        const messages = element.querySelectorAll<HTMLElement>(".review-loop-thread-line");
-        const latest = messages[messages.length - 1];
-        if (!latest) return false;
-        const sectionBox = element.getBoundingClientRect();
-        const latestBox = latest.getBoundingClientRect();
-        return latestBox.bottom > sectionBox.top && latestBox.top < sectionBox.bottom;
-      })(),
-    }));
-    assert.deepEqual(afterHumanReply, { atBottom: true, latestVisible: true }, "a human reply stays visible instead of resetting the conversation to the top");
-    const detachedAgentReply = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "c-1-4", text: "Newest agent detached reply", author: "agent" }));
-    assert.equal(detachedAgentReply.status, 200);
-    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Newest agent detached reply"));
-    const afterAgentReply = await unanchored.evaluate((element) => ({
-      atBottom: element.scrollTop + element.clientHeight >= element.scrollHeight,
-      text: element.querySelector(".review-loop-thread-line:last-child p")?.textContent || "",
-    }));
-    assert.deepEqual(afterAgentReply, { atBottom: true, text: "Newest agent detached reply" }, "an agent reply also stays visible instead of resetting the conversation to the top");
-    await unanchored.hover();
-    await page.mouse.wheel(0, -5000);
-    await page.waitForFunction(() => (document.querySelector<HTMLElement>("#review-loop-panel .review-loop-unanchored")?.scrollTop || 0) === 0);
-    const detachedReplyWhileReading = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "c-1-4", text: "Agent reply while reading history", author: "agent" }));
-    assert.equal(detachedReplyWhileReading.status, 200);
-    await page.waitForFunction(() => document.querySelector("#review-loop-panel .review-loop-unanchored")?.textContent?.includes("Agent reply while reading history"));
-    assert.equal(await unanchored.evaluate((element) => element.scrollTop), 0, "a new reply does not pull the reviewer away from older messages they are reading");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /6 open · 0 resolved/, "header keeps the total unresolved count rather than sidebar row count");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "the sidebar no longer renders a separate fallback comment feature");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-comment[data-review-comment-id='c-1-4']").count(), 0, "a comment without a current document target does not replace the global chat");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-reply-form:visible").count(), 1, "the initial sidebar shows only the global reply form");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation").getAttribute("hidden"), null, "the global chat remains visible instead of being hidden by a fallback section");
+    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /5 open · 0 resolved/, "header counts only actionable anchored review comments");
     assert.equal(await page.locator("#review-loop-panel .review-loop-quote").count(), 0, "sidebar never renders source quote blocks");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-reply-form").count(), 1, "latest global conversation has a reply editor");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation textarea").count(), 1, "global conversation accepts multiline replies");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation.review-loop-sidebar-card").count(), 0, "global conversation uses the sidebar itself instead of a nested card shell");
+    const conversationSpacing = await page.evaluate(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      const form = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation > .review-loop-reply-form");
+      const lastMessage = stream?.querySelector<HTMLElement>(".review-loop-conversation-message:last-child");
+      if (!stream || !form || !lastMessage) return null;
+      stream.scrollTop = stream.scrollHeight;
+      const streamStyle = getComputedStyle(stream);
+      return {
+        bottomGap: form.getBoundingClientRect().top - lastMessage.getBoundingClientRect().bottom,
+        paddingBottom: Number.parseFloat(streamStyle.paddingBottom),
+      };
+    });
+    assert.ok(conversationSpacing && conversationSpacing.paddingBottom > 0, "conversation stream reserves space below the last message");
+    assert.ok(
+      conversationSpacing && conversationSpacing.bottomGap >= conversationSpacing.paddingBottom - 0.5,
+      "the last conversation bubble stays separated from the reply divider",
+    );
     const inlineLayout = await page.evaluate(() => {
       const panel = document.querySelector<HTMLElement>("#review-loop-panel");
       const inline = document.querySelector<HTMLElement>(".review-loop-inline");
@@ -947,9 +898,9 @@ async function main(): Promise<void> {
     await page.waitForSelector("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-conversation-image", { timeout: 3000 });
     assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /CLI continues the review conversation/, "continued global conversation survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "new global comment image survives reload");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /6 open · 0 resolved/, "global conversation does not affect actionable totals");
+    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /5 open · 0 resolved/, "global conversation does not affect actionable totals");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "global conversation updates leave anchored inline threads in place");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored .review-loop-comment[data-review-comment-id='c-1-4']").count(), 1, "global conversation updates keep the unanchored thread explicit without duplicating it");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "global conversation updates do not recreate the removed fallback feature");
     assert.ok(
       await page.evaluate(() => {
         const panel = document.querySelector<HTMLElement>("#review-loop-panel");
@@ -1049,7 +1000,7 @@ async function main(): Promise<void> {
     await page.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
     assert.match(
       await page.locator("#review-loop-panel .review-loop-sidebar-toggle").getAttribute("aria-label") || "",
-      /6 open · 0 resolved/,
+      /5 open · 0 resolved/,
       "collapsed chat keeps the total unresolved count available to assistive technology across reload",
     );
     await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
@@ -1139,6 +1090,8 @@ async function main(): Promise<void> {
             preview: rect(".md-left"),
             firstHeading: rect(".md-preview h1, .md-preview h2"),
             sidebar: rect("#review-loop-panel"),
+            conversation: rect("#review-loop-panel .review-loop-conversation"),
+            chatEditor: rect("#review-loop-panel .review-loop-conversation textarea"),
             media: rect(".media-sidebar"),
             submit: rect("#send-and-exit"),
             previewScrollTop: preview?.scrollTop ?? -1,
@@ -1150,11 +1103,12 @@ async function main(): Promise<void> {
         assert.equal(portraitLayout.phoneDeviceWidth, true, "physical phone width activates the device breakpoint");
         assert.equal(portraitLayout.horizontalOverflow, false, `portrait ${deviceWidth}px has no page-level horizontal overflow`);
         assert.equal(portraitLayout.sidebar?.display, "grid", `portrait ${deviceWidth}px keeps the minimized review chat visible`);
-        assert.equal(
-          (portraitLayout.sidebar?.right ?? 0) - (portraitLayout.sidebar?.left ?? 0),
-          40,
-          `portrait ${deviceWidth}px starts with the existing compact chat width`,
+        assert.ok(
+          (portraitLayout.sidebar?.right ?? 0) - (portraitLayout.sidebar?.left ?? 0) > 40,
+          `portrait ${deviceWidth}px starts with the persistent chat expanded instead of hiding its editor behind the compact control`,
         );
+        assert.equal(portraitLayout.conversation?.display, "flex", `portrait ${deviceWidth}px keeps the global conversation visible`);
+        assert.equal(portraitLayout.chatEditor?.display, "block", `portrait ${deviceWidth}px keeps the global reply editor visible`);
         assert.equal(portraitLayout.media?.display, "none", `portrait ${deviceWidth}px removes the desktop thumbnail rail`);
         assert.ok(
           (portraitLayout.wrap?.top ?? -1) >= (portraitLayout.header?.bottom ?? Number.MAX_SAFE_INTEGER),
@@ -1170,7 +1124,6 @@ async function main(): Promise<void> {
             (portraitLayout.submit?.right ?? Number.MAX_SAFE_INTEGER) <= portraitLayout.innerWidth,
           `portrait ${deviceWidth}px keeps Submit completely inside the viewport`,
         );
-        await portraitPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
         const openConversation = await portraitPage.evaluate(() => {
           const panel = document.querySelector<HTMLElement>("#review-loop-panel");
           const box = panel?.getBoundingClientRect();
@@ -1187,7 +1140,7 @@ async function main(): Promise<void> {
             background: panel ? getComputedStyle(panel).backgroundColor : "",
           };
         });
-        assert.equal(openConversation.collapsed, false, `portrait ${deviceWidth}px expands from the fixed chat control`);
+        assert.equal(openConversation.collapsed, false, `portrait ${deviceWidth}px keeps the persistent chat expanded on first render`);
         assert.equal(openConversation.display, "grid", `portrait ${deviceWidth}px opens the saved review conversation`);
         assert.equal(openConversation.hasConversation, true, `portrait ${deviceWidth}px keeps the persisted conversation readable`);
         assert.notEqual(openConversation.background, "transparent", `portrait ${deviceWidth}px conversation has a reading surface`);
@@ -1289,7 +1242,7 @@ async function main(): Promise<void> {
     await firstResolve.scrollIntoViewIfNeeded();
     const scrollBeforeResolve = await page.locator(".md-left").evaluate((element) => element.scrollTop);
     await firstResolve.click();
-    await page.waitForFunction(() => document.querySelector(".review-loop-meta")?.textContent?.includes("5 open"));
+    await page.waitForFunction(() => document.querySelector(".review-loop-meta")?.textContent?.includes("4 open"));
     assert.equal(
       await page.locator(".md-left").evaluate((element) => element.scrollTop),
       scrollBeforeResolve,
@@ -1297,7 +1250,7 @@ async function main(): Promise<void> {
     );
     assert.match(
       await page.locator("#review-loop-panel .review-loop-meta").textContent() || "",
-      /5 open · 1 resolved/,
+      /4 open · 1 resolved/,
       "resolving an inline thread immediately decrements the visible open count",
     );
 
@@ -1323,7 +1276,7 @@ async function main(): Promise<void> {
     assert.equal(blockedApproval?.disabled, true, "approve is disabled while review items remain unresolved");
     assert.equal(blockedApproval?.describedBy, "approve-blocked-reason", "approve exposes its blocked reason to assistive technology");
     assert.equal(blockedApproval?.reasonVisible, true, "blocked approval reason is visible");
-    assert.match(blockedApproval?.reasonText || "", /5 review items remain unresolved/, "blocked reason includes the unresolved count");
+    assert.match(blockedApproval?.reasonText || "", /4 review items remain unresolved/, "blocked reason includes the actionable unresolved count");
     assert.equal(blockedApproval?.cursor, "not-allowed", "blocked approve uses a disabled cursor");
     assert.ok((blockedApproval?.opacity || 1) < 1, "blocked approve is visually distinct from an enabled action");
 
@@ -1361,9 +1314,9 @@ async function main(): Promise<void> {
         "Japanese browser also omits human and agent labels from bubbles",
       );
       assert.doesNotMatch(jaSidebarText || "", /レビューコメント|あなた|会話を解決|返信|画像を添付|前回からの差分/, "Japanese browser does not switch only the review conversation to Japanese");
-      assert.match(jaSidebarText || "", /Diff since last round/, "review conversation diff label stays English with the other conversation actions");
+      assert.doesNotMatch(jaSidebarText || "", /Diff since last round/, "review conversation stays chat-only without a diff label");
       await jaPage.click("#send-and-exit");
-      assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /5 review items remain unresolved/, "Japanese browser keeps the blocked approval explanation in English");
+      assert.match(await jaPage.locator("#approve-blocked-reason").textContent() || "", /4 review items remain unresolved/, "Japanese browser keeps the blocked approval explanation in English");
       assert.equal(await jaPage.locator("#review-unresolved-action").textContent(), "Review unresolved items", "Japanese browser keeps the recovery action in English");
     } finally {
       await jaContext.close().catch(() => {});
@@ -1382,24 +1335,10 @@ async function main(): Promise<void> {
       await panel.locator(".review-loop-sidebar-toggle").click();
     }
     await page.click("#send-and-exit");
-    assert.equal(await page.locator("#review-unresolved-action").textContent(), "Review unresolved item", "the final detached thread uses the singular English recovery action");
-    await page.click("#review-unresolved-action");
-    const detachedRecovery = await page.evaluate(() => {
-      const modal = document.querySelector<HTMLElement>("#submit-modal");
-      const panel = document.querySelector<HTMLElement>("#review-loop-panel");
-      const comment = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-sidebar-card[data-review-comment-id='c-1-4']");
-      const rect = comment?.getBoundingClientRect();
-      return {
-        modalVisible: modal?.classList.contains("visible"),
-        panelExpanded: !panel?.classList.contains("review-loop-sidebar-collapsed"),
-        targetFocused: document.activeElement === comment,
-        targetVisible: !!rect && rect.bottom > 0 && rect.top < window.innerHeight,
-      };
-    });
-    assert.equal(detachedRecovery.modalVisible, false, "detached recovery closes the submit modal");
-    assert.equal(detachedRecovery.panelExpanded, true, "detached recovery expands the review sidebar");
-    assert.equal(detachedRecovery.targetFocused, true, "detached recovery focuses the unresolved sidebar card");
-    assert.equal(detachedRecovery.targetVisible, true, "detached recovery scrolls the unresolved sidebar card into view");
+    assert.equal(await page.locator("#modal-approve").isEnabled(), true, "a comment without a document target does not block approval when no actionable thread remains");
+    assert.equal(await page.locator("#review-unresolved-action").isVisible(), false, "the removed fallback comment has no recovery action in the submit dialog");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "the chat-only panel still has no fallback card after opening Submit");
+    await page.click("#modal-cancel");
   } finally {
     await browser.close().catch(() => {});
   }
@@ -1641,16 +1580,14 @@ async function main(): Promise<void> {
   try {
     const page = await emptyBrowser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`http://127.0.0.1:${emptyPort}/`, { waitUntil: "domcontentloaded" });
-    // An empty review keeps the conversation entry point, but as the collapsed
-    // chat icon — never as a fixed hint sentence and never as a 300px column.
-    // Wait for the client render, not just the server-side mount: the panel
-    // ships empty and only gains its collapsed state once the script runs.
+    // An empty review still exposes the persistent global conversation entry
+    // point, so the reviewer can start talking before any comment exists.
     await page.waitForSelector("#review-loop-panel .review-loop-details", { timeout: 10000 });
-    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 1, "an empty review starts collapsed instead of opening an empty form");
-    assert.equal(await page.locator("#review-loop-panel svg.lucide-message-circle").count(), 1, "an empty review offers the chat icon as its conversation entry point");
+    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 0, "an empty review keeps the conversation visible");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-new-global .review-loop-reply-form:visible").count(), 1, "an empty review exposes the global chat reply form");
     assert.ok(
-      await page.evaluate(() => document.querySelector("#review-loop-panel")!.getBoundingClientRect().width) <= 64,
-      "an empty review sidebar takes no horizontal space from the preview",
+      await page.evaluate(() => document.querySelector("#review-loop-panel")!.getBoundingClientRect().width) > 64,
+      "an empty review keeps a usable chat panel instead of an icon-only strip",
     );
     assert.equal(await page.locator("#review-loop-panel .review-loop-ready").count(), 0, "empty review does not show a competing ready message");
     // Only line comments can be resolved, so with none of them the count is

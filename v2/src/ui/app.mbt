@@ -435,6 +435,11 @@ pub fn init_app() -> Unit {
           scroll_into_view(comment)
           focus_element(comment)
         }
+      } else {
+        // A review item can outlive its document anchor. In that state the
+        // persistent global chat is the only valid recovery destination.
+        hide_submit_modal()
+        ignore(focus_durable_review_comment("", true))
       }
     })
   }
@@ -3815,7 +3820,6 @@ fn setup_preview_mouseup() -> Unit {
           if start_line <= 0 {
             return
           }
-          selection_remove_all_ranges(sel)
           let actual_end = if end_line > 0 { end_line } else { start_line }
           select_source_range(start_line, actual_end, meaningful_container)
         },

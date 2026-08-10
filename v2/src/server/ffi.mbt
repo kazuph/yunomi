@@ -2038,6 +2038,17 @@ extern "js" fn js_review_start_next_round(
   #|    const previousRow = Math.max(0, Number(c.row ?? ((Number(c.line || 1) || 1) - 1)));
   #|    const previousEndRow = Math.max(previousRow, Number(c.end_row ?? previousRow));
   #|    const row = matches[0].index;
+  #|    const currentLine = String(lines[row] || "").trim();
+  #|    const column = Number(c.col || 0);
+  #|    const tableCellCount = currentLine.includes("|")
+  #|      ? currentLine.split("|").length
+  #|        - (currentLine.startsWith("|") ? 1 : 0)
+  #|        - (currentLine.endsWith("|") ? 1 : 0)
+  #|      : 0;
+  #|    if (column > 0 && tableCellCount > 0 && column > tableCellCount) {
+  #|      c.unanchored = true;
+  #|      continue;
+  #|    }
   #|    c.row = row;
   #|    c.line = row + 1;
   #|    c.end_row = row + (previousEndRow - previousRow);
@@ -2109,7 +2120,7 @@ extern "js" fn js_review_response_json(
   #|  const currentRound = Number(((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0]) || {}).round || 1);
   #|  const actionable = (c) => c && c.scope !== "round";
   #|  const unresolved = currentComments.filter(c => actionable(c) && c.status !== "resolved").length;
-  #|  const gateUnresolved = gateEnabled ? currentComments.filter(c => actionable(c) && c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
+  #|  const gateUnresolved = gateEnabled ? currentComments.filter(c => actionable(c) && !c.unanchored && c.status !== "resolved" && Number(c.round || 0) < currentRound).length : 0;
   #|  return JSON.stringify({ review: { ...review, comments: currentComments }, diff: { lines }, unresolved_count: unresolved, gate_unresolved_count: gateUnresolved, is_loop: !!gateEnabled });
   #|}
 

@@ -792,23 +792,35 @@ extern "js" fn focus_durable_review_comment(
   focus_card : Bool,
 ) -> Bool =
   #|(key, focusCard) => {
-  #|  const id = String(key || "");
-  #|  if (!window.__YUNOMI_UNRESOLVED_COMMENT_IDS__?.has(id)) return false;
+  #|  const requestedId = String(key || "");
+  #|  const unresolvedIds = window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ || new Set();
+  #|  const id = requestedId || Array.from(unresolvedIds)[0] || "";
+  #|  if (!id || !unresolvedIds.has(id)) return false;
   #|  const selector = `[data-review-comment-id="${CSS.escape(id)}"]`;
   #|  const inlineThread = document.querySelector(`.review-loop-inline .review-loop-comment${selector}`);
-  #|  const sidebarThread = document.querySelector(`.review-loop-sidebar-card${selector}`);
-  #|  const thread = inlineThread || sidebarThread;
+  #|  const thread = inlineThread;
+  #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (thread) {
-  #|    const panel = document.querySelector("#review-loop-panel");
-  #|    if (sidebarThread && panel?.classList.contains("review-loop-sidebar-collapsed")) {
-  #|      panel.querySelector(".review-loop-sidebar-toggle")?.click();
-  #|    }
   #|    thread.scrollIntoView({ block: "nearest" });
   #|    if (focusCard) {
   #|      thread.tabIndex = -1;
   #|      thread.focus();
   #|    } else {
   #|      thread.querySelector("textarea, button, input")?.focus();
+  #|    }
+  #|  } else {
+  #|    if (panel?.classList.contains("review-loop-sidebar-collapsed")) {
+  #|      panel.querySelector(".review-loop-sidebar-toggle")?.click();
+  #|    }
+  #|    const chat = panel?.querySelector(".review-loop-conversation, .review-loop-new-global");
+  #|    if (chat) {
+  #|      chat.scrollIntoView({ block: "nearest" });
+  #|      if (focusCard) {
+  #|        chat.tabIndex = -1;
+  #|        chat.focus();
+  #|      } else {
+  #|        chat.querySelector("textarea, button, input")?.focus();
+  #|      }
   #|    }
   #|  }
   #|  return true;
@@ -828,7 +840,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  const previousScroll = {
   #|    conversation: captureScroll(".review-loop-conversation-stream"),
-  #|    unanchored: captureScroll(".review-loop-unanchored"),
   #|  };
   #|  const storageScope = String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current");
   #|  const replyDraftStorageKey = `yunomi:conversation-drafts:${storageScope}`;
@@ -842,7 +853,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      else localStorage.removeItem(replyDraftStorageKey);
   #|    } catch (_) {}
   #|  };
-  #|  const mobileQuery = matchMedia("(max-width: 960px), (max-device-width: 960px)");
   #|  const clearPanel = () => {
   #|    panel.innerHTML = "";
   #|  };
@@ -864,12 +874,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const actionableComments = comments.filter(c => c.scope !== "round");
   #|  window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(actionableComments.map(c => String(c.id || "")).filter(Boolean));
   #|  const roundThreads = comments.filter(c => c.scope === "round");
-  #|  const unresolved = actionableComments.filter(c => c.status !== "resolved");
+  #|  // Comments whose document target no longer exists have no actionable
+  #|  // UI by design; keep them in review history without counting them as
+  #|  // unresolved work that the reviewer cannot resolve from the page.
+  #|  const visibleActionableComments = actionableComments.filter(c => !c.unanchored);
+  #|  const unresolved = visibleActionableComments.filter(c => c.status !== "resolved");
   #|  window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(unresolved.map(c => String(c.id || "")).filter(Boolean));
   #|  // Only line comments can be resolved, so only they are counted. When there
   #|  // are none the count is omitted entirely: printing "0 open · 0 resolved"
   #|  // above a visible conversation reads as if the conversation did not exist.
-  #|  const countable = actionableComments.length > 0;
+  #|  const countable = visibleActionableComments.length > 0;
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
@@ -882,7 +896,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    resolveTitle: "Mark this thread resolved",
   #|    collapseTitle: "Minimize sidebar",
   #|    expandTitle: "Expand sidebar",
-  #|    diffLabel: "Diff since last round",
   #|    allResolved: "All resolved — enjoy your tea",
   #|    reply: "Reply",
   #|    replyPlaceholder: "Reply to this conversation",
@@ -892,7 +905,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    attachImage: "Attach image",
   #|    removeImage: "Remove image",
   #|    attachedImage: "Attached image",
-  #|    notInDocument: "Not shown in document",
   #|  };
   #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
   #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
@@ -1183,7 +1195,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  document.querySelectorAll(".review-loop-inline, .review-loop-inline-row, .review-loop-inline-item").forEach(el => el.remove());
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
-  #|  const resolved = actionableComments.filter(c => c.status === "resolved");
+  #|  const resolved = visibleActionableComments.filter(c => c.status === "resolved");
   #|  const placementCandidates = unresolved.map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
   #|  const placements = placementCandidates.filter(placement => placement.target);
   #|  placements.sort((a, b) => {
@@ -1194,17 +1206,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    return a.order - b.order;
   #|  });
   #|  placements.forEach(placement => insertInline(placement.target, placement.comment));
-  #|  const diffHtml = diffLines.length
-  #|    ? diffLines.slice(0, 120).map(l => {
-  #|        const klass = l.kind === "addition" ? "diff-line addition" : "diff-line deletion";
-  #|        const oldNo = l.kind === "deletion" ? esc(l.line) : "";
-  #|        const newNo = l.kind === "addition" ? esc(l.line) : "";
-  #|        return `<div class="${klass}"><span class="line-num">${oldNo}</span><span class="line-num">${newNo}</span><span class="line-content">${esc(l.text)}</span></div>`;
-  #|      }).join("")
-  #|    : "";
   #|  const activeRoundThread = roundThreads[roundThreads.length - 1];
-  #|  const unanchoredHtml = placementCandidates.filter(placement => !placement.target).map(placement => reviewLoopCard(placement.comment, false, { sidebar: true })).join("");
-  #|  const unanchoredSection = unanchoredHtml ? `<section class="review-loop-unanchored"><strong>${esc(t.notInDocument)}</strong><ol class="review-loop-list">${unanchoredHtml}</ol></section>` : "";
   #|  const summaryHtml = activeRoundThread ? (() => {
   #|    const replies = Array.isArray(activeRoundThread.replies) ? activeRoundThread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
   #|    const messages = [{ author: "human", text: activeRoundThread.text, attachments: activeRoundThread.attachments || [] }].concat(replies).map(message => {
@@ -1218,19 +1220,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const createGlobalHtml = !activeRoundThread
   #|    ? `<section class="review-loop-new-global"><strong>${esc(t.newGlobalComment)}</strong>${conversationForm("", "/create-global-comment", t.newGlobalPlaceholder, t.create)}</section>`
   #|    : "";
-  #|  const diffSection = diffHtml ? `<details class="review-loop-diff-block"><summary class="review-loop-diff-label">${esc(t.diffLabel)}</summary><pre class="review-loop-diff">${diffHtml}</pre></details>` : "";
   #|  // "All resolved" only makes sense once something existed to resolve;
   #|  // on an untouched review the panel is a starting point, not a verdict.
   #|  // "All resolved" belongs to line comments too — with none of them there is
   #|  // nothing that was ever resolved, so the banner would be a false claim.
   #|  const status = countable && unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
-  #|  // With nothing said yet the panel starts as the chat icon: an empty form
-  #|  // is not worth 300px of the document. A stored choice always wins.
+  #|  // The chat remains available even before the first review message. Only an
+  #|  // explicit minimize action may reduce it to the message-circle button.
   #|  const storedSidebar = localStorage.getItem(sidebarStorageKey);
-  #|  const hasSidebarContent = Boolean(activeRoundThread || unanchoredHtml || resolved.length);
-  #|  const collapsed = storedSidebar === "collapsed"
-  #|    || (storedSidebar !== "expanded" && (mobileQuery.matches || !hasSidebarContent));
+  #|  const collapsed = storedSidebar === "collapsed";
   #|  panel.classList.toggle("review-loop-sidebar-collapsed", collapsed);
   #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
   #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
@@ -1239,7 +1238,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // line comments stay beside the document text and never enter it.
   #|  const countsText = countable ? t.counts(unresolved.length, resolved.length) : "";
   #|  const toggleLabel = countable ? `${toggleTitle}: ${countsText}` : toggleTitle;
-  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(countsText)}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(countsText)}">${countable ? unresolved.length : ""}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleLabel)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}${unanchoredSection}${diffSection}</div></section>`;
+  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(countsText)}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(countsText)}">${countable ? unresolved.length : ""}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleLabel)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}</div></section>`;
   #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
   #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
   #|  }
@@ -1251,7 +1250,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    element.scrollTop = previous.followsLatest ? element.scrollHeight : previous.top;
   #|  };
   #|  restoreScroll(".review-loop-conversation-stream", previousScroll.conversation);
-  #|  restoreScroll(".review-loop-unanchored", previousScroll.unanchored);
   #|  const togglePanel = () => {
   #|    const button = panel.querySelector(".review-loop-sidebar-toggle");
   #|    const next = !panel.classList.contains("review-loop-sidebar-collapsed");

@@ -549,11 +549,15 @@ fn build_css() -> String {
     #|.yunomi-inline-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
     #|.yunomi-inline-comment-image { display: block; max-width: 180px; max-height: 120px; object-fit: contain; border-radius: var(--radius-sm); }
     #|.yunomi-inline-comment-editor { padding: 10px; }
+    #|/* Reserve the fixed chat's right edge while editing document content so
+    #|   the chat remains usable without covering Save/Cancel controls. */
+    #|.yunomi-inline-comment-editor { margin-right: calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset)); }
+    #|:is(td, th) .yunomi-inline-comment-editor { margin-right: 0; }
     #|tr.yunomi-inline-comment-editor-mount { padding: 0; }
     #|tr.yunomi-inline-comment-editor-mount > td { padding: 8px 12px; }
     #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
     #|li.yunomi-inline-comment, li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
-    #|li.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; }
+    #|li.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0 calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset)) 0 0; }
     #|.yunomi-inline-comment-editor-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
     #|.yunomi-inline-comment-context { min-width: 0; max-width: 70%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
     #|.yunomi-inline-comment-editor textarea {
@@ -676,6 +680,14 @@ fn build_css() -> String {
     #|  box-shadow: var(--shadow-card);
     #|  transition: none;
     #|}
+    #|/* The fixed chat is always present, but empty panel space must not block
+    #|   document editors underneath it. Inputs, messages, and the header keep
+    #|   their own hit targets. */
+    #|#review-loop-panel.review-loop-sidebar { pointer-events: none; }
+    #|#review-loop-panel.review-loop-sidebar .review-loop-header,
+    #|#review-loop-panel.review-loop-sidebar .review-loop-conversation-stream,
+    #|#review-loop-panel.review-loop-sidebar .review-loop-reply-form,
+    #|#review-loop-panel.review-loop-sidebar .review-loop-sidebar-toggle { pointer-events: auto; }
     #|#review-loop-panel.review-loop-sidebar.review-loop-sidebar-collapsed {
     #|  flex-basis: 40px;
     #|  width: 40px;
@@ -730,9 +742,6 @@ fn build_css() -> String {
     #|/* 15px = status dot (8px) + its gap (7px), so the quote and the thread
     #|   line up with the file name instead of stepping left or right. */
     #|.review-loop-snippet { border: 0; display: grid; gap: 4px; padding: 0 0 0 15px; background: transparent; }
-    #|.review-loop-diff-label { color: var(--muted); font-size: 11px; font-weight: 700; }
-    #|.review-loop-diff-block { display: grid; gap: 5px; }
-    #|.review-loop-diff { margin: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 0; white-space: pre-wrap; }
     #|.review-loop-submit-state { display: none; margin: 0 0 10px; padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); font-size: 13px; font-weight: 600; }
     #|.review-loop-submit-state.ready { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
     #|.review-loop-status-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); }
@@ -747,9 +756,10 @@ fn build_css() -> String {
     #|.review-loop-thread-line.is-agent { margin-right: 16px; }
     #|.review-loop-thread-line > p { margin: 0; font-size: inherit; line-height: 1.55; }
     #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
+    #|.review-loop-conversation[hidden] { display: none; }
     #|.review-loop-conversation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-bottom: 5px; }
     #|.review-loop-conversation-head > strong { font-size: 12px; font-weight: 800; }
-    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; }
+    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; padding-bottom: 8px; overflow-y: auto; }
     #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); }
     #|.review-loop-conversation-message.is-human { margin-left: 16px; background: var(--accent-soft); }
     #|.review-loop-conversation-message.is-agent { margin-right: 16px; }
@@ -763,7 +773,6 @@ fn build_css() -> String {
     #|.review-loop-resolved-details > summary { cursor: pointer; font-size: 12px; font-weight: 700; }
     #|.review-loop-conversation-history { margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
     #|.review-loop-conversation-history .review-loop-conversation-stream { margin-top: 5px; }
-    #|.review-loop-unanchored { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
     #|.review-loop-resolved-list, .review-loop-fallback-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
     #|.review-loop-resolved-list { margin-top: 8px; }
     #|.review-loop-fallback, .review-loop-resolved-item { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
@@ -2066,6 +2075,8 @@ fn build_css() -> String {
     #|  .md-left { max-width: 100%; flex: 1 1 0; min-height: 0; }
     #|  .md-right { display: none; }
     #|  #md-preview :is(.yunomi-inline-comment, .review-loop-inline) { margin-right: 0; }
+    #|  #md-preview .yunomi-inline-comment-editor { margin-right: 0; }
+    #|  .yunomi-inline-comment-editor { margin-right: 0; }
     #|  #review-loop-panel.review-loop-sidebar {
     #|    inset: auto 12px 12px auto;
     #|    width: calc(100% - 24px);
