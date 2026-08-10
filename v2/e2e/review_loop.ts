@@ -171,13 +171,13 @@ async function main(): Promise<void> {
   );
   const uiJs = await request(port, "GET", "/ui.js");
   assert.equal(uiJs.status, 200);
-  assert.match(uiJs.body, /Comments/, "review loop UI uses the familiar comments header");
+  assert.match(uiJs.body, /Chat/, "review loop UI uses a chat header");
   assert.doesNotMatch(uiJs.body, /レビューコメント|あなた|会話を解決|返信|画像を添付/, "review loop labels stay English regardless of browser locale");
   assert.match(uiJs.body, /review-loop-thread-line is-human/, "review loop UI renders the human message inside a thread");
   assert.doesNotMatch(uiJs.body, /you: "human"|agent: "agent"/, "review loop omits redundant speaker labels from message bubbles");
   assert.doesNotMatch(uiJs.body, /Diff since last round|review-loop-diff-block/, "review loop UI is chat-only and has no diff panel");
   assert.doesNotMatch(uiJs.body, /Previous request|AI reply|Review flow|Check status|Review target|Original target/, "review loop removes duplicated labels and fixed guidance");
-  assert.match(uiJs.body, /All resolved — enjoy your tea/, "review loop UI keeps the tea-themed approve-ready moment for when every thread is resolved");
+  assert.doesNotMatch(uiJs.body, /review-loop-ready/, "review loop chat has no approve-ready banner");
   assert.match(uiJs.body, /New conversation/, "review loop UI can start a global conversation when none exists");
   assert.doesNotMatch(uiJs.body, /Past conversation/, "global conversation has no per-thread resolved history");
   assert.match(uiJs.body, /review-loop-submit-state/, "submit modal must render review loop status text");
@@ -314,7 +314,7 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#md-preview > #review-loop-panel").count(), 0, "preview no longer starts with a review-loop panel");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "each anchored unresolved comment renders one inline thread");
     const sidebarText = await page.locator("#review-loop-panel").first().textContent();
-    assert.match(sidebarText || "", /Review comments/, "sidebar header names what the count refers to: review comments, not the conversation below it");
+    assert.match(sidebarText || "", /🍵/, "sidebar header uses the tea icon without a visible text label");
     assert.equal(await page.locator("#pill-comments").isVisible(), false, "the unrelated Drafts control stays hidden when there are no unsubmitted drafts");
     assert.doesNotMatch(sidebarText || "", /Review items/, "sidebar no longer uses the old panel title");
     assert.match(sidebarText || "", /Round 1 needs a text update/, "sidebar contains the latest global conversation");
@@ -323,7 +323,8 @@ async function main(): Promise<void> {
     assert.equal(await page.locator("#review-loop-panel .review-loop-comment[data-review-comment-id='c-1-4']").count(), 0, "a comment without a current document target does not replace the global chat");
     assert.equal(await page.locator("#review-loop-panel .review-loop-reply-form:visible").count(), 1, "the initial sidebar shows only the global reply form");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation").getAttribute("hidden"), null, "the global chat remains visible instead of being hidden by a fallback section");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /5 open · 0 resolved/, "header counts only actionable anchored review comments");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "chat header does not expose review-resolution counts");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-ready").count(), 0, "chat does not expose an approve-ready banner");
     assert.equal(await page.locator("#review-loop-panel .review-loop-quote").count(), 0, "sidebar never renders source quote blocks");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-reply-form").count(), 1, "latest global conversation has a reply editor");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation textarea").count(), 1, "global conversation accepts multiline replies");
@@ -898,7 +899,7 @@ async function main(): Promise<void> {
     await page.waitForSelector("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-conversation-image", { timeout: 3000 });
     assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /CLI continues the review conversation/, "continued global conversation survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "new global comment image survives reload");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /5 open · 0 resolved/, "global conversation does not affect actionable totals");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "global conversation keeps resolution counts out of chat");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "global conversation updates leave anchored inline threads in place");
     assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "global conversation updates do not recreate the removed fallback feature");
     assert.ok(
@@ -998,10 +999,10 @@ async function main(): Promise<void> {
     );
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
-    assert.match(
-      await page.locator("#review-loop-panel .review-loop-sidebar-toggle").getAttribute("aria-label") || "",
-      /5 open · 0 resolved/,
-      "collapsed chat keeps the total unresolved count available to assistive technology across reload",
+    assert.equal(
+      await page.locator("#review-loop-panel .review-loop-sidebar-toggle").getAttribute("aria-label"),
+      "Expand sidebar",
+      "collapsed chat exposes only its expand action to assistive technology",
     );
     await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
     await page.waitForFunction(() => !document.querySelector("#review-loop-panel")?.classList.contains("review-loop-sidebar-collapsed"));
@@ -1242,17 +1243,13 @@ async function main(): Promise<void> {
     await firstResolve.scrollIntoViewIfNeeded();
     const scrollBeforeResolve = await page.locator(".md-left").evaluate((element) => element.scrollTop);
     await firstResolve.click();
-    await page.waitForFunction(() => document.querySelector(".review-loop-meta")?.textContent?.includes("4 open"));
+    await page.waitForFunction(() => document.querySelectorAll(".review-loop-inline").length === 4);
     assert.equal(
       await page.locator(".md-left").evaluate((element) => element.scrollTop),
       scrollBeforeResolve,
       "resolving an inline thread updates in place without moving the preview scroll position",
     );
-    assert.match(
-      await page.locator("#review-loop-panel .review-loop-meta").textContent() || "",
-      /4 open · 1 resolved/,
-      "resolving an inline thread immediately decrements the visible open count",
-    );
+    assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "resolving an inline thread does not add resolution counts to chat");
 
     await page.click("#send-and-exit");
     const blockedApproval = await page.evaluate(() => {
@@ -1304,7 +1301,7 @@ async function main(): Promise<void> {
       await jaPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
       await jaPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       const jaSidebarText = await jaPage.locator("#review-loop-panel").first().textContent();
-      assert.match(jaSidebarText || "", /Review comments/, "review conversation title stays English in a Japanese browser");
+      assert.match(jaSidebarText || "", /🍵/, "chat title stays icon-only in a Japanese browser");
       assert.match(jaSidebarText || "", /Reply/, "review conversation reply action stays English in a Japanese browser");
       assert.equal(
         await jaPage.locator(".review-loop-thread-line, .review-loop-conversation-message").evaluateAll((lines) => lines.filter((line) =>
@@ -1590,13 +1587,7 @@ async function main(): Promise<void> {
       "an empty review keeps a usable chat panel instead of an icon-only strip",
     );
     assert.equal(await page.locator("#review-loop-panel .review-loop-ready").count(), 0, "empty review does not show a competing ready message");
-    // Only line comments can be resolved, so with none of them the count is
-    // omitted: "0 open · 0 resolved" above a visible conversation reads as a lie.
-    assert.equal(
-      (await page.locator("#review-loop-panel .review-loop-meta").textContent() || "").trim(),
-      "",
-      "a review with no line comments omits the open/resolved count entirely",
-    );
+    assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "an empty chat has no resolution count");
   } finally {
     await emptyBrowser.close().catch(() => {});
   }

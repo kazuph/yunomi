@@ -880,23 +880,19 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const visibleActionableComments = actionableComments.filter(c => !c.unanchored);
   #|  const unresolved = visibleActionableComments.filter(c => c.status !== "resolved");
   #|  window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(unresolved.map(c => String(c.id || "")).filter(Boolean));
-  #|  // Only line comments can be resolved, so only they are counted. When there
-  #|  // are none the count is omitted entirely: printing "0 open · 0 resolved"
-  #|  // above a visible conversation reads as if the conversation did not exist.
-  #|  const countable = visibleActionableComments.length > 0;
+  #|  // Only anchored unresolved comments drive inline recovery; the fixed panel
+  #|  // itself remains a conversation surface regardless of this list.
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const t = {
-  #|    header: "Review comments",
-  #|    counts: (open, resolved) => `${open} open · ${resolved} resolved`,
+  #|    header: "🍵",
   #|    resolved: "Resolved",
   #|    resolve: "Resolve conversation",
   #|    resolveTitle: "Mark this thread resolved",
   #|    collapseTitle: "Minimize sidebar",
   #|    expandTitle: "Expand sidebar",
-  #|    allResolved: "All resolved — enjoy your tea",
   #|    reply: "Reply",
   #|    replyPlaceholder: "Reply to this conversation",
   #|    newGlobalComment: "New conversation",
@@ -1195,7 +1191,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  document.querySelectorAll(".review-loop-inline, .review-loop-inline-row, .review-loop-inline-item").forEach(el => el.remove());
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
-  #|  const resolved = visibleActionableComments.filter(c => c.status === "resolved");
   #|  const placementCandidates = unresolved.map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
   #|  const placements = placementCandidates.filter(placement => placement.target);
   #|  placements.sort((a, b) => {
@@ -1220,11 +1215,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const createGlobalHtml = !activeRoundThread
   #|    ? `<section class="review-loop-new-global"><strong>${esc(t.newGlobalComment)}</strong>${conversationForm("", "/create-global-comment", t.newGlobalPlaceholder, t.create)}</section>`
   #|    : "";
-  #|  // "All resolved" only makes sense once something existed to resolve;
-  #|  // on an untouched review the panel is a starting point, not a verdict.
-  #|  // "All resolved" belongs to line comments too — with none of them there is
-  #|  // nothing that was ever resolved, so the banner would be a false claim.
-  #|  const status = countable && unresolved.length === 0 ? `<div class="review-loop-ready">${esc(t.allResolved)}</div>` : "";
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
   #|  // The chat remains available even before the first review message. Only an
   #|  // explicit minimize action may reduce it to the message-circle button.
@@ -1236,9 +1226,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const chatIcon = `<svg class="lucide lucide-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>`;
   #|  // Global conversation lives in the fixed bottom-right chat; anchored
   #|  // line comments stay beside the document text and never enter it.
-  #|  const countsText = countable ? t.counts(unresolved.length, resolved.length) : "";
-  #|  const toggleLabel = countable ? `${toggleTitle}: ${countsText}` : toggleTitle;
-  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main">${esc(t.header)}</span><span class="review-loop-meta">${esc(countsText)}</span><span class="review-loop-sidebar-mini-count" aria-label="${esc(countsText)}">${countable ? unresolved.length : ""}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleLabel)}">${collapsed ? chatIcon : "−"}</button></div>${status}<div class="review-loop-body">${createGlobalHtml}${summaryHtml}</div></section>`;
+  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main" role="img" aria-label="Chat">${esc(t.header)}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}">${collapsed ? chatIcon : "−"}</button></div><div class="review-loop-body">${createGlobalHtml}${summaryHtml}</div></section>`;
   #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
   #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
   #|  }
@@ -1258,7 +1246,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    if (button) {
   #|      button.innerHTML = next ? chatIcon : "−";
   #|      button.title = next ? t.expandTitle : t.collapseTitle;
-  #|      button.setAttribute("aria-label", countable ? `${button.title}: ${countsText}` : button.title);
+  #|      button.setAttribute("aria-label", button.title);
   #|    }
   #|  };
   #|  panel.querySelector(".review-loop-sidebar-toggle")?.addEventListener("click", togglePanel);

@@ -217,11 +217,10 @@ try {
       await page.waitForSelector(".review-loop-inline .review-loop-resolve", { timeout: 10000 });
       await page.keyboard.press("r");
       await page.waitForFunction(() => {
-        const counts = document.querySelector(".review-loop-meta")?.textContent?.trim() || "";
         const status = (window as unknown as { __YUNOMI_REVIEW_LOOP_STATUS__?: string }).__YUNOMI_REVIEW_LOOP_STATUS__ || "";
         return !document.querySelector(".review-loop-inline .review-loop-resolve")
           && !document.querySelector("#review-loop-panel [data-review-comment-id='loop-1']")
-          && counts.startsWith("0 open")
+          && !document.querySelector("#review-loop-panel .review-loop-meta")
           && status.includes("All resolved");
       });
       const review = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf8"));

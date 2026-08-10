@@ -170,7 +170,7 @@ try {
     assert.equal(rendered.some((entry) => entry.id === "c-1-7" || entry.id === "c-1-8" || entry.id === "c-1-14" || entry.id === "c-1-15"), false, "deleted, ambiguous, and missing-column comments never render at an old or arbitrary target");
     assert.equal(await page.locator("#review-loop-panel .review-loop-unanchored").count(), 0, "unanchored comments do not create a second sidebar feature");
     assert.equal(await page.locator("#review-loop-panel .review-loop-comment[data-review-comment-id='c-1-14'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-15'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-7'], #review-loop-panel .review-loop-comment[data-review-comment-id='c-1-8']").count(), 0, "comments without a current document target stay out of the chat-only panel");
-    assert.match(await page.locator("#review-loop-panel .review-loop-meta").textContent() || "", /11 open/, "only actionable anchored comments remain in the review count");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "chat-only panel omits actionable review counts");
   };
   await assertRendered();
   await page.reload({ waitUntil: "domcontentloaded" });

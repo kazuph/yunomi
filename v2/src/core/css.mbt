@@ -704,20 +704,18 @@ fn build_css() -> String {
     #|  transition: none;
     #|}
     #|.review-loop-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
-    #|/* Grid, not flex-wrap: at 300px the title, the counts and the toggle used
-    #|   to break onto three lines and shred the header. */
-    #|.review-loop-header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; font-weight: 700; }
+    #|/* Keep the tea icon and minimize toggle aligned at narrow widths. */
+    #|.review-loop-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; font-weight: 700; }
     #|.review-loop-header-main { min-width: 0; font-size: 12px; white-space: nowrap; }
     #|.review-loop-meta { min-width: 0; color: var(--muted); font-weight: 600; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #|.review-loop-sidebar-mini-count { display: none; }
     #|.review-loop-sidebar-toggle { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); cursor: pointer; }
     #|.review-loop-sidebar-toggle:hover { background: var(--hover-bg); color: var(--text); }
     #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-header { justify-content: center; gap: 2px; }
-    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-header-main, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-meta, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-body, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-ready { display: none; }
+    #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-header-main, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-meta, #review-loop-panel.review-loop-sidebar-collapsed .review-loop-body { display: none; }
     #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-sidebar-mini-count { display: none; }
     #|#review-loop-panel.review-loop-sidebar-collapsed .review-loop-sidebar-toggle { display: inline-grid; place-items: center; width: 40px; height: 40px; }
     #|.review-loop-sidebar-toggle svg { display: block; width: 16px; height: 16px; }
-    #|.review-loop-ready { color: var(--accent-strong); padding: 0; font-size: 12px; font-weight: 600; }
     #|.review-loop-body { display: flex; flex: 1 1 auto; flex-direction: column; gap: 6px; min-height: 0; overflow: hidden; }
     #|.review-loop-sidebar-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--panel); }
     #|.review-loop-list { margin: 0; padding-left: 0; list-style: none; display: grid; gap: 8px; color: var(--text); font-size: 13px; line-height: 1.45; }
