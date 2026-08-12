@@ -1029,3 +1029,88 @@ test "html block: h1 align center (actual README header) renders as html" {
     ),
   )
 }
+
+///|
+/// Hotfix: ATX `#` without a following space must not hang the block loop.
+/// CommonMark: `#1` / `####### x` are paragraphs; bare `#`/`##` are empty headings.
+test "atx hash without space: no hang, CommonMark heading rules" {
+  let para = parse_markdown("#1 bug")
+  debug_inspect(
+    para.html.contains("<p ") && para.html.contains("#1 bug") && !para.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let para_alpha = parse_markdown("#abc")
+  debug_inspect(
+    para_alpha.html.contains("#abc") && !para_alpha.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let para_hash2 = parse_markdown("##2")
+  debug_inspect(
+    para_hash2.html.contains("##2") && !para_hash2.html.contains("<h2 "),
+    content=(
+      #|true
+    ),
+  )
+  let too_many = parse_markdown("####### x")
+  debug_inspect(
+    too_many.html.contains("####### x") && !too_many.html.contains("<h"),
+    content=(
+      #|true
+    ),
+  )
+  let empty1 = parse_markdown("#")
+  debug_inspect(
+    empty1.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let empty2 = parse_markdown("##")
+  debug_inspect(
+    empty2.html.contains("<h2 "),
+    content=(
+      #|true
+    ),
+  )
+  let normal = parse_markdown("# 見出し")
+  debug_inspect(
+    normal.html.contains("<h1 ") && normal.html.contains("見出し"),
+    content=(
+      #|true
+    ),
+  )
+  let fullwidth = parse_markdown("＃1")
+  debug_inspect(
+    fullwidth.html.contains("＃1") && !fullwidth.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let mid = parse_markdown("text #1 text")
+  debug_inspect(
+    mid.html.contains("text #1 text") && !mid.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let quoted = parse_markdown("> #1【不具合】")
+  debug_inspect(
+    quoted.html.contains("<blockquote") &&
+    quoted.html.contains("#1【不具合】") &&
+    !quoted.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+  let escaped = parse_markdown("> \\#1【不具合】")
+  debug_inspect(
+    escaped.html.contains("<blockquote") && !escaped.html.contains("<h1 "),
+    content=(
+      #|true
+    ),
+  )
+}

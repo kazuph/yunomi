@@ -159,15 +159,19 @@ fn is_whitespace(ch : Char) -> Bool {
 let heading_counter : Ref[Int] = Ref(0)
 
 ///|
-/// Count heading level (number of # at start)
+/// Count ATX heading level (CommonMark): 1–6 `#` followed by a space or EOL.
+/// Lines like `#1 bug` / `####### x` are not headings (returns 0).
 fn count_heading_level(line : String) -> Int {
   let chars = line.to_array()
   let mut count = 0
   while count < chars.length() && chars[count] == '#' {
     count = count + 1
   }
-  // Must have space after #s
-  if count > 0 && count < chars.length() && chars[count] == ' ' {
+  if count < 1 || count > 6 {
+    return 0
+  }
+  // Empty heading (`#` / `##` alone) or `# ` + text
+  if count == chars.length() || chars[count] == ' ' {
     count
   } else {
     0
@@ -827,7 +831,7 @@ fn render_markdown_list(
 ///|
 /// Check if line starts a block element
 fn is_block_start(line : String) -> Bool {
-  line.has_prefix("#") ||
+  count_heading_level(line) >= 1 ||
   line.has_prefix("```") ||
   line.has_prefix("~~~") ||
   line.has_prefix(">") ||
