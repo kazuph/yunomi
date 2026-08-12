@@ -159,7 +159,7 @@ fn is_whitespace(ch : Char) -> Bool {
 let heading_counter : Ref[Int] = Ref(0)
 
 ///|
-/// Count ATX heading level (CommonMark): 1–6 `#` followed by a space or EOL.
+/// Count ATX heading level (CommonMark): 1–6 `#` followed by space/tab or EOL.
 /// Lines like `#1 bug` / `####### x` are not headings (returns 0).
 fn count_heading_level(line : String) -> Int {
   let chars = line.to_array()
