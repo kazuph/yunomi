@@ -170,8 +170,8 @@ fn count_heading_level(line : String) -> Int {
   if count < 1 || count > 6 {
     return 0
   }
-  // Empty heading (`#` / `##` alone) or `# ` + text
-  if count == chars.length() || chars[count] == ' ' {
+  // Empty heading (`#` / `##` alone) or `#` + space/tab + text (CommonMark)
+  if count == chars.length() || chars[count] == ' ' || chars[count] == '\t' {
     count
   } else {
     0

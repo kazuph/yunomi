@@ -1083,6 +1083,13 @@ test "atx hash without space: no hang, CommonMark heading rules" {
       #|true
     ),
   )
+  let tab_heading = parse_markdown("#\t見出し")
+  debug_inspect(
+    tab_heading.html.contains("<h1 ") && tab_heading.html.contains("見出し"),
+    content=(
+      #|true
+    ),
+  )
   let fullwidth = parse_markdown("＃1")
   debug_inspect(
     fullwidth.html.contains("＃1") && !fullwidth.html.contains("<h1 "),

@@ -21,7 +21,10 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import {
+  basename,
+  join,
+} from "node:path";
 
 const SERVER_JS = new URL("../_build/js/release/build/server/server.js", import.meta.url).pathname;
 const WORK_DIR = mkdtempSync(join(tmpdir(), "yunomi-md-hash-hang-"));
@@ -151,7 +154,7 @@ async function main(): Promise<void> {
   const reclaimMd = join(WORK_DIR, "reclaim-dead.md");
   writeFileSync(reclaimMd, "# reclaim me\n");
   const deadLock = writeFileLock(reclaimMd, { pid: 999999999, port: 0 });
-  assert.ok(readdirSync(LOCK_DIR).includes(deadLock.split("/").pop()!), "planted dead lock");
+  assert.ok(readdirSync(LOCK_DIR).includes(basename(deadLock)), "planted dead lock");
   const afterDead = await hangGuard(start(reclaimMd), "start after dead lock");
   assert.equal(await healthy(afterDead.port), true, "reclaimed dead lock and listened");
   afterDead.proc.kill("SIGTERM");
