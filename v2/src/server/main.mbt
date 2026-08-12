@@ -316,6 +316,8 @@ fn running_port_for_file(file_path : String) -> Int {
     if locked_port > 0 {
       return locked_port
     }
+    // Alive pid with port 0: leave for js_claim_file_lock (same-process
+    // "startup in progress" vs other-process hung reclaim).
   }
   0
 }
