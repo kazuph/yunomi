@@ -3004,16 +3004,36 @@ extern "js" fn js_claim_file_lock(dir : String, file : String) -> String =
   #|      let existing = {};
   #|      try { existing = JSON.parse(fs.readFileSync(lockPath, "utf8")); } catch {}
   #|      const pid = Number(existing?.pid || 0);
+  #|      const port = Number(existing?.port || 0);
+  #|      let alive = false;
   #|      if (pid > 0) {
   #|        try {
   #|          process.kill(pid, 0);
-  #|          return JSON.stringify({ status: "existing", port: Number(existing?.port || 0) });
+  #|          alive = true;
   #|        } catch (error) {
   #|          if (error?.code !== "ESRCH") {
-  #|            return JSON.stringify({ status: "existing", port: Number(existing?.port || 0) });
+  #|            alive = true;
   #|          }
   #|        }
   #|      }
+  #|      // Legitimate lock: live owner that has already bound a port.
+  #|      if (alive && port > 0) {
+  #|        return JSON.stringify({ status: "existing", port });
+  #|      }
+  #|      // Same process still claiming (port 0) → keep "startup in progress".
+  #|      if (alive && pid === process.pid) {
+  #|        return JSON.stringify({ status: "existing", port: 0 });
+  #|      }
+  #|      // Other process at port 0: allow a short startup race window, then
+  #|      // treat as hung (parser spin before listen) and reclaim.
+  #|      if (alive && port === 0) {
+  #|        let ageMs = Number.POSITIVE_INFINITY;
+  #|        try { ageMs = Date.now() - fs.statSync(lockPath).mtimeMs; } catch {}
+  #|        if (ageMs < 5000) {
+  #|          return JSON.stringify({ status: "existing", port: 0 });
+  #|        }
+  #|      }
+  #|      // Dead pid, or another process stuck at port 0 past grace → reclaim.
   #|      try { fs.unlinkSync(lockPath); } catch {}
   #|    }
   #|  }
