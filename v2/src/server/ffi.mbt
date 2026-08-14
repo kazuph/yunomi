@@ -1045,6 +1045,10 @@ extern "js" fn json_parse_first_file(json_str : String) -> String =
   #|(s) => { try { const o = JSON.parse(s); return String((o.files || [])[0] || ""); } catch(e) { return ""; } }
 
 ///|
+extern "js" fn json_parse_review_files(json_str : String) -> Array[String] =
+  #|(s) => { try { return Array.isArray(JSON.parse(s).files) ? JSON.parse(s).files.map(String) : []; } catch (_) { return []; } }
+
+///|
 /// Home directory
 #module("node:os")
 extern "js" fn os_homedir() -> String = "homedir"
@@ -1282,6 +1286,51 @@ extern "js" fn parse_query_param(url : String, key : String) -> String =
   #|}
 
 ///|
+extern "js" fn mux_context_index(url : String, count : Int) -> Int =
+  #|(url, count) => {
+  #|  try {
+  #|    const values = new URL("http://localhost" + url).searchParams.getAll("f");
+  #|    if (values.length !== 1 || !/^(0|[1-9]\d*)$/.test(values[0])) return -1;
+  #|    const index = Number(values[0]);
+  #|    return Number.isSafeInteger(index) && index >= 0 && index < count ? index : -1;
+  #|  } catch (_) { return -1; }
+  #|}
+
+///|
+extern "js" fn mux_global_route_is_valid(url : String) -> Bool =
+  #|(url) => {
+  #|  try { return new URL("http://localhost" + url).searchParams.getAll("f").length === 0; }
+  #|  catch (_) { return false; }
+  #|}
+
+///|
+extern "js" fn mux_static_target(url : String, count : Int) -> Array[String] =
+  #|(url, count) => {
+  #|  try {
+  #|    const u = new URL("http://localhost" + url);
+  #|    const match = /^\/_yunomi\/mux\/([^/]+)\/(.*)$/.exec(u.pathname);
+  #|    if (!match || !/^(0|[1-9]\d*)$/.test(match[1])) return [];
+  #|    const index = Number(match[1]);
+  #|    if (!Number.isSafeInteger(index) || index < 0 || index >= count) return [];
+  #|    return [String(index), match[2]];
+  #|  } catch (_) { return []; }
+  #|}
+
+///|
+extern "js" fn url_path(url : String) -> String =
+  #|(url) => { try { return new URL("http://localhost" + url).pathname; } catch (_) { return ""; } }
+
+///|
+extern "js" fn rewrite_mux_static_urls(html : String, index : Int) -> String =
+  #|(html, index) => {
+  #|  const prefix = `/_yunomi/mux/${index}/`;
+  #|  const relative = (value) => value && !/^(?:[a-z][a-z0-9+.-]*:|\/|#|data:)/i.test(value);
+  #|  return String(html || "")
+  #|    .replace(/\bsrc=(['"])([^'"]*)\1/gi, (all, quote, value) => relative(value) ? `src=${quote}${prefix}${value}${quote}` : all)
+  #|    .replace(/\bhref=(['"])([^'"]*\.css(?:[?#][^'"]*)?)\1/gi, (all, quote, value) => relative(value) ? `href=${quote}${prefix}${value}${quote}` : all);
+  #|}
+
+///|
 /// Process event listeners (operate on passed object)
 extern "js" fn _on_spawn_close(proc : JsValue, handler : (Int) -> Unit) -> Unit =
   #|(proc, handler) => proc.on("close", (code) => handler(code || 0))
@@ -1419,14 +1468,146 @@ fn git_branch_for(root : String) -> String {
 }
 
 ///|
-fn review_dir_for_file(file_path : String) -> String {
+/// Bound mux session directory for this process. Empty means each file uses
+/// its own single-file identity. YUNOMI_REVIEW_DIR still wins at lookup time.
+let bound_review_session_dir : Ref[String] = Ref("")
+
+///|
+/// Canonical session identity: repo realpath, raw branch, mode, ordered files.
+extern "js" fn js_review_session_dir(
+  repo_root : String,
+  branch : String,
+  sanitized_branch : String,
+  mode : String,
+  files : Array[String],
+) -> String =
+  #|(repoRoot, branch, sanitizedBranch, mode, files) => {
+  #|  const crypto = process.getBuiltinModule("node:crypto");
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const ordered = Array.from(files || []).map(String);
+  #|  const identity = ["repo=" + String(repoRoot || ""), "branch=" + String(branch || "no-branch"), "mode=" + String(mode || "single"), ...ordered.map((file) => "file=" + file)].join("\n");
+  #|  const id = crypto.createHash("sha256").update(identity).digest("hex");
+  #|  const branchDir = path.join(String(repoRoot || ""), ".yunomi", "reviews", String(sanitizedBranch || "no-branch"));
+  #|  const sessionDir = path.join(branchDir, "sessions", id);
+  #|  const legacyJson = path.join(branchDir, "review.json");
+  #|  const filesMatch = (review) => {
+  #|    const reviewFiles = Array.isArray(review && review.files) ? review.files.map(String) : [];
+  #|    if (Boolean(review && review.mux) !== (mode === "mux")) return false;
+  #|    if (reviewFiles.length !== ordered.length) return false;
+  #|    return reviewFiles.every((file, index) => file === ordered[index]);
+  #|  };
+  #|  if (fs.existsSync(legacyJson)) {
+  #|    let review = {};
+  #|    try { review = JSON.parse(fs.readFileSync(legacyJson, "utf8") || "{}"); } catch (_) { review = {}; }
+  #|    if (filesMatch(review)) return branchDir;
+  #|  }
+  #|  fs.mkdirSync(sessionDir, { recursive: true });
+  #|  const identityPath = path.join(sessionDir, "identity.json");
+  #|  if (!fs.existsSync(identityPath)) {
+  #|    fs.writeFileSync(identityPath, JSON.stringify({ repo: repoRoot, branch, mode, files: ordered, id }, null, 2));
+  #|  }
+  #|  return sessionDir;
+  #|}
+
+///|
+/// Resolve the cwd review session. comment_id may be empty.
+/// Returns JSON {ok, dir, error} where error is ambiguous_live, ambiguous_stored,
+/// id_collision, or missing_thread.
+extern "js" fn js_resolve_cwd_review_dir(
+  repo_root : String,
+  sanitized_branch : String,
+  comment_id : String,
+) -> String =
+  #|(repoRoot, sanitizedBranch, commentId) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const path = process.getBuiltinModule("node:path");
+  #|  const branchDir = path.join(String(repoRoot || ""), ".yunomi", "reviews", String(sanitizedBranch || "no-branch"));
+  #|  const sessionsDir = path.join(branchDir, "sessions");
+  #|  const wanted = String(commentId || "");
+  #|  const result = (ok, dir, error) => JSON.stringify({ ok: ok ? "true" : "false", dir: dir || "", error: error || "" });
+  #|  const candidates = [];
+  #|  const consider = (dir) => {
+  #|    const reviewPath = path.join(dir, "review.json");
+  #|    if (!fs.existsSync(reviewPath)) return;
+  #|    let review = {};
+  #|    try { review = JSON.parse(fs.readFileSync(reviewPath, "utf8") || "{}"); } catch (_) { review = {}; }
+  #|    const ids = Array.isArray(review.comments) ? review.comments.filter((row) => row && row.id != null).map((row) => String(row.id)) : [];
+  #|    let live = false;
+  #|    const serverPath = path.join(dir, "server.json");
+  #|    if (fs.existsSync(serverPath)) {
+  #|      try {
+  #|        const server = JSON.parse(fs.readFileSync(serverPath, "utf8") || "{}");
+  #|        const pid = Number(server.pid || 0);
+  #|        if (pid > 0) {
+  #|          try { process.kill(pid, 0); live = true; } catch (_) { live = false; }
+  #|        }
+  #|      } catch (_) {}
+  #|    }
+  #|    candidates.push({ dir, live, ids });
+  #|  };
+  #|  consider(branchDir);
+  #|  if (fs.existsSync(sessionsDir)) {
+  #|    for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+  #|      if (entry.isDirectory()) consider(path.join(sessionsDir, entry.name));
+  #|    }
+  #|  }
+  #|  const live = candidates.filter((row) => row.live);
+  #|  const owners = wanted ? candidates.filter((row) => row.ids.includes(wanted)) : [];
+  #|  if (live.length > 1) return result(false, "", "ambiguous_live");
+  #|  if (live.length === 1) {
+  #|    if (!wanted || live[0].ids.includes(wanted)) return result(true, live[0].dir, "");
+  #|    if (owners.length === 1) return result(true, owners[0].dir, "");
+  #|    if (owners.length > 1) return result(false, "", "id_collision");
+  #|    return result(false, "", "missing_thread");
+  #|  }
+  #|  if (wanted) {
+  #|    if (owners.length === 1) return result(true, owners[0].dir, "");
+  #|    if (owners.length > 1) return result(false, "", "id_collision");
+  #|    return result(false, "", "missing_thread");
+  #|  }
+  #|  if (candidates.length === 1) return result(true, candidates[0].dir, "");
+  #|  if (candidates.length === 0) return result(true, branchDir, "");
+  #|  return result(false, "", "ambiguous_stored");
+  #|}
+
+///|
+fn review_session_dir(file_path : String, mode : String, files : Array[String]) -> String {
   let override_dir = get_env_var("YUNOMI_REVIEW_DIR")
   if override_dir.length() > 0 {
     return override_dir
   }
   let root = git_root_for(file_path)
-  let branch = js_sanitize_branch(git_branch_for(root))
-  path_join(path_join(path_join(root, ".yunomi"), "reviews"), branch)
+  let branch = git_branch_for(root)
+  js_review_session_dir(root, branch, js_sanitize_branch(branch), mode, files)
+}
+
+///|
+fn bind_review_mux_session(files : Array[String]) -> Unit {
+  if files.is_empty() {
+    return
+  }
+  let displays : Array[String] = []
+  for file_path in files {
+    displays.push(review_display_file(path_resolve(file_path)))
+  }
+  bound_review_session_dir.val = review_session_dir(
+    path_resolve(files[0]),
+    "mux",
+    displays,
+  )
+}
+
+///|
+fn review_dir_for_file(file_path : String) -> String {
+  let override_dir = get_env_var("YUNOMI_REVIEW_DIR")
+  if override_dir.length() > 0 {
+    return override_dir
+  }
+  if bound_review_session_dir.val.length() > 0 {
+    return bound_review_session_dir.val
+  }
+  review_session_dir(file_path, "single", [review_display_file(file_path)])
 }
 
 ///|
@@ -1446,14 +1627,46 @@ fn review_signal_path_for_file(file_path : String) -> String {
 
 ///|
 fn review_dir_for_cwd() -> String {
+  resolve_cwd_review_dir("")
+}
+
+///|
+fn resolve_cwd_review_dir(comment_id : String) -> String {
   let override_dir = get_env_var("YUNOMI_REVIEW_DIR")
   if override_dir.length() > 0 {
     return override_dir
   }
+  if bound_review_session_dir.val.length() > 0 {
+    return bound_review_session_dir.val
+  }
   let cwd = path_resolve(".")
   let root = git_root_for(cwd)
-  let branch = js_sanitize_branch(git_branch_for(root))
-  path_join(path_join(path_join(root, ".yunomi"), "reviews"), branch)
+  let result = js_resolve_cwd_review_dir(
+    root,
+    js_sanitize_branch(git_branch_for(root)),
+    comment_id,
+  )
+  if json_parse_string("ok", result) == "true" {
+    return json_parse_string("dir", result)
+  }
+  let error = json_parse_string("error", result)
+  if error == "id_collision" {
+    console_error(
+      "yunomi: the same comment id exists in multiple review sessions; refuse to guess. Set YUNOMI_REVIEW_DIR to the intended session directory. Do not delete review.json.",
+    )
+    exit_process("comment id collision", 1)
+    return ""
+  }
+  if error == "missing_thread" {
+    console_error("yunomi reply: thread is resolved or does not exist: " + comment_id)
+    exit_process("reply unavailable", 1)
+    return ""
+  }
+  console_error(
+    "yunomi: multiple review sessions exist for this branch; refuse to guess. Keep exactly one live review server for that target, or set YUNOMI_REVIEW_DIR to the session directory. Do not delete review.json.",
+  )
+  exit_process("ambiguous review session", 1)
+  ""
 }
 
 ///|
@@ -1624,6 +1837,208 @@ fn ensure_review_state(file_path : String) -> Unit {
       js_review_init_json(1, branch, review_display_file(file_path), iso_now()),
     )
   }
+}
+
+///|
+extern "js" fn js_review_register_mux_files(
+  json : String,
+  files : Array[String],
+) -> String =
+  #|(json, files) => {
+  #|  let review;
+  #|  try { review = JSON.parse(json || "{}"); } catch (_) { review = {}; }
+  #|  review.version = 1;
+  #|  review.mux = true;
+  #|  review.files = Array.from(files || []).map(String);
+  #|  review.rounds = Array.isArray(review.rounds) && review.rounds.length
+  #|    ? review.rounds
+  #|    : [{ round: 1, started_at: new Date().toISOString(), submitted_at: null, decision: null, summary: "", results: {} }];
+  #|  for (const round of review.rounds) {
+  #|    if (!round.results || typeof round.results !== "object" || Array.isArray(round.results)) round.results = {};
+  #|  }
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn register_review_mux_files(file_path : String, files : Array[String]) -> Unit {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  write_file_secure(
+    review_path,
+    js_review_register_mux_files(read_file_safe(review_path), files),
+  )
+}
+
+///| Returns accepted, retry, replaced, complete_approve, complete_changes, or stale.
+extern "js" fn js_review_mux_submit(
+  json : String,
+  request_body : String,
+  body : String,
+  file : String,
+  files : Array[String],
+  source_lines : Array[String],
+) -> Array[String] =
+  #|(json, requestBody, body, file, files, sourceLines) => {
+  #|  let review, submit;
+  #|  try { review = JSON.parse(json || "{}"); submit = JSON.parse(body || "{}"); } catch (_) { return ["stale", json]; }
+  #|  const finish = (status) => [status, JSON.stringify(review, null, 2)];
+  #|  const ordered = Array.from(files || []).map(String);
+  #|  const generation = submit.generation;
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const current = rounds.reduce((a, b) => Number(b?.round || 0) > Number(a?.round || 0) ? b : a, rounds[0]);
+  #|  if (!current || Number(current.round || 0) !== generation || current.submitted_at) return finish("stale");
+  #|  current.results = current.results && typeof current.results === "object" && !Array.isArray(current.results) ? current.results : {};
+  #|  const previous = current.results[file];
+  #|  const encoded = String(requestBody || "");
+  #|  if (previous && previous.encoded === encoded) return finish("retry");
+  #|  current.results[file] = { encoded, payload: submit };
+  #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  current.comment_ids = current.comment_ids && typeof current.comment_ids === "object" ? current.comment_ids : {};
+  #|  const replacedIds = new Set(Array.isArray(current.comment_ids[file]) ? current.comment_ids[file] : []);
+  #|  if (replacedIds.size) review.comments = review.comments.filter(comment => !replacedIds.has(comment?.id));
+  #|  const round = Number(current.round || 1);
+  #|  const existing = review.comments.filter(comment => Number(comment?.round || 0) === round && comment?.scope !== "round").length;
+  #|  const ids = [];
+  #|  for (const raw of Array.isArray(submit.comments) ? submit.comments : []) {
+  #|    const row = Number(raw?.row || 0);
+  #|    const id = `c-${round}-${existing + ids.length + 1}`;
+  #|    const source = String(sourceLines[row] || raw?.value || "");
+  #|    ids.push(id);
+  #|    review.comments.push({
+  #|      ...raw, id, file, row, col: Number(raw?.col || 0), line: row + 1, round,
+  #|      text: String(raw?.text || ""), author: "human", status: "unresolved", replies: [],
+  #|      attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(String) : [],
+  #|      quote: source, snippet: source, context_before: "", context_after: "",
+  #|      anchor: { snippet: source, context_before: "", context_after: "" }
+  #|    });
+  #|  }
+  #|  current.comment_ids[file] = ids;
+  #|  const complete = ordered.every(name => current.results[name]);
+  #|  if (!complete) return finish(previous ? "replaced" : "accepted");
+  #|  const payloads = ordered.map(name => current.results[name].payload || {});
+  #|  current.submitted_at = new Date().toISOString();
+  #|  current.decision = payloads.some(payload => String(payload.decision || "") === "request_changes") ? "request_changes" : "approve";
+  #|  current.summary = ordered.map(name => `${name}: ${String(current.results[name].payload?.summary || "")}`).join("\n");
+  #|  return finish(current.decision === "approve" ? "complete_approve" : "complete_changes");
+  #|}
+
+///|
+fn review_mux_submit(
+  file_path : String,
+  request_body : String,
+  body : String,
+  files : Array[String],
+  source_lines : Array[String],
+) -> String {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  let current = read_file_safe(review_path)
+  let response = js_review_mux_submit(
+    current, request_body, body, review_display_file(file_path), files,
+    source_lines,
+  )
+  let status = if response.length() > 0 { response[0] } else { "stale" }
+  let updated = if response.length() > 1 { response[1] } else { current }
+  if status != "stale" && status != "retry" {
+    write_file_secure(
+      review_path,
+      updated,
+    )
+  }
+  status
+}
+
+///|
+extern "js" fn js_review_mux_preflight(json : String, body : String, file : String) -> String =
+  #|(json, body, file) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const submit = JSON.parse(body || "{}");
+  #|    if (!Number.isSafeInteger(submit.generation)) return "stale";
+  #|    const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|    const current = rounds.reduce((a, b) => Number(b?.round || 0) > Number(a?.round || 0) ? b : a, rounds[0]);
+  #|    if (!current || Number(current.round || 0) !== submit.generation || current.submitted_at) return "stale";
+  #|    const previous = current.results?.[file];
+  #|    return previous && previous.encoded === String(body || "") ? "retry" : "accepted";
+  #|  } catch (_) { return "stale"; }
+  #|}
+
+///|
+fn review_mux_preflight(file_path : String, body : String) -> String {
+  js_review_mux_preflight(
+    read_file_safe(review_json_path_for_file(file_path)),
+    body,
+    review_display_file(file_path),
+  )
+}
+
+///|
+extern "js" fn js_review_mux_go(json : String, generation : Int) -> String =
+  #|(json, generation) => {
+  #|  let review;
+  #|  try { review = JSON.parse(json || "{}"); } catch (_) { return ""; }
+  #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|  const current = rounds.reduce((a, b) => Number(b?.round || 0) > Number(a?.round || 0) ? b : a, rounds[0]);
+  #|  if (!current || Number(current.round || 0) !== Number(generation) || !current.submitted_at || current.decision !== "request_changes") return "";
+  #|  review.rounds.push({ round: Number(current.round) + 1, started_at: new Date().toISOString(), submitted_at: null, decision: null, summary: "", results: {} });
+  #|  return JSON.stringify(review, null, 2);
+  #|}
+
+///|
+fn advance_review_mux_round(file_path : String, generation : Int) -> Bool {
+  ensure_review_state(file_path)
+  let review_path = review_json_path_for_file(file_path)
+  let next = js_review_mux_go(read_file_safe(review_path), generation)
+  if next.length() == 0 {
+    false
+  } else {
+    write_file_secure(review_path, next)
+    true
+  }
+}
+
+///|
+extern "js" fn js_review_mux_history(json : String, file : String) -> String =
+  #|(json, file) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    return JSON.stringify((review.rounds || []).flatMap(round => {
+  #|      const payload = round?.results?.[file]?.payload;
+  #|      return payload ? [{ round: Number(round.round || 1), summary: String(payload.summary || ""), decision: String(payload.decision || "") }] : [];
+  #|    }));
+  #|  } catch (_) { return "[]"; }
+  #|}
+
+///|
+extern "js" fn review_mux_file_index(json : String, file : String) -> Int =
+  #|(json, file) => {
+  #|  try { const files = JSON.parse(json || "{}").files || []; return files.indexOf(String(file)); }
+  #|  catch (_) { return -1; }
+  #|}
+
+///|
+extern "js" fn review_comment_mux_index(json : String, id : String) -> Int =
+  #|(json, id) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const comment = (review.comments || []).find(c => c && c.id === id);
+  #|    if (!comment) return -1;
+  #|    if (comment.scope === "round") return 0;
+  #|    return (review.files || []).indexOf(String(comment.file || ""));
+  #|  } catch (_) { return -1; }
+  #|}
+
+///|
+extern "js" fn review_comment_is_round(json : String, id : String) -> Bool =
+  #|(json, id) => { try { return (JSON.parse(json || "{}").comments || []).some(c => c && c.id === id && c.scope === "round"); } catch (_) { return false; } }
+
+///|
+fn review_mux_history(file_path : String) -> String {
+  js_review_mux_history(
+    read_file_safe(review_json_path_for_file(file_path)),
+    review_display_file(file_path),
+  )
 }
 
 ///|
@@ -2149,7 +2564,7 @@ extern "js" fn js_review_resolve(json : String, id : String) -> String =
   #|(json, id) => {
   #|  const review = JSON.parse(json || "{}");
   #|  for (const c of review.comments || []) {
-  #|    if (c.id === id && c.scope !== "round") c.status = "resolved";
+  #|    if (c.id === id) c.status = "resolved";
   #|  }
   #|  return JSON.stringify(review, null, 2);
   #|}
@@ -2199,7 +2614,7 @@ extern "js" fn review_comment_is_replyable(json : String, id : String) -> Bool =
   #|  try {
   #|    const review = JSON.parse(json || "{}");
   #|    const comment = (review.comments || []).find(c => c && c.id === id);
-  #|    return !!comment && (comment.scope === "round" || comment.status !== "resolved");
+  #|    return !!comment && comment.status !== "resolved";
   #|  } catch (_) {
   #|    return false;
   #|  }
@@ -2212,7 +2627,7 @@ extern "js" fn review_can_create_global_comment(json : String) -> Bool =
   #|    const review = JSON.parse(json || "{}");
   #|    const threads = (review.comments || []).filter(c => c && c.scope === "round");
   #|    const latest = threads[threads.length - 1];
-  #|    return !latest;
+  #|    return !latest || latest.status === "resolved";
   #|  } catch (_) {
   #|    return false;
   #|  }
@@ -2322,7 +2737,7 @@ fn reply_review_comment_cwd(
   text : String,
   author : String,
 ) -> Unit {
-  let review_path = review_json_path_for_cwd()
+  let review_path = path_join(resolve_cwd_review_dir(id), "review.json")
   write_file_secure(
     review_path,
     js_review_reply(read_file_safe(review_path), id, text, author, ""),
@@ -2338,7 +2753,7 @@ extern "js" fn js_review_prior_unresolved_count(
   #|  try {
   #|    const review = JSON.parse(json || "{}");
   #|    const currentRound = Number(((review.rounds || []).reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), (review.rounds || [])[0]) || {}).round || 1);
-  #|    return (review.comments || []).filter(c => c && c.scope !== "round" && c.file === currentFile && c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
+  #|    return (review.comments || []).filter(c => c && c.scope !== "round" && c.file === currentFile && !c.unanchored && c.status !== "resolved" && Number(c.round || 0) < currentRound).length;
   #|  } catch(e) {
   #|    return 0;
   #|  }
@@ -2581,10 +2996,62 @@ extern "js" fn run_mcp_server() -> Unit =
   #|  };
   #|  const repoRoot = (cwd) => git(cwd, ["rev-parse", "--show-toplevel"]) || path.resolve(cwd || ".");
   #|  const branchName = (root) => git(root, ["branch", "--show-current"]) || "no-branch";
-  #|  const reviewDir = (cwd) => {
+  #|  const resolveReviewDir = (root, branch, commentId) => {
+  #|    const branchDir = path.join(root, ".yunomi", "reviews", escBranch(branch));
+  #|    const sessionsDir = path.join(branchDir, "sessions");
+  #|    const wanted = String(commentId || "");
+  #|    const candidates = [];
+  #|    const consider = (dir) => {
+  #|      const reviewPath = path.join(dir, "review.json");
+  #|      if (!fs.existsSync(reviewPath)) return;
+  #|      let review = {};
+  #|      try { review = JSON.parse(fs.readFileSync(reviewPath, "utf8") || "{}"); } catch (_) { review = {}; }
+  #|      const ids = Array.isArray(review.comments) ? review.comments.filter((row) => row && row.id != null).map((row) => String(row.id)) : [];
+  #|      let live = false;
+  #|      const serverPath = path.join(dir, "server.json");
+  #|      if (fs.existsSync(serverPath)) {
+  #|        try {
+  #|          const server = JSON.parse(fs.readFileSync(serverPath, "utf8") || "{}");
+  #|          const pid = Number(server.pid || 0);
+  #|          if (pid > 0) {
+  #|            try { process.kill(pid, 0); live = true; } catch (_) { live = false; }
+  #|          }
+  #|        } catch (_) {}
+  #|      }
+  #|      candidates.push({ dir, live, ids });
+  #|    };
+  #|    consider(branchDir);
+  #|    if (fs.existsSync(sessionsDir)) {
+  #|      for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+  #|        if (entry.isDirectory()) consider(path.join(sessionsDir, entry.name));
+  #|      }
+  #|    }
+  #|    const live = candidates.filter((row) => row.live);
+  #|    const owners = wanted ? candidates.filter((row) => row.ids.includes(wanted)) : [];
+  #|    if (live.length > 1) return { ok: false, error: "ambiguous_live" };
+  #|    if (live.length === 1) {
+  #|      if (!wanted || live[0].ids.includes(wanted)) return { ok: true, dir: live[0].dir };
+  #|      if (owners.length === 1) return { ok: true, dir: owners[0].dir };
+  #|      if (owners.length > 1) return { ok: false, error: "id_collision" };
+  #|      return { ok: false, error: "missing_thread" };
+  #|    }
+  #|    if (wanted) {
+  #|      if (owners.length === 1) return { ok: true, dir: owners[0].dir };
+  #|      if (owners.length > 1) return { ok: false, error: "id_collision" };
+  #|      return { ok: false, error: "missing_thread" };
+  #|    }
+  #|    if (candidates.length === 1) return { ok: true, dir: candidates[0].dir };
+  #|    if (candidates.length === 0) return { ok: true, dir: branchDir };
+  #|    return { ok: false, error: "ambiguous_stored" };
+  #|  };
+  #|  const reviewDir = (cwd, commentId) => {
   #|    if (process.env.YUNOMI_REVIEW_DIR) return process.env.YUNOMI_REVIEW_DIR;
   #|    const root = repoRoot(cwd);
-  #|    return path.join(root, ".yunomi", "reviews", escBranch(branchName(root)));
+  #|    const resolved = resolveReviewDir(root, branchName(root), commentId);
+  #|    if (resolved.ok) return resolved.dir;
+  #|    if (resolved.error === "id_collision") throw new Error("the same comment id exists in multiple review sessions; set YUNOMI_REVIEW_DIR to the session directory");
+  #|    if (resolved.error === "missing_thread") throw new Error("thread is resolved or does not exist");
+  #|    throw new Error("multiple review sessions exist for this branch; set YUNOMI_REVIEW_DIR to the session directory");
   #|  };
   #|  const reviewPath = (cwd) => path.join(reviewDir(cwd), "review.json");
   #|  const serverPath = (cwd) => path.join(reviewDir(cwd), "server.json");
@@ -2634,35 +3101,38 @@ extern "js" fn run_mcp_server() -> Unit =
   #|    if (!fs.existsSync(p)) return normalizeReview({ version: 1, branch: branchName(repoRoot(cwd || ".")), files: [], rounds: [{ round: 1, started_at: iso(), submitted_at: null, decision: null, summary: "" }], comments: [] });
   #|    return normalizeReview(JSON.parse(fs.readFileSync(p, "utf8") || "{}"));
   #|  };
+  #|  const summarizeReview = (p, fallbackId) => {
+  #|    let review = {};
+  #|    try { review = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8") || "{}") : {}; } catch (_) {}
+  #|    const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|    return {
+  #|      id: review.branch || fallbackId,
+  #|      path: p,
+  #|      branch: review.branch || fallbackId,
+  #|      round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]).round || review.rounds.length) : 1,
+  #|      unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
+  #|    };
+  #|  };
   #|  const listReviews = (args) => {
   #|    const base = process.env.YUNOMI_REVIEW_DIR || path.join(repoRoot((args && args.cwd) || process.cwd()), ".yunomi", "reviews");
   #|    if (!fs.existsSync(base)) return [];
   #|    const direct = path.join(base, "review.json");
-  #|    if (fs.existsSync(direct)) {
-  #|      let review = {};
-  #|      try { review = JSON.parse(fs.readFileSync(direct, "utf8") || "{}"); } catch (_) {}
-  #|      const comments = Array.isArray(review.comments) ? review.comments : [];
-  #|      return [{
-  #|        id: review.branch || path.basename(base),
-  #|        path: direct,
-  #|        branch: review.branch || path.basename(base),
-  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]).round || review.rounds.length) : 1,
-  #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
-  #|      }];
+  #|    if (fs.existsSync(direct)) return [summarizeReview(direct, path.basename(base))];
+  #|    const out = [];
+  #|    for (const entry of fs.readdirSync(base, { withFileTypes: true })) {
+  #|      if (!entry.isDirectory()) continue;
+  #|      const branchDir = path.join(base, entry.name);
+  #|      const legacy = path.join(branchDir, "review.json");
+  #|      if (fs.existsSync(legacy)) out.push(summarizeReview(legacy, entry.name));
+  #|      const sessionsDir = path.join(branchDir, "sessions");
+  #|      if (!fs.existsSync(sessionsDir)) continue;
+  #|      for (const session of fs.readdirSync(sessionsDir, { withFileTypes: true })) {
+  #|        if (!session.isDirectory()) continue;
+  #|        const p = path.join(sessionsDir, session.name, "review.json");
+  #|        if (fs.existsSync(p)) out.push(summarizeReview(p, session.name));
+  #|      }
   #|    }
-  #|    return fs.readdirSync(base, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => {
-  #|      const p = path.join(base, entry.name, "review.json");
-  #|      let review = {};
-  #|      try { review = fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, "utf8") || "{}") : {}; } catch (_) {}
-  #|      const comments = Array.isArray(review.comments) ? review.comments : [];
-  #|      return {
-  #|        id: entry.name,
-  #|        path: p,
-  #|        branch: review.branch || entry.name,
-  #|        round: Array.isArray(review.rounds) && review.rounds.length ? Number(review.rounds.reduce((a, b) => (Number(b.round || 0) > Number(a.round || 0) ? b : a), review.rounds[0]).round || review.rounds.length) : 1,
-  #|        unresolved: comments.filter((comment) => comment && comment.status !== "resolved").length
-  #|      };
-  #|    });
+  #|    return out;
   #|  };
   #|  const writeReview = (cwd, review) => {
   #|    const dir = reviewDir(cwd);

@@ -151,13 +151,13 @@ try {
     const attachmentDir = join(REVIEW_DIR, "comment-attachments");
     mkdirSync(attachmentDir, { recursive: true });
     writeFileSync(join(attachmentDir, "private.png"), "private attachment");
-    for (const path of ["/review-state", "/history", "/ui.js", "/comment-attachments/private.png"]) {
+    for (const path of ["/review-state?f=0", "/history?f=0", "/ui.js", "/_yunomi/mux/0/comment-attachments/private.png"]) {
       const blocked = await get(share.port, path);
       assert(blocked.status === 403, `share rejects unsigned GET ${path}`, blocked);
     }
-    const authorizedState = await get(share.port, "/review-state", { Cookie: cookie });
+    const authorizedState = await get(share.port, "/review-state?f=0", { Cookie: cookie });
     assert(authorizedState.status === 200, "share cookie authorizes review state after the signed page load", authorizedState);
-    const authorizedAttachment = await get(share.port, "/comment-attachments/private.png", { Cookie: cookie });
+    const authorizedAttachment = await get(share.port, "/_yunomi/mux/0/comment-attachments/private.png", { Cookie: cookie });
     assert(
       authorizedAttachment.status === 200 && authorizedAttachment.text === "private attachment",
       "share cookie authorizes a conversation attachment after the signed page load",
@@ -194,9 +194,9 @@ try {
     const second = await get(share.port, `/?f=1&share=${shareToken}`);
     assert(second.status === 200 && second.text.includes("plain shared text"), "share serves the second file read-only");
 
-    const blockedComment = await post(share.port, "/comment");
+    const blockedComment = await post(share.port, "/comment?f=0");
     assert(blockedComment.status === 405 && blockedComment.text.includes("read_only_share"), "share rejects comment POSTs");
-    const blockedExit = await post(share.port, "/exit");
+    const blockedExit = await post(share.port, "/exit?f=0");
     assert(blockedExit.status === 405 && blockedExit.text.includes("read_only_share"), "share rejects submit POSTs");
     assert(!existsSync(join(REVIEW_DIR, "server.json")), "share does not write review server metadata");
 

@@ -1,0 +1,237 @@
+{
+  "schema": "yunomi-formal-evidence/v2",
+  "recorded_at": "2026-08-13T23:50:00+09:00",
+  "evidence_status": "FORMAL_EVIDENCE_COMPLETE_PENDING_HUMAN_APPROVAL",
+  "execution_flow": {
+    "skills_read": ["bucho", "dspec-check", "quint-model-check", "webapp-testing", "dogfooding", "herdr-pane-commander"],
+    "goal_id": "yunomi-review-mux-finish",
+    "goal_status": "active",
+    "goal_objective": "Finish review-mux implementation and hash-consistent Lean/Alloy/Quint/drift/product/build/real-Chrome evidence without Alloy-only downgrade, commit, push, or global install."
+  },
+  "working_tree": {
+    "base_commit": "f1d04cb97080dec9a1263935cdf4a79624a29b2a",
+    "dirty": true,
+    "commit_created": false,
+    "external_publication": false,
+    "note": "Exact SHA-256 values identify the verified uncommitted sources; unrelated contributor changes were preserved. Origin remains 6 commits behind; no merge/rebase/reset/stash."
+  },
+  "source_hashes_sha256": {
+    "quint_current": "593f0dc3236f710b4b98868174dcf40bf6c2e4c7fd666870761253c1841872b6",
+    "quint_repaired": "0647449d904d6a29dbe10e1b16ac53f85c7a5ccca2fac26d875111b8a267dc74",
+    "lean": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd",
+    "alloy": "fe3b620a99a0767c25ea0f06a56bcf5c774a3a730cd6dd3f81d4bcea9119a4a4",
+    "drift_checker": "f8eee9a2b3c8acbabbb98d171d12bf919a9e7fbadfd02fccc6182ae6ca5d9b4c",
+    "formal_mapping": "5aa3d89d0a596ba68c70ea97128e722ecc939b653a6355abd191f72511a04e5b",
+    "server_main": "ad280f7b169a47463eee77f47f33db77223f92bc330ee9f89a39f266b842467c",
+    "server_ffi": "a7c0af27786ac054e48105f3559f61bf9a42140a1831b457804b2d773599b99b",
+    "ui_app": "f4c2be067f1db64c9523e56c46ced1c2b97e94b63eb7c8ac6bd5f0190b0a9002",
+    "ui_dom": "50479a54936dfc77956d1e4b40f16705cfacbb30464145af546289039cf729c9",
+    "ui_css": "fc4d276be1e5704eb84a0a548400ba9a37219ea9e028b2ae175bc23168bbfb79",
+    "mux_context_contract": "907170957a1f4d67924be01fe46ba4d8a05a071ab9e1879d4f49dfd17d93341f",
+    "review_loop_contract": "758fb689e0466f21946185f5b7e5488a6f2b7870f1607e0ad97eb202f79e8797",
+    "unanchored_contract": "97bdd674afef19c0c55da23e15052a7afaa667fa7914822ff66a3432312eee8c",
+    "chrome_dogfood_script": "151789e5f366c5b05c0bfdd60d30bc28c1238e178380c9107dd719187228e5f0",
+    "chrome_dogfood_evidence": "acbac6f6583ff8a0ec777eb4da8d556e1879d40b5c6d78c82a54a13f21bad9dd",
+    "session_isolation_contract": "ddd7282720acc9dff30cba97b135c3ed7da1b280796f19ac5e63c21fba2d3047",
+    "session_isolation_chrome_script": "534ed9e128e34f4859ec4c2d128975924ce1ec7e73712b5edd9122873914ae7b",
+    "session_isolation_chrome_evidence": "3eda057df815441c9d548021bdcef5154533c26568924030a33d5a9583186e6a",
+    "session_isolation_explainer": "895684a81d727f32c76ff885a1aa99e52a39ac8bb8a9fecf5cc4a6342b2772f5",
+    "session_isolation_empty_chat": "4402aa3cb2d58cab460bf689b349b4d52ad089ad5307203b3046cdb8c1d22640",
+    "session_isolation_timeline": "9566ea4af74ee9ca97d5f59a12e6f1a4c8a3189b3445a1fae676217494a051b0",
+    "session_isolation_approve_gate": "58559080d7ad5f285cfa58c89cbe55ee1d693b185ccab914af17e802a8ad5560",
+    "session_isolation_full_ui": "1695ed25bc3775f33f297ae27e3fc8f21e5289a0011f0250cb6cdbf338a8a63d",
+    "live_session_timeline_4990": "221ec04960b56d7a65ded76beb1197fb89142938abd8a72b19db9de230377335",
+    "session_cli_resolution_contract": "4fffc9b7ecaf76f4ef918ab7ffc7568bb24e75946aff094a110fa56a42e16b2e",
+    "dist_server_js": "c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3",
+    "release_server_js_body": "d438b4d3984059e216c735f4f4379e9b46dbc507841eb656e9f671dab2ba2d3b"
+  },
+  "scope": {
+    "formal_domain": "two files; browser and CLI actors; eleven routes; Single and Mux modes; five context classes; generations 1..4 as typed inputs; two payload identities and decisions; file and round threads; NoThread/Open/Resolved lifecycle; Collecting/RoundComplete/WaitingGo/Exited phases; retry, replacement, resolve, go, persistence, audience, emission, and process-exit effects",
+    "product_boundaries": [
+      "strict f validation and selected/effective file ownership",
+      "GET, HEAD, Range, nested static assets, traversal rejection, and non-mux compatibility",
+      "exact retry, latest replacement, unique-file completion, generation rejection, request_changes priority, waiting-go, one-time exit, and one-time YAML",
+      "browser and CLI file-owner persistence, round-wide SSE, resolved-thread reply rejection, idempotent resolve, replacement conversation, close lifecycle, and stopped-go resume",
+      "unanchored history retention outside the approve gate and share read-only authorization",
+      "yunomi review --loop enables ctx.is_loop so mux approve-gate/409 matches file --loop",
+      "review session identity is repo realpath + raw branch + single/mux + ordered canonical display files; legacy branch dir is reused only on exact match; otherwise sessions/<sha256> without deleting history",
+      "cwd CLI reply/comment/go/status/pr-sync/MCP resolve unique live session first; multiple live fail-closed; unique stored comment id with no live selects that session; same-id collision fail-closed; YUNOMI_REVIEW_DIR override still wins",
+      "bottom-right global chat is one oldest-to-newest timeline without New/Past/Resolve conversation chrome; file-scoped inline Resolve remains the approve-gate control; empty stream does not steal document clicks"
+    ],
+    "lean_bounds": {
+      "closure_depth": 15,
+      "delivery_representatives": 60,
+      "lifecycle_representatives": 7,
+      "state_fields": 31,
+      "generations": [1, 2, 3, 4],
+      "allInputs": 84480,
+      "public_theorems": [
+        "everyTypedInputIsStrictOrEffectFree",
+        "boundedClosurePreservesInvariant",
+        "boundedDeliveryEffectsAreSafe",
+        "everyTypedDeliveryFromEveryBoundedReachableStateIsSafe",
+        "everyTypedRoundLifecycleDeliveryMatchesDecisionTable",
+        "boundedClosureKeepsResolvedRoundHistory",
+        "everyPhaseIsReachable"
+      ]
+    }
+  },
+  "tools": {
+    "lean": "4.33.0",
+    "alloy": "6.2.0 sat4j",
+    "quint": "0.32.0 rust backend",
+    "node": "v22.22.0",
+    "chrome": "Playwright channel=chrome headed isolated profile; no browser installation"
+  },
+  "formal_evidence": {
+    "quint": {
+      "typecheck": {
+        "job": "job-1786606947443-3357-248",
+        "inner_EXIT": 0
+      },
+      "same_input": {
+        "seed": "0x5eed",
+        "current_red": {
+          "job": "job-1786607725300-3357-254",
+          "inner_EXIT": 1,
+          "expected_RED": true
+        },
+        "repaired_green": {
+          "job": "job-1786607725323-3357-255",
+          "inner_EXIT": 0
+        }
+      },
+      "broad_green": [
+        {"job": "job-1786609233035-3357-266", "inner_EXIT": 0},
+        {"job": "job-1786609233054-3357-267", "inner_EXIT": 0},
+        {"job": "job-1786609233089-3357-268", "inner_EXIT": 0}
+      ],
+      "explicit_gap": "Random broad exploration did not reach generation 3 or 4; generation 3/4 are covered independently by Alloy SAT witnesses, Lean bounded closure, and product generation-four E2E."
+    },
+    "alloy": {
+      "job": "job-1786608070961-3357-259",
+      "inner_EXIT": 0,
+      "artifacts": 39,
+      "receipt_dir": "review-mux/frozen-finish-json"
+    },
+    "lean": {
+      "job": "job-1786615043191-3357-342",
+      "label": "lean-full-46",
+      "command": "lean -DmaxHeartbeats=0 /tmp/rm_full_46.lean",
+      "source": "scripts/dspec/ReviewMuxSpec.lean",
+      "sha256": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd",
+      "inner_EXIT": 0,
+      "elapsed_s": 154.35,
+      "closure_depth": 15,
+      "optimization": "route-scoped cases+simp proving deliveryContractSafe and roundLifecycleDecisionSafe for arbitrary State×Input; projection theorems are true=true corollaries without shrinking allInputs, representatives, depth, or public theorem statements; HashSet/List membership equivalence retained; masterFiniteChecks native_decide plus seven public theorems",
+      "sorry_admit_axiom_unsafe_partial_def": false,
+      "superseded_jobs": [
+        "job-1786606521982-3357-245",
+        "job-1786613252037-3357-306",
+        "7519ba5739426e78f98f2642da5de8dd5e514e5af3e7e150d0557ce64bc30795"
+      ],
+      "status": "GREEN"
+    },
+    "semantic_drift": {
+      "green": {"job": "job-1786619286613-3357-389", "inner_EXIT": 0, "lean_hash": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd", "server_hash": "67ffbf738fc4dc4d674ce6e1113a9c48346e26ca31749916e3e499ace0987e77", "ffi_hash": "31d79cf49a07bcefac9401ec3234b66dc90b79cdd7817b136707e6ac8ba42680", "note": "Lean source unchanged after CLI cwd resolver; product server/ffi hashes below are the CLI follow-up freeze"},
+      "intentional_red": [
+        {"job": "job-1786608232468-3357-260", "mode": "--break-semantic", "inner_EXIT": 1, "expected_RED": true},
+        {"job": "job-1786608232509-3357-261", "mode": "--break-lifecycle", "inner_EXIT": 1, "expected_RED": true},
+        {"job": "job-1786608232572-3357-262", "mode": "--break-reply", "inner_EXIT": 1, "expected_RED": true},
+        {"job": "job-1786608232641-3357-263", "mode": "--break-round-resolve", "inner_EXIT": 1, "expected_RED": true}
+      ],
+      "intentional_red_note": "Checker source hash unchanged from the 4.5 RED runs; those RED jobs printed a superseded Lean hash in the JSON blob but failed on injected semantic breaks, not on hash mismatch."
+    }
+  },
+  "product_evidence": {
+    "mux_context_contract": {"job": "job-1786616398247-3357-363", "inner_EXIT": 0, "result": "Review mux context contract: passed"},
+    "unanchored": {"job": "job-1786607725262-3357-252", "inner_EXIT": 0},
+    "review_loop": {"job": "job-1786631495988-3357-468", "exit_code": 0, "note": "single LINE-like timeline plus empty-stream click-through; superseded 456/457 RED on latest reach and 273 polyfill-era GREEN"},
+    "v2_release_build": {"job": "job-1786618449987-3357-375", "inner_EXIT": 0, "note": "rebuild after session identity; timeline prepack is 469"},
+    "session_isolation_red": {"job": "job-1786618823995-3357-380", "inner_EXIT": 1, "binary": "dist/server/server.js", "result": "same-branch different file leaked FOREIGN-FIRST-ROUND-THREAD"},
+    "session_isolation_green": {"job": "job-1786630842434-3357-459", "exit_code": 0, "result": "review session isolation contract passed"},
+    "root_npm_test": {"job": "job-1786631600244-3357-469", "exit_code": 0, "moonbit": "190/190", "note": "full root npm test after timeline UI; includes review_loop, review_session_isolation.ts, review_session_cli_resolution.ts"},
+    "session_cli_resolution_red_green": {"job": "job-1786628418380-3357-436", "exit_code": 0, "old_binary": "global yunomi 2.4.8 bb301af40d0e7ddcda56e8bdd8a040f7a72545ad7c74ce2ef66261983b3ec3d3", "result": "old CLI misses unique live leftover; new binary replies and notifies unique live; unique stored id; collision; multiple live; resolved/missing"},
+    "session_cli_resolution_e2e": {"job": "job-1786630843651-3357-460", "exit_code": 0, "result": "review session CLI resolution contract passed"},
+    "vim_keys": {"job": "job-1786630844686-3357-461", "exit_code": 0, "note": "r resolves only .review-loop-inline .review-loop-resolve"},
+    "prepack": {"job": "job-1786631600244-3357-469", "exit_code": 0, "dist_sha256": "c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3", "release_body_sha256": "d438b4d3984059e216c735f4f4379e9b46dbc507841eb656e9f671dab2ba2d3b", "superseded_prepack": "job-1786629226496-3357-442"},
+    "real_chrome": {
+      "job": "job-1786616351939-3357-362",
+      "inner_EXIT": 0,
+      "transcript_evidence": "formal/review-mux/chrome-dogfood-evidence.json",
+      "operations": "headed Chrome: prior-round anchored file raises gate_unresolved_count; round open thread does not; Approve disabled+409 while file open; resolve file returns gate to 0 with round still open; Approve click 200"
+    },
+    "real_chrome_session_isolation": {
+      "job": "job-1786631130172-3357-465",
+      "exit_code": 0,
+      "transcript_evidence": "formal/review-mux/session-isolation-chrome-evidence.json",
+      "screenshots": [
+        "formal/review-mux/session-isolation-empty-chat.png",
+        "formal/review-mux/session-isolation-timeline.png",
+        "formal/review-mux/session-isolation-approve-gate.png",
+        "formal/review-mux/session-isolation-full-ui.png"
+      ],
+      "session_id": "8bf72cf4a27da2d6afe3304eeb6b8300ec894892d18e449bf1bdff2ba5bd680e",
+      "operations": "headed Chrome isolated YUNOMI_REVIEW_DIR for formal/review-mux/REPORT.md: comments 0, no New/Past/Resolve conversation, timeline 2 messages, Approve enabled, then-live 427 server.json unused",
+      "superseded_job": "job-1786619251480-3357-386"
+    },
+    "real_chrome_live_timeline_acceptance": {
+      "job": "job-1786632477101-3357-470",
+      "port": 4990,
+      "notify_pane": "p499",
+      "dist_sha256": "c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3",
+      "session_id": "8bf72cf4a27da2d6afe3304eeb6b8300ec894892d18e449bf1bdff2ba5bd680e",
+      "stopped_without_history_delete": "job-1786621926909-3357-427",
+      "screenshot": "formal/review-mux/live-session-timeline-4990.png",
+      "screenshot_sha256": "221ec04960b56d7a65ded76beb1197fb89142938abd8a72b19db9de230377335",
+      "measurements": {
+        "messageCount": 8,
+        "order": "oldest_to_newest",
+        "scrollHeight": 917,
+        "clientHeight": 366,
+        "overflowY": "auto",
+        "wheel_scrollTop_start": 0,
+        "wheel_scrollTop_end": 550,
+        "wheel_scrollTop_max": 551,
+        "chat_new_conversation": 0,
+        "chat_past_conversations": 0,
+        "chat_resolve_conversation": 0,
+        "reply_form": 1,
+        "submit": "Round 1 · All resolved",
+        "approve_enabled": true,
+        "approve_clicked": false,
+        "submit_dismissed_with": "Cancel"
+      },
+      "note": "Same session identity and history as 427; manager restarted onto prepack dist without deleting review history. Grok did not stop 470."
+    }
+  },
+  "unmodeled_or_independently_tested_dimensions": [
+    "Formal models use the smallest two-file witness domain; product E2E covers mux generations through generation 4 but not exhaustive three-file states.",
+    "Filesystem write failures and external notification-command failures are not modeled.",
+    "Network disconnect/reconnect delivery loss beyond exact retry is not modeled.",
+    "Share-token authorization is not formalized and is covered by product share read-only E2E.",
+    "The existing 25000 ms heartbeat fanout is source-audited for all mux clients but is not held open for a 25-second wall-clock E2E.",
+    "Review session identity (repo, branch, mode, ordered files) and cwd CLI session resolution are product persistence boundaries; they are not in the Lean/Alloy/Quint two-file delivery model and are covered by review_session_isolation.ts, review_session_cli_resolution.ts, and headed Chrome screenshots.",
+    "Global chat timeline flattening hides thread-lifecycle chrome without changing backend round-thread create/reply/resolve contracts; covered by review_loop.ts and headed Chrome."
+  ],
+  "superseded_evidence": "Do not treat Lean SHA 7519ba57..., Lean jobs 245/306 PROCESS_GONE_NO_EXIT, old Quint/Alloy jobs from 6985, old Chrome port 5168/codex session 019feb0e, or drift GREEN 247 (old server/lean hashes) as PASS. Failed tests caused only by stale selectors are excluded from product bug evidence.",
+  "independent_review": {
+    "git_diff_check": 0,
+    "P0": 0,
+    "P1": 0,
+    "notes": [
+      "deliveryProjectionPreservesSafety is a corollary of deliveryContractSafe_any (always true). This is stronger than representative equality, not a bound shrink.",
+      "session identity keys the persistent store by repo/branch/mode/ordered files. Exact legacy match continues the same loop. Mismatch isolates under sessions/<sha256> without deleting history. yunomi go fail-closes when multiple live sessions exist.",
+      "cwd CLI resolution prefers unique live, fail-closes on multiple live or same-id collision, and routes a uniquely stored comment id when nothing is live. YUNOMI_REVIEW_DIR override is unchanged. Manager stopped job-1786621926909-3357-427 without deleting history and started job-1786632477101-3357-470 on the same session identity at port 4990. Grok did not stop 470.",
+      "Global chat is one timeline. New/Past/Resolve conversation chrome is absent. File-scoped inline Resolve remains. Empty stream is pointer-events none so document editors underneath stay clickable; a populated stream is hittable for scrolling. Timeline text is HTML-escaped. P0=0 P1=0."
+    ]
+  },
+  "acceptance": {
+    "yunomi_review_started": true,
+    "live_job": "job-1786632477101-3357-470",
+    "port": 4990,
+    "notify_pane": "p499",
+    "human_decision": null,
+    "note": "Submit inspected; Approve not pressed; dismissed with Cancel"
+  }
+}

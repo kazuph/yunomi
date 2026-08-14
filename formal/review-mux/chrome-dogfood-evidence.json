@@ -1,0 +1,47 @@
+{
+  "schema": "yunomi-chrome-dogfood-evidence/v2",
+  "recorded_from": {
+    "method": "Playwright channel=chrome headed isolated user-data-dir against the current release server.js",
+    "script": "v2/e2e/_mux_gate_browser_dogfood.mjs",
+    "job": "job-1786616351939-3357-362",
+    "inner_EXIT": 0,
+    "browser": "Google Chrome via Playwright channel=chrome, headless=false, isolated profile"
+  },
+  "server": {
+    "command": "server.js review main --no-open --port 0 --loop",
+    "port": 4990,
+    "healthz": 200,
+    "html_generation": 2,
+    "review_files": ["first/report.md", "second/report.md"]
+  },
+  "gate_and_approve": {
+    "gate_with_prior_file_open": 1,
+    "file_thread": {
+      "id": "dogfood-file",
+      "file": "first/report.md",
+      "round": 1,
+      "unanchored": false,
+      "status_before_resolve": "unresolved"
+    },
+    "round_open_thread": {
+      "create_status": 200,
+      "id": "r-2-1",
+      "gate_after_create": 1,
+      "status_after_file_resolve": "unresolved"
+    },
+    "approve_enabled_with_file_and_round_open": false,
+    "approve_while_file_open_status": 409,
+    "approve_while_file_open_error": "unresolved_comments",
+    "resolve_file_status": 200,
+    "gate_after_file_resolve": 0,
+    "approve_enabled_after_file_resolve_with_round_open": true,
+    "approve_click_status": 200,
+    "page_errors": []
+  },
+  "result": "PASS",
+  "superseded": {
+    "codex_session_id": "019feb0e-a5b6-7722-951f-4f3c30f2bab9",
+    "old_mux_port": 5168,
+    "reason": "previous Chrome transcript used a different server.js/hash and did not operate Approve/gate_unresolved_count"
+  }
+}

@@ -23,6 +23,13 @@ const EMPTY_PORT = PORT + 2;
 const APPROVED_REOPEN_PORT = PORT + 3;
 const childProcesses = new Set<ChildProcess>();
 
+async function installEvaluateNamePolyfill(page: { addInitScript: (script: string | (() => void)) => Promise<void> }): Promise<void> {
+  // tsx/esbuild may inject __name into Playwright page.evaluate callbacks; the browser
+  // does not define that helper, so provide a no-op identity shim before navigation.
+  await page.addInitScript("globalThis.__name=globalThis.__name||((f)=>f);");
+}
+
+
 function trackProcess(proc: ChildProcess): ChildProcess {
   childProcesses.add(proc);
   proc.once("exit", () => childProcesses.delete(proc));
@@ -178,8 +185,8 @@ async function main(): Promise<void> {
   assert.doesNotMatch(uiJs.body, /Diff since last round|review-loop-diff-block/, "review loop UI is chat-only and has no diff panel");
   assert.doesNotMatch(uiJs.body, /Previous request|AI reply|Review flow|Check status|Review target|Original target/, "review loop removes duplicated labels and fixed guidance");
   assert.doesNotMatch(uiJs.body, /review-loop-ready/, "review loop chat has no approve-ready banner");
-  assert.match(uiJs.body, /New conversation/, "review loop UI can start a global conversation when none exists");
-  assert.doesNotMatch(uiJs.body, /Past conversation/, "global conversation has no per-thread resolved history");
+  assert.doesNotMatch(uiJs.body, /New conversation|Past conversations/, "global chat does not split New conversation or Past conversations");
+  assert.match(uiJs.body, /review-loop-conversation-stream/, "global chat renders one scrollable timeline");
   assert.match(uiJs.body, /review-loop-submit-state/, "submit modal must render review loop status text");
   assert.doesNotMatch(
     uiJs.body,
@@ -247,6 +254,7 @@ async function main(): Promise<void> {
   const currentRoundBrowser = await chromium.launch({ headless: true });
   try {
     const currentRoundPage = await currentRoundBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(currentRoundPage);
     await currentRoundPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
     await currentRoundPage.waitForSelector("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1']", { timeout: 10000 });
     assert.match(
@@ -305,6 +313,7 @@ async function main(): Promise<void> {
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(page);
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
     await page.waitForSelector(".review-loop-inline", { timeout: 10000 });
@@ -334,16 +343,15 @@ async function main(): Promise<void> {
       const form = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation > .review-loop-reply-form");
       const lastMessage = stream?.querySelector<HTMLElement>(".review-loop-conversation-message:last-child");
       if (!stream || !form || !lastMessage) return null;
-      stream.scrollTop = stream.scrollHeight;
-      const streamStyle = getComputedStyle(stream);
+      const maxScroll = Math.max(0, stream.scrollHeight - stream.clientHeight);
+      stream.scrollTop = maxScroll;
       return {
         bottomGap: form.getBoundingClientRect().top - lastMessage.getBoundingClientRect().bottom,
-        paddingBottom: Number.parseFloat(streamStyle.paddingBottom),
+        paddingBottom: Number.parseFloat(getComputedStyle(stream).paddingBottom),
       };
     });
-    assert.ok(conversationSpacing && conversationSpacing.paddingBottom > 0, "conversation stream reserves space below the last message");
     assert.ok(
-      conversationSpacing && conversationSpacing.bottomGap >= conversationSpacing.paddingBottom - 0.5,
+      conversationSpacing && conversationSpacing.bottomGap >= 7.5,
       "the last conversation bubble stays separated from the reply divider",
     );
     const inlineLayout = await page.evaluate(() => {
@@ -588,6 +596,7 @@ async function main(): Promise<void> {
     const editorLayoutContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     try {
       const editorLayoutPage = await editorLayoutContext.newPage();
+    await installEvaluateNamePolyfill(editorLayoutPage);
       await editorLayoutPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
       await editorLayoutPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       await editorLayoutPage.waitForSelector("#media-sidebar:not(.hidden)", { state: "visible", timeout: 10000 });
@@ -878,26 +887,103 @@ async function main(): Promise<void> {
     assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /Agent reply through the yunomi API/, "agent API reply survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "conversation image survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-head").count(), 0, "global chat omits the redundant Conversation heading");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-resolve").count(), 0, "global chat has no per-thread resolve action");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form").count(), 1, "global chat remains replyable until review approval");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-new-global").count(), 0, "an existing global chat continues as one review conversation");
-    const ignoredGlobalResolve = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "r-1" }));
-    assert.equal(ignoredGlobalResolve.status, 200, "legacy resolve requests remain harmless");
-    const replyAfterIgnoredResolve = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "r-1", text: "still one review conversation", author: "human" }));
-    assert.equal(replyAfterIgnoredResolve.status, 200, "global chat remains replyable after a legacy resolve request");
-    const cliReply = spawnSync(process.execPath, [SERVER_JS, "reply", "r-1", "CLI continues the review conversation"], {
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-resolve").count(), 0, "global chat does not expose Resolve conversation");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form").count(), 1, "global chat remains replyable");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-new-global").count(), 0, "global chat has no New conversation shell");
+    assert.equal(await page.locator("#review-loop-panel details.review-loop-conversation-history").count(), 0, "global chat has no Past conversations splitter");
+    assert.doesNotMatch(
+      await page.locator("#review-loop-panel").innerText(),
+      /New conversation|Past conversations|Resolve conversation/,
+      "the visible global chat does not show thread-lifecycle labels",
+    );
+    const timelineOrder = await page.locator("#review-loop-panel .review-loop-conversation-message").allTextContents();
+    assert.match(timelineOrder[0] || "", /Round 1 needs a text update/, "the timeline starts with the oldest global message");
+    assert.match(timelineOrder.at(-1) || "", /Long conversation line 30/, "the timeline ends with the latest global message");
+    const scrollReach = await page.evaluate(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      if (!stream) return null;
+      const maxScroll = Math.max(0, stream.scrollHeight - stream.clientHeight);
+      stream.scrollTop = maxScroll;
+      return {
+        scrollHeight: stream.scrollHeight,
+        clientHeight: stream.clientHeight,
+        overflowY: getComputedStyle(stream).overflowY,
+        scrollTop: stream.scrollTop,
+        maxScroll,
+        distanceFromBottom: stream.scrollHeight - stream.scrollTop - stream.clientHeight,
+      };
+    });
+    assert.ok((scrollReach?.scrollHeight || 0) > (scrollReach?.clientHeight || 0), "the timeline is taller than its viewport");
+    assert.equal(scrollReach?.overflowY, "auto", "the timeline owns vertical scrolling");
+    assert.ok((scrollReach?.scrollTop || 0) > 0, "setting scrollTop moves the timeline");
+    assert.ok(
+      Math.abs((scrollReach?.scrollTop || 0) - (scrollReach?.maxScroll || 0)) <= 1,
+      `scrollTop can reach the latest message ${JSON.stringify(scrollReach)}`,
+    );
+    for (const width of [375, 450, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      const box = await page.evaluate(() => {
+        const panel = document.querySelector<HTMLElement>("#review-loop-panel");
+        const stream = panel?.querySelector<HTMLElement>(".review-loop-conversation-stream");
+        if (!panel || !stream) return null;
+        const rect = panel.getBoundingClientRect();
+        return {
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          overflowY: getComputedStyle(stream).overflowY,
+          canScroll: stream.scrollHeight > stream.clientHeight,
+        };
+      });
+      assert.ok((box?.left ?? -1) >= 0 && (box?.right ?? 9999) <= width + 1, `${width}px keeps the chat inside the viewport width`);
+      assert.ok((box?.top ?? -1) >= 0 && (box?.bottom ?? 9999) <= 901, `${width}px keeps the chat inside the viewport height`);
+      assert.equal(box?.overflowY, "auto", `${width}px keeps the timeline scrollable`);
+      assert.equal(box?.canScroll, true, `${width}px still overflows the timeline so the latest message is reachable`);
+    }
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const reviewBeforeGlobalResolve = readFileSync(join(REVIEW_DIR, "review.json"), "utf-8");
+    const apiGlobalResolve = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "r-1" }));
+    assert.equal(apiGlobalResolve.status, 200, "backend may still resolve a round thread without a global UI control");
+    await page.waitForFunction(() =>
+      (document.querySelector("#review-loop-panel .review-loop-conversation")?.getAttribute("data-review-comment-id") || "") === "",
+    );
+    const reviewAfterGlobalResolve = readFileSync(join(REVIEW_DIR, "review.json"), "utf-8");
+    assert.equal(JSON.parse(reviewAfterGlobalResolve).comments.find((comment: { id: string }) => comment.id === "r-1")?.status, "resolved", "global resolution persists to review.json");
+    assert.notEqual(reviewAfterGlobalResolve, reviewBeforeGlobalResolve, "resolving changes only the stored thread state");
+    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /Sidebar reply remains in the global conversation/, "resolved backend history stays on the same timeline");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form").count(), 1, "the timeline keeps a reply form after backend resolve");
+    assert.equal(await page.locator("#review-loop-panel details.review-loop-conversation-history").count(), 0, "backend resolve does not open a Past conversations splitter");
+    const rejectedRoundReply = await request(port, "POST", "/reply-comment", JSON.stringify({ id: "r-1", text: "must not persist", author: "human" }));
+    assert.equal(rejectedRoundReply.status, 409, "HTTP reply rejects a resolved global conversation");
+    assert.equal(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"), reviewAfterGlobalResolve, "rejected HTTP reply leaves resolved global history unchanged");
+    const cliReply = spawnSync(process.execPath, [SERVER_JS, "reply", "r-1", "CLI must not revive the conversation"], {
       cwd: TMP_DIR,
       env,
       encoding: "utf-8",
     });
-    assert.equal(cliReply.status, 0, "yunomi reply continues the global review conversation");
-    const reviewAfterContinuedReplies = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"));
-    const continuedThread = reviewAfterContinuedReplies.comments.find((comment: { id: string }) => comment.id === "r-1");
-    assert.equal(continuedThread?.status, "unresolved", "global conversation cannot become resolved independently");
-    assert.equal(continuedThread?.replies.at(-1)?.text, "CLI continues the review conversation", "CLI reply persists in the same global conversation");
-    await page.reload({ waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1'] .review-loop-conversation-image", { timeout: 3000 });
-    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /CLI continues the review conversation/, "continued global conversation survives reload");
+    assert.notEqual(cliReply.status, 0, "yunomi reply rejects a resolved global conversation");
+    assert.equal(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"), reviewAfterGlobalResolve, "rejected CLI reply leaves resolved global history unchanged");
+    const newGlobalForm = page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form");
+    await newGlobalForm.locator("textarea").fill("A new global conversation");
+    const newGlobalResponse = page.waitForResponse(response =>
+      response.url().includes("/create-global-comment") && response.request().method() === "POST",
+    );
+    await newGlobalForm.locator("button[type='submit']").click();
+    assert.equal((await newGlobalResponse).status(), 200, "the same timeline form creates the next backend thread without a New conversation label");
+    await page.waitForFunction(() =>
+      (document.querySelector("#review-loop-panel .review-loop-conversation")?.textContent || "").includes("A new global conversation"),
+    );
+    const nextGlobalId = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8")).comments
+      .find((comment: { id: string; text?: string }) => comment.text === "A new global conversation")?.id;
+    assert.ok(nextGlobalId, "the UI-created global conversation persists before its SSE-rendered active card is asserted");
+    const reviewAfterNewGlobal = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"));
+    assert.equal(reviewAfterNewGlobal.comments.find((comment: { id: string }) => comment.id === "r-1")?.status, "resolved", "the earlier resolved global conversation remains in history");
+    assert.equal(reviewAfterNewGlobal.comments.find((comment: { id: string }) => comment.id === nextGlobalId)?.status, "unresolved", "the replacement global conversation starts open");
+    await page.waitForSelector(`#review-loop-panel .review-loop-conversation[data-review-comment-id='${nextGlobalId}'] .review-loop-reply-form`, { timeout: 3000 });
+    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /A new global conversation/, "new messages continue on the same timeline");
+    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /Sidebar reply remains in the global conversation/, "older messages remain on the same timeline");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation").count(), 1, "global chat keeps a single timeline section");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "new global comment image survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-meta").count(), 0, "global conversation keeps resolution counts out of chat");
     assert.equal(await page.locator(".review-loop-inline").count(), 5, "global conversation updates leave anchored inline threads in place");
@@ -1061,6 +1147,7 @@ async function main(): Promise<void> {
       });
       try {
         const portraitPage = await portraitContext.newPage();
+    await installEvaluateNamePolyfill(portraitPage);
         await portraitPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
         await portraitPage.waitForSelector("#review-loop-panel .review-loop-conversation", {
           state: "attached",
@@ -1298,6 +1385,7 @@ async function main(): Promise<void> {
     const jaContext = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "ja-JP" });
     try {
       const jaPage = await jaContext.newPage();
+    await installEvaluateNamePolyfill(jaPage);
       await jaPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
       await jaPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       const jaSidebarText = await jaPage.locator("#review-loop-panel").first().textContent();
@@ -1367,13 +1455,33 @@ async function main(): Promise<void> {
     "resubmitting a summary in the same round creates the active unresolved thread instead of inheriting old resolved state",
   );
 
+  reviewAfterSameRoundResubmit.comments.push({
+    id: "anchored-prior-gate",
+    file: "REPORT.md",
+    line: 2,
+    row: 1,
+    round: 1,
+    text: "anchored prior thread keeps the server gate covered",
+    author: "human",
+    status: "unresolved",
+    unanchored: false,
+    replies: [],
+    anchor: { snippet: "After line", context_before: "", context_after: "" },
+  });
+  writeFileSync(join(REVIEW_DIR, "review.json"), JSON.stringify(reviewAfterSameRoundResubmit, null, 2));
+
   const blockedApprove = await request(
     port,
     "POST",
     "/exit",
     JSON.stringify({ summary: "try approve", decision: "approve", action: "final_approve", comments: [] }),
   );
-  assert.equal(blockedApprove.status, 409, "server must reject approve while unresolved comments remain");
+  assert.equal(blockedApprove.status, 409, "server must reject approve while an anchored prior review item remains unresolved");
+  assert.equal((await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "anchored-prior-gate" }))).status, 200);
+  const reviewBeforeSingleMissingResolve = readFileSync(join(REVIEW_DIR, "review.json"), "utf-8");
+  const singleMissingResolve = await request(port, "POST", "/resolve-comment", JSON.stringify({ id: "single-missing-round-id" }));
+  assert.equal(singleMissingResolve.status, 200, "a single-review missing resolve preserves the legacy 200 no-op");
+  assert.equal(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"), reviewBeforeSingleMissingResolve, "a single-review missing resolve leaves review persistence unchanged");
 
   // A round event reloads the tab. Keep the two real split-pane positions
   // through that navigation, then prove normal preview-to-source sync resumes.
@@ -1381,6 +1489,7 @@ async function main(): Promise<void> {
   const reloadBrowser = await chromium.launch({ headless: true });
   try {
     const reloadPage = await reloadBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(reloadPage);
     await reloadPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
     await reloadPage.waitForSelector(".md-left,.md-right", { timeout: 10_000 });
     const beforeReload = await reloadPage.evaluate(() => {
@@ -1445,6 +1554,7 @@ async function main(): Promise<void> {
   const resolvedBrowser = await chromium.launch({ headless: true });
   try {
     const resolvedPage = await resolvedBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(resolvedPage);
     await resolvedPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
     await resolvedPage.waitForSelector("#review-loop-panel", { timeout: 10000 });
     assert.equal(await resolvedPage.locator(".review-loop-inline").count(), 0, "resolved comments do not render inline");
@@ -1477,6 +1587,7 @@ async function main(): Promise<void> {
   const approvedBrowser = await chromium.launch({ headless: true });
   try {
     const approvedPage = await approvedBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(approvedPage);
     await approvedPage.goto(`http://127.0.0.1:${approvedReopenPort}/`, { waitUntil: "domcontentloaded" });
     await approvedPage.waitForSelector("#review-loop-panel .review-loop-details", { state: "attached" });
     // The verdict no longer gates the conversation: an approved review keeps
@@ -1576,12 +1687,13 @@ async function main(): Promise<void> {
   const emptyBrowser = await chromium.launch({ headless: true });
   try {
     const page = await emptyBrowser.newPage({ viewport: { width: 1280, height: 900 } });
+    await installEvaluateNamePolyfill(page);
     await page.goto(`http://127.0.0.1:${emptyPort}/`, { waitUntil: "domcontentloaded" });
     // An empty review still exposes the persistent global conversation entry
     // point, so the reviewer can start talking before any comment exists.
     await page.waitForSelector("#review-loop-panel .review-loop-details", { timeout: 10000 });
     assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 0, "an empty review keeps the conversation visible");
-    assert.equal(await page.locator("#review-loop-panel .review-loop-new-global .review-loop-reply-form:visible").count(), 1, "an empty review exposes the global chat reply form");
+    assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form:visible").count(), 1, "an empty review exposes the global chat reply form");
     assert.ok(
       await page.evaluate(() => document.querySelector("#review-loop-panel")!.getBoundingClientRect().width) > 64,
       "an empty review keeps a usable chat panel instead of an icon-only strip",

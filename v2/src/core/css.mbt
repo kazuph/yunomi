@@ -657,11 +657,11 @@ fn build_css() -> String {
     #|#review-loop-panel.review-loop-sidebar {
     #|  order: 4;
     #|  flex: 0 0 calc(var(--review-loop-sidebar-width) * 1.5);
-    #|  width: calc(var(--review-loop-sidebar-width) * 1.5);
-    #|  min-width: var(--review-loop-sidebar-width);
+    #|  width: min(calc(var(--review-loop-sidebar-width) * 1.5), calc(100vw - var(--review-loop-sidebar-offset) * 2));
+    #|  min-width: min(var(--review-loop-sidebar-width), calc(100vw - var(--review-loop-sidebar-offset) * 2));
     #|  max-width: calc(100vw - var(--review-loop-sidebar-offset) * 2);
-    #|  height: 60vh;
-    #|  max-height: 60vh;
+    #|  height: min(60vh, calc(100vh - var(--review-loop-sidebar-offset) * 2));
+    #|  max-height: calc(100vh - var(--review-loop-sidebar-offset) * 2);
     #|  position: fixed;
     #|  top: auto;
     #|  right: var(--review-loop-sidebar-offset);
@@ -676,6 +676,7 @@ fn build_css() -> String {
     #|  background: var(--panel-solid);
     #|  color: var(--text);
     #|  display: grid;
+    #|  grid-template-rows: minmax(0, 1fr);
     #|  gap: 8px;
     #|  box-shadow: var(--shadow-card);
     #|  transition: none;
@@ -685,9 +686,10 @@ fn build_css() -> String {
     #|   their own hit targets. */
     #|#review-loop-panel.review-loop-sidebar { pointer-events: none; }
     #|#review-loop-panel.review-loop-sidebar .review-loop-header,
-    #|#review-loop-panel.review-loop-sidebar .review-loop-conversation-stream,
+    #|#review-loop-panel.review-loop-sidebar .review-loop-conversation-message,
     #|#review-loop-panel.review-loop-sidebar .review-loop-reply-form,
     #|#review-loop-panel.review-loop-sidebar .review-loop-sidebar-toggle { pointer-events: auto; }
+    #|#review-loop-panel.review-loop-sidebar .review-loop-conversation-stream:has(.review-loop-conversation-message) { pointer-events: auto; }
     #|#review-loop-panel.review-loop-sidebar.review-loop-sidebar-collapsed {
     #|  flex-basis: 40px;
     #|  width: 40px;
@@ -703,7 +705,7 @@ fn build_css() -> String {
     #|  resize: none;
     #|  transition: none;
     #|}
-    #|.review-loop-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; }
+    #|.review-loop-details { display: flex; flex-direction: column; gap: 6px; height: 100%; min-height: 0; overflow: hidden; }
     #|/* Keep the tea icon and minimize toggle aligned at narrow widths. */
     #|.review-loop-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-height: 28px; font-size: 12px; font-weight: 700; }
     #|.review-loop-header-main { min-width: 0; font-size: 12px; white-space: nowrap; }
@@ -753,24 +755,16 @@ fn build_css() -> String {
     #|.review-loop-thread-line.is-human { margin-left: 16px; background: var(--accent-soft); }
     #|.review-loop-thread-line.is-agent { margin-right: 16px; }
     #|.review-loop-thread-line > p { margin: 0; font-size: inherit; line-height: 1.55; }
-    #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
+    #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
     #|.review-loop-conversation[hidden] { display: none; }
     #|.review-loop-conversation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-bottom: 5px; }
     #|.review-loop-conversation-head > strong { font-size: 12px; font-weight: 800; }
-    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; padding-bottom: 8px; overflow-y: auto; }
+    #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; }
     #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); }
     #|.review-loop-conversation-message.is-human { margin-left: 16px; background: var(--accent-soft); }
     #|.review-loop-conversation-message.is-agent { margin-right: 16px; }
     #|.review-loop-conversation-message > p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
     #|.review-loop-conversation-image { display: block; width: auto; max-width: 100%; max-height: 180px; margin-top: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
-    #|.review-loop-conversation.is-resolved .review-loop-conversation-stream { opacity: .76; }
-    #|.review-loop-new-global { display: grid; gap: 5px; min-width: 0; color: var(--text); font-size: 12px; }
-    #|.review-loop-new-global > strong { font-size: 12px; font-weight: 800; }
-    #|.review-loop-new-global .review-loop-reply-form { padding-top: 0; border-top: 0; }
-    #|.review-loop-resolved-details { color: var(--muted); }
-    #|.review-loop-resolved-details > summary { cursor: pointer; font-size: 12px; font-weight: 700; }
-    #|.review-loop-conversation-history { margin-top: 3px; padding-top: 8px; border-top: 1px solid var(--border); }
-    #|.review-loop-conversation-history .review-loop-conversation-stream { margin-top: 5px; }
     #|.review-loop-resolved-list, .review-loop-fallback-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
     #|.review-loop-resolved-list { margin-top: 8px; }
     #|.review-loop-fallback, .review-loop-resolved-item { display: grid; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }

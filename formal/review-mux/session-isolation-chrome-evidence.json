@@ -1,0 +1,30 @@
+{
+  "port": 4991,
+  "target": "formal/review-mux/REPORT.md",
+  "lockDir": "/var/folders/bd/xyns3lj10mz02ts4f1hb7f980000gn/T/yunomi-session-iso-locks-u2itip",
+  "screenshots": {
+    "empty": "/Users/kazuph/src/github.com/kazuph/yunomi/formal/review-mux/session-isolation-empty-chat.png",
+    "timeline": "/Users/kazuph/src/github.com/kazuph/yunomi/formal/review-mux/session-isolation-timeline.png",
+    "approve": "/Users/kazuph/src/github.com/kazuph/yunomi/formal/review-mux/session-isolation-approve-gate.png",
+    "full": "/Users/kazuph/src/github.com/kazuph/yunomi/formal/review-mux/session-isolation-full-ui.png"
+  },
+  "healthz": 200,
+  "files": [
+    "formal/review-mux/REPORT.md"
+  ],
+  "comment_count": 0,
+  "comment_ids": [],
+  "gate_unresolved_count": 0,
+  "foreign_hits": [],
+  "ui_has_chat": true,
+  "ui_has_new_conversation": false,
+  "ui_has_past_conversations": false,
+  "ui_has_resolve_conversation": false,
+  "ui_foreign_hits": [],
+  "ui_has_past_marker_text": false,
+  "timeline_message_count": 2,
+  "timeline_has_lifecycle": false,
+  "approve_enabled": true,
+  "pageErrors": [],
+  "result": "PASS"
+}

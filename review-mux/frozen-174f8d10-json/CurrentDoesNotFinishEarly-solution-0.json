@@ -1,0 +1,682 @@
+{
+  "duration":65,
+  "incremental":true,
+  "instances":[
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$CurrentDoesNotFinishEarly_i":{
+          "arity":1,
+          "data":[
+            [
+              "Input$0"
+            ]
+          ]
+        },
+        "$CurrentDoesNotFinishEarly_s":{
+          "arity":1,
+          "data":[
+            [
+              "CurrentState$1"
+            ]
+          ]
+        },
+        "$CurrentDoesNotFinishEarly_t":{
+          "arity":1,
+          "data":[
+            [
+              "CurrentState$0"
+            ]
+          ]
+        }
+      },
+      "state":0,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "Accepted$0":{
+          
+        },
+        "AllContexts$0":{
+          
+        },
+        "AnchoredUnresolved$0":{
+          
+        },
+        "Approve$0":{
+          
+        },
+        "AssetPath$0":{
+          
+        },
+        "BareAsset$0":{
+          
+        },
+        "BareStaticRequest$0":{
+          
+        },
+        "Browser$0":{
+          
+        },
+        "ByteRange$0":{
+          
+        },
+        "Cli$0":{
+          
+        },
+        "CliRoute$0":{
+          
+        },
+        "Collecting$0":{
+          
+        },
+        "CommentRoute$0":{
+          
+        },
+        "CurrentBareOther$0":{
+          
+        },
+        "CurrentBareSubmit$0":{
+          
+        },
+        "CurrentGateReject$0":{
+          
+        },
+        "CurrentGlobal$0":{
+          
+        },
+        "CurrentHtml$0":{
+          
+        },
+        "CurrentQueryApi$0":{
+          
+        },
+        "CurrentRoundDeliver$0":{
+          
+        },
+        "CurrentState$0":{
+          "cEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "cGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "cRetained":[
+            
+          ],
+          "cRoundReplies":[
+            [
+              "0"
+            ]
+          ],
+          "cReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "cStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSse":[
+            [
+              "Second$0"
+            ]
+          ],
+          "cPresent":[
+            [
+              "First$0"
+            ]
+          ],
+          "cLast":[
+            [
+              "Input$0"
+            ]
+          ],
+          "cFilePersisted":[
+            
+          ],
+          "cStaleAccepted":[
+            [
+              "Input$0"
+            ]
+          ],
+          "cResolvePersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cOutcome":[
+            [
+              "Accepted$0"
+            ]
+          ],
+          "cCount":[
+            [
+              "15"
+            ]
+          ],
+          "cGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "cRetainedResolvedRound":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cRoundPersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cRoundThread":[
+            [
+              "Resolved$0"
+            ]
+          ],
+          "cAudience":[
+            [
+              "AllContexts$0"
+            ]
+          ],
+          "cPhase":[
+            [
+              "Exited$0"
+            ]
+          ]
+        },
+        "CurrentState$1":{
+          "cEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "cGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "cRetained":[
+            
+          ],
+          "cRoundReplies":[
+            [
+              "0"
+            ]
+          ],
+          "cReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "cStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSse":[
+            [
+              "Second$0"
+            ]
+          ],
+          "cPresent":[
+            
+          ],
+          "cLast":[
+            
+          ],
+          "cFilePersisted":[
+            
+          ],
+          "cStaleAccepted":[
+            
+          ],
+          "cResolvePersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cOutcome":[
+            [
+              "Rejected409$0"
+            ]
+          ],
+          "cCount":[
+            [
+              "14"
+            ]
+          ],
+          "cGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "cRetainedResolvedRound":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cRoundPersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cRoundThread":[
+            [
+              "Resolved$0"
+            ]
+          ],
+          "cAudience":[
+            [
+              "AllContexts$0"
+            ]
+          ],
+          "cPhase":[
+            [
+              "Collecting$0"
+            ]
+          ]
+        },
+        "Exited$0":{
+          
+        },
+        "FileThread$0":{
+          
+        },
+        "First$0":{
+          
+        },
+        "FullStaticRequest$0":{
+          
+        },
+        "GateClear$0":{
+          
+        },
+        "GetMethod$0":{
+          
+        },
+        "Global$0":{
+          
+        },
+        "HeadMethod$0":{
+          
+        },
+        "HealthzRoute$0":{
+          
+        },
+        "HtmlRoute$0":{
+          
+        },
+        "Input$0":{
+          "actor":[
+            [
+              "Browser$0"
+            ]
+          ],
+          "owner":[
+            [
+              "Second$0"
+            ]
+          ],
+          "generation":[
+            [
+              "-16"
+            ]
+          ],
+          "mode":[
+            [
+              "Single$0"
+            ]
+          ],
+          "route":[
+            [
+              "SubmitRoute$0"
+            ]
+          ],
+          "file":[
+            [
+              "First$0"
+            ]
+          ],
+          "decision":[
+            [
+              "Approve$0"
+            ]
+          ],
+          "payload":[
+            [
+              "P2$0"
+            ]
+          ],
+          "scope":[
+            [
+              "FileThread$0"
+            ]
+          ],
+          "context":[
+            [
+              "Missing$0"
+            ]
+          ],
+          "gate":[
+            [
+              "UnanchoredOnly$0"
+            ]
+          ]
+        },
+        "Invalid$0":{
+          
+        },
+        "InvalidStaticRequest$0":{
+          
+        },
+        "Missing$0":{
+          
+        },
+        "MissingStaticRequest$0":{
+          
+        },
+        "Mux$0":{
+          
+        },
+        "NestedCssAsset$0":{
+          
+        },
+        "NestedStaticRequest$0":{
+          
+        },
+        "NoRange$0":{
+          
+        },
+        "NoThread$0":{
+          
+        },
+        "Nobody$0":{
+          
+        },
+        "NonMuxStaticRequest$0":{
+          
+        },
+        "NotFound404$0":{
+          
+        },
+        "NotPersisted$0":{
+          
+        },
+        "Open$0":{
+          
+        },
+        "OwnerOnly$0":{
+          
+        },
+        "P1$0":{
+          
+        },
+        "P2$0":{
+          
+        },
+        "Persisted$0":{
+          
+        },
+        "RangeStaticRequest$0":{
+          
+        },
+        "Rejected400$0":{
+          
+        },
+        "Rejected409$0":{
+          
+        },
+        "RepairedAcceptSubmit$0":{
+          
+        },
+        "RepairedContextReject$0":{
+          
+        },
+        "RepairedGlobal$0":{
+          
+        },
+        "RepairedHtml$0":{
+          
+        },
+        "RepairedOwnerReject$0":{
+          
+        },
+        "RepairedRetry$0":{
+          
+        },
+        "RepairedRoundDeliver$0":{
+          
+        },
+        "RepairedRoute$0":{
+          
+        },
+        "RepairedState$0":{
+          "rRoundReplies":[
+            [
+              "15"
+            ]
+          ],
+          "rFilePersisted":[
+            
+          ],
+          "rLast":[
+            
+          ],
+          "rReply":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "rRoundPersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "rGeneration":[
+            [
+              "15"
+            ]
+          ],
+          "rPhase":[
+            [
+              "RoundComplete$0"
+            ]
+          ],
+          "rResolvePersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "rOutcome":[
+            [
+              "Rejected400$0"
+            ]
+          ],
+          "rRetainedResolvedRound":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "rAudience":[
+            [
+              "OwnerOnly$0"
+            ]
+          ],
+          "rRawEffects":[
+            [
+              "15"
+            ]
+          ],
+          "rEffect":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rSelected":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rRoundThread":[
+            [
+              "Resolved$0"
+            ]
+          ],
+          "rGate":[
+            [
+              "First$0",
+              "UnanchoredOnly$0"
+            ],
+            [
+              "Second$0",
+              "UnanchoredOnly$0"
+            ]
+          ],
+          "rOwner":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "rLatest":[
+            
+          ],
+          "rEmitted":[
+            
+          ],
+          "rRetained":[
+            
+          ]
+        },
+        "RepairedSubmitReject$0":{
+          
+        },
+        "ReplyRoute$0":{
+          
+        },
+        "RequestChanges$0":{
+          
+        },
+        "ResolveRoute$0":{
+          
+        },
+        "Resolved$0":{
+          
+        },
+        "RoundComplete$0":{
+          
+        },
+        "RoundThread$0":{
+          
+        },
+        "Second$0":{
+          
+        },
+        "Single$0":{
+          
+        },
+        "SseRoute$0":{
+          
+        },
+        "StateRoute$0":{
+          
+        },
+        "Static200$0":{
+          
+        },
+        "Static206$0":{
+          
+        },
+        "Static400$0":{
+          
+        },
+        "Static403$0":{
+          
+        },
+        "StaticRoute$0":{
+          
+        },
+        "SubmitRoute$0":{
+          
+        },
+        "TraversalAsset$0":{
+          
+        },
+        "TraversalStaticRequest$0":{
+          
+        },
+        "UiJsRoute$0":{
+          
+        },
+        "UnanchoredOnly$0":{
+          
+        },
+        "ValidFirst$0":{
+          
+        },
+        "ValidSecond$0":{
+          
+        },
+        "WaitingGo$0":{
+          
+        }
+      }
+    }
+  ],
+  "localtime":"2026-08-11T14:09:17.206915",
+  "loopstate":-1,
+  "sigs":{
+    
+  },
+  "timezone":"Asia/Tokyo",
+  "utctime":1786424957206
+}

@@ -9,3 +9,4 @@ pkg.generated.mbti
 dist/
 scripts/_rec/
 .yunomi/
+.agent-work/

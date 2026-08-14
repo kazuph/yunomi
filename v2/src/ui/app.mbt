@@ -547,6 +547,7 @@ pub fn init_app() -> Unit {
   }
   setup_diff_enhancements_dom(get_yunomi_storage_scope())
   setup_vim_review_keyboard(get_yunomi_storage_scope())
+  preserve_fragment_navigation_context()
   // Setup scroll sync and preview click for markdown mode
   if mode == "markdown" {
     setup_scroll_sync()
@@ -604,7 +605,7 @@ fn load_review_loop_state() -> Unit {
     return
   }
   review_loop_state_loading.val = true
-  let url = location_origin() + "/review-state"
+  let url = yunomi_request_url("/review-state")
   fetch_get(url, fn(data) {
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
     restore_reload_scroll_state(reload_scroll_key())
@@ -650,7 +651,7 @@ fn send_decision_to_server(
   if line <= 0 {
     return
   }
-  let url = location_origin() + "/decision"
+  let url = yunomi_request_url("/decision")
   let checked_json = if checked { "true" } else { "false" }
   let body = "{\"file\":\"" +
     get_yunomi_filename() +
@@ -1204,7 +1205,7 @@ fn send_comment_to_server(
   if port <= 0 {
     return
   }
-  let url = location_origin() + "/comment"
+  let url = yunomi_request_url("/comment")
   let buf = StringBuilder::new()
   buf.write_string("{\"type\":")
   buf.write_string(json_encode_string(event_type))
@@ -1501,7 +1502,9 @@ fn build_review_payload() -> String {
   let summary_el = query("#global-comment")
   let summary = if is_null(summary_el) { "" } else { get_value(summary_el) }
   let buf = StringBuilder::new()
-  buf.write_string("{\"summary\":")
+  buf.write_string("{\"generation\":")
+  buf.write_string(get_yunomi_review_generation().to_string())
+  buf.write_string(",\"summary\":")
   buf.write_string(json_encode_string(summary))
   buf.write_string(",\"comments\":[")
   let first = Ref(true)
@@ -1584,7 +1587,7 @@ fn report_tab_closed(_port : Int) -> Unit {
     return
   }
   close_report_sent.val = true
-  let url = location_origin() + "/close"
+  let url = yunomi_request_url("/close")
   let payload = "{\"tabId\":" +
     json_encode_string(review_tab_id.val) +
     ",\"instanceId\":" +
@@ -1599,7 +1602,7 @@ fn report_tab_closed(_port : Int) -> Unit {
 fn setup_close_detection(port : Int) -> Unit {
   review_tab_id.val = get_or_create_tab_id()
   page_instance_id.val = create_page_instance_id()
-  let open_url = location_origin() + "/session/open"
+  let open_url = yunomi_request_url("/session/open")
   let open_payload = "{\"tabId\":" +
     json_encode_string(review_tab_id.val) +
     ",\"instanceId\":" +
@@ -1608,12 +1611,13 @@ fn setup_close_detection(port : Int) -> Unit {
   fetch_post_keepalive(open_url, open_payload)
   on_window("pagehide", fn(_e) { report_tab_closed(port) })
   on_window("beforeunload", fn(_e) { report_tab_closed(port) })
+  on_window("unload", fn(_e) { report_tab_closed(port) })
 }
 
 ///|
 fn submit_review(_port : Int) -> Unit {
   submit_in_flight.val = true
-  let url = location_origin() + "/exit"
+  let url = yunomi_request_url("/exit")
   fetch_post(url, build_review_payload(), fn(response) {
     if response.contains("unresolved_comments") {
       submit_in_flight.val = false
@@ -1840,7 +1844,7 @@ fn apply_live_comment_event(data : String) -> Unit {
 
 ///|
 fn setup_sse(_port : Int) -> Unit {
-  let url = location_origin() + "/sse"
+  let url = yunomi_request_url("/sse")
   if sse_server_instance.val == "" {
     sse_server_instance.val = get_yunomi_server_instance()
   }
@@ -2027,7 +2031,7 @@ fn toggle_history_panel() -> Unit {
 /// Load history data from server
 fn load_history_data() -> Unit {
   let _port = get_yunomi_port()
-  let url = location_origin() + "/history"
+  let url = yunomi_request_url("/history")
   fetch_get(url, fn(data) {
     let panel_body = query("#history-panel-body")
     if !is_null(panel_body) {
@@ -2621,7 +2625,7 @@ fn _setup_video_timeline(video_path : String) -> Unit {
     return
   }
   let _port = get_yunomi_port()
-  let url = location_origin() + "/video-timeline?path=" + video_path
+  let url = yunomi_request_url("/video-timeline?path=" + video_path)
   let es = new_event_source_url(url)
   sse_on_message(es, fn(data) {
     if data.contains("\"type\":\"thumbnail\"") {
@@ -4116,7 +4120,7 @@ fn send_answer_event_to_server(
   question : String,
   answer : String,
 ) -> Unit {
-  let url = location_origin() + "/comment"
+  let url = yunomi_request_url("/comment")
   let buf = StringBuilder::new()
   buf.write_string("{\"type\":\"answer\",\"id\":")
   buf.write_string(json_encode_string(id))

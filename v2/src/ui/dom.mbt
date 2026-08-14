@@ -434,6 +434,37 @@ extern "js" fn get_yunomi_server_instance() -> String =
   #|() => window.__YUNOMI_SERVER_INSTANCE__ || ""
 
 ///|
+extern "js" fn get_yunomi_review_generation() -> Int =
+  #|() => Number(window.__YUNOMI_REVIEW_GENERATION__ || 1)
+
+///|
+extern "js" fn yunomi_request_url(path : String) -> String =
+  #|(path) => {
+  #|  const context = String(window.__YUNOMI_REQUEST_CONTEXT__ || "");
+  #|  if (!context) return location.origin + path;
+  #|  const separator = path.includes("?") ? "&" : "?";
+  #|  return location.origin + path + (context.startsWith("?") ? separator + context.slice(1) : context);
+  #|}
+
+///|
+extern "js" fn preserve_fragment_navigation_context() -> Unit =
+  #|() => document.addEventListener("click", (event) => {
+  #|  const link = event.target?.closest?.("a[href]");
+  #|  const href = link?.getAttribute?.("href") || "";
+  #|  if (!href.startsWith("#")) return;
+  #|  event.preventDefault();
+  #|  const id = href.slice(1);
+  #|  const target = document.getElementById(id) || Array.from(document.querySelectorAll(".md-heading-toggle"))
+  #|    .find((heading) => {
+  #|      const key = String(heading.getAttribute("data-heading-key") || "");
+  #|      return key === id || key.startsWith(id + "-") || String(heading.textContent || "").trim().toLowerCase() === id.toLowerCase();
+  #|    });
+  #|  if (target && !target.id) target.id = id;
+  #|  location.hash = id;
+  #|  target?.scrollIntoView();
+  #|})
+
+///|
 extern "js" fn retire_if_stale_review_session(current : String) -> Bool =
   #|(current) => {
   #|  if (!current) return false;
@@ -812,7 +843,7 @@ extern "js" fn focus_durable_review_comment(
   #|    if (panel?.classList.contains("review-loop-sidebar-collapsed")) {
   #|      panel.querySelector(".review-loop-sidebar-toggle")?.click();
   #|    }
-  #|    const chat = panel?.querySelector(".review-loop-conversation, .review-loop-new-global");
+  #|    const chat = panel?.querySelector(".review-loop-conversation");
   #|    if (chat) {
   #|      chat.scrollIntoView({ block: "nearest" });
   #|      if (focusCard) {
@@ -835,13 +866,17 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const element = panel.querySelector(selector);
   #|    return element ? {
   #|      top: element.scrollTop,
-  #|      followsLatest: element.scrollTop + element.clientHeight >= element.scrollHeight,
+  #|      followsLatest: element.scrollHeight - (element.scrollTop + element.clientHeight) <= 2,
   #|    } : { top: 0, followsLatest: true };
   #|  };
   #|  const previousScroll = {
   #|    conversation: captureScroll(".review-loop-conversation-stream"),
   #|  };
   #|  const storageScope = String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current");
+  #|  const requestPath = (path) => {
+  #|    const context = String(window.__YUNOMI_REQUEST_CONTEXT__ || "");
+  #|    return context ? path + (path.includes("?") ? "&" : "?") + context.replace(/^\?/, "") : path;
+  #|  };
   #|  const replyDraftStorageKey = `yunomi:conversation-drafts:${storageScope}`;
   #|  let replyDrafts = {};
   #|  try { replyDrafts = JSON.parse(localStorage.getItem(replyDraftStorageKey) || "{}"); } catch (_) { replyDrafts = {}; }
@@ -853,6 +888,15 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      else localStorage.removeItem(replyDraftStorageKey);
   #|    } catch (_) {}
   #|  };
+  #|  panel.querySelectorAll(".review-loop-reply-form").forEach(form => {
+  #|    const editor = form.querySelector("textarea, input[type='text']");
+  #|    if (!editor) return;
+  #|    const endpoint = form.getAttribute("data-review-endpoint") || "/reply-comment";
+  #|    const threadId = form.getAttribute("data-review-comment-id") || "new";
+  #|    const globalChat = !!form.closest("#review-loop-panel") && !form.closest(".review-loop-inline");
+  #|    const draftKey = globalChat ? "global-timeline" : `${endpoint}:${threadId}`;
+  #|    saveReplyDraft(draftKey, String(editor.value || ""));
+  #|  });
   #|  const clearPanel = () => {
   #|    panel.innerHTML = "";
   #|  };
@@ -895,9 +939,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    expandTitle: "Expand sidebar",
   #|    reply: "Reply",
   #|    replyPlaceholder: "Reply to this conversation",
-  #|    newGlobalComment: "New conversation",
-  #|    newGlobalPlaceholder: "Start a new topic",
-  #|    create: "Create",
+  #|    messagePlaceholder: "Message",
   #|    attachImage: "Attach image",
   #|    removeImage: "Remove image",
   #|    attachedImage: "Attached image",
@@ -1021,7 +1063,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    root.querySelectorAll(".review-loop-resolve").forEach(btn => {
   #|      btn.addEventListener("click", (event) => {
   #|        event.stopPropagation();
-  #|        fetch("/resolve-comment", {
+  #|        fetch(requestPath("/resolve-comment"), {
   #|          method: "POST",
   #|          headers: { "Content-Type": "application/json" },
   #|          body: JSON.stringify({ id: btn.getAttribute("data-review-comment-id") || "" })
@@ -1034,9 +1076,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      const editor = form.querySelector("textarea, input[type='text']");
   #|      const picker = form.querySelector("input[type='file']");
   #|      const preview = form.querySelector(".review-loop-reply-preview");
-  #|      const endpoint = form.getAttribute("data-review-endpoint") || "/reply-comment";
+  #|      const endpoint = requestPath(form.getAttribute("data-review-endpoint") || "/reply-comment");
   #|      const threadId = form.getAttribute("data-review-comment-id") || "new";
-  #|      const draftKey = `${endpoint}:${threadId}`;
+  #|      const globalChat = !!form.closest("#review-loop-panel") && !form.closest(".review-loop-inline");
+  #|      const draftKey = globalChat ? "global-timeline" : `${endpoint}:${threadId}`;
   #|      if (editor) editor.value = String(replyDrafts[draftKey] || "");
   #|      editor?.addEventListener("input", () => saveReplyDraft(draftKey, String(editor.value || "")));
   #|      let image = "";
@@ -1201,20 +1244,20 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    return a.order - b.order;
   #|  });
   #|  placements.forEach(placement => insertInline(placement.target, placement.comment));
-  #|  const activeRoundThread = roundThreads[roundThreads.length - 1];
-  #|  const summaryHtml = activeRoundThread ? (() => {
-  #|    const replies = Array.isArray(activeRoundThread.replies) ? activeRoundThread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
-  #|    const messages = [{ author: "human", text: activeRoundThread.text, attachments: activeRoundThread.attachments || [] }].concat(replies).map(message => {
-  #|      const human = message.author === "human";
-  #|      const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
-  #|    }).join("");
-  #|    const replyForm = conversationForm(activeRoundThread.id, "/reply-comment", t.replyPlaceholder, t.reply);
-  #|    return `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread.id)}"><div class="review-loop-conversation-stream">${messages}</div>${replyForm}</section>`;
-  #|  })() : "";
-  #|  const createGlobalHtml = !activeRoundThread
-  #|    ? `<section class="review-loop-new-global"><strong>${esc(t.newGlobalComment)}</strong>${conversationForm("", "/create-global-comment", t.newGlobalPlaceholder, t.create)}</section>`
-  #|    : "";
+  #|  const timelineMessage = (message) => {
+  #|    const human = message.author === "human";
+  #|    const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
+  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
+  #|  };
+  #|  const timelineMessages = roundThreads.flatMap(thread => {
+  #|    const replies = Array.isArray(thread.replies) ? thread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
+  #|    return [{ author: "human", text: thread.text, attachments: thread.attachments || [] }].concat(replies);
+  #|  });
+  #|  const activeRoundThread = roundThreads.filter(thread => thread.status !== "resolved").at(-1);
+  #|  const replyForm = activeRoundThread
+  #|    ? conversationForm(activeRoundThread.id, "/reply-comment", t.messagePlaceholder, t.reply)
+  #|    : conversationForm("", "/create-global-comment", t.messagePlaceholder, t.reply);
+  #|  const summaryHtml = `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread ? activeRoundThread.id : "")}"><div class="review-loop-conversation-stream">${timelineMessages.map(timelineMessage).join("")}</div>${replyForm}</section>`;
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
   #|  // The chat remains available even before the first review message. Only an
   #|  // explicit minimize action may reduce it to the message-circle button.
@@ -1226,7 +1269,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const chatIcon = `<svg class="lucide lucide-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>`;
   #|  // Global conversation lives in the fixed bottom-right chat; anchored
   #|  // line comments stay beside the document text and never enter it.
-  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main" role="img" aria-label="Chat">${esc(t.header)}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}">${collapsed ? chatIcon : "−"}</button></div><div class="review-loop-body">${createGlobalHtml}${summaryHtml}</div></section>`;
+  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main" role="img" aria-label="Chat">${esc(t.header)}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}">${collapsed ? chatIcon : "−"}</button></div><div class="review-loop-body">${summaryHtml}</div></section>`;
   #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
   #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
   #|  }
@@ -2295,8 +2338,13 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|    });
   #|  };
   #|  applyViewed();
+  #|  const requestPath = (path) => {
+  #|    const context = String(window.__YUNOMI_REQUEST_CONTEXT__ || "");
+  #|    if (!context) return path;
+  #|    return path + (path.includes("?") ? "&" : "?") + context.replace(/^\?/, "");
+  #|  };
   #|  if (!window.__YUNOMI_SHARE_READONLY__) {
-  #|    fetch("/review-state").then((response) => response.json()).then((state) => {
+  #|    fetch(requestPath("/review-state")).then((response) => response.json()).then((state) => {
   #|      const persisted = state?.review?.viewed_files;
   #|      if (!persisted || typeof persisted !== "object" || Array.isArray(persisted)) return;
   #|      setViewed({ ...getViewed(), ...persisted });
@@ -2309,7 +2357,7 @@ extern "js" fn setup_diff_enhancements_dom(filename : String) -> Unit =
   #|      viewed[box.getAttribute("data-file") || ""] = !!box.checked;
   #|      setViewed(viewed);
   #|      if (!window.__YUNOMI_SHARE_READONLY__) {
-  #|        fetch("/review-viewed", {
+  #|        fetch(requestPath("/review-viewed"), {
   #|          method: "POST",
   #|          headers: { "Content-Type": "application/json" },
   #|          body: JSON.stringify(viewed),
@@ -2474,7 +2522,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    else if (event.key === "n") handled = jumpComment(1);
   #|    else if (event.key === "N") handled = jumpComment(-1);
   #|    else if (event.key === "r") {
-  #|      const resolve = document.querySelector(".review-loop-resolve");
+  #|      const resolve = document.querySelector(".review-loop-inline .review-loop-resolve");
   #|      if (resolve) {
   #|        resolve.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
   #|        handled = true;

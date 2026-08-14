@@ -1,0 +1,869 @@
+{
+  "duration":88,
+  "incremental":true,
+  "instances":[
+    {
+      "messages":[
+        
+      ],
+      "skolems":{
+        "$RepairedReversePriorityWitness_a":{
+          "arity":1,
+          "data":[
+            [
+              "Input$1"
+            ]
+          ]
+        },
+        "$RepairedReversePriorityWitness_b":{
+          "arity":1,
+          "data":[
+            [
+              "Input$0"
+            ]
+          ]
+        },
+        "$RepairedReversePriorityWitness_bDone":{
+          "arity":1,
+          "data":[
+            [
+              "RepairedState$3"
+            ]
+          ]
+        },
+        "$RepairedReversePriorityWitness_completeState":{
+          "arity":1,
+          "data":[
+            [
+              "RepairedState$2"
+            ]
+          ]
+        },
+        "$RepairedReversePriorityWitness_s":{
+          "arity":1,
+          "data":[
+            [
+              "RepairedState$1"
+            ]
+          ]
+        },
+        "$RepairedReversePriorityWitness_waitingState":{
+          "arity":1,
+          "data":[
+            [
+              "RepairedState$0"
+            ]
+          ]
+        }
+      },
+      "state":0,
+      "values":{
+        "0":{
+          
+        },
+        "1":{
+          
+        },
+        "2":{
+          
+        },
+        "3":{
+          
+        },
+        "Accepted$0":{
+          
+        },
+        "AllContexts$0":{
+          
+        },
+        "AnchoredUnresolved$0":{
+          
+        },
+        "Approve$0":{
+          
+        },
+        "AssetPath$0":{
+          
+        },
+        "BareAsset$0":{
+          
+        },
+        "BareStaticRequest$0":{
+          
+        },
+        "Browser$0":{
+          
+        },
+        "ByteRange$0":{
+          
+        },
+        "Cli$0":{
+          
+        },
+        "CliRoute$0":{
+          
+        },
+        "Collecting$0":{
+          
+        },
+        "CommentRoute$0":{
+          
+        },
+        "CurrentState$0":{
+          "cEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "cGeneration":[
+            [
+              "15"
+            ]
+          ],
+          "cRetained":[
+            
+          ],
+          "cReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "cStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "cSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "cPresent":[
+            
+          ],
+          "cLast":[
+            [
+              "Input$0"
+            ]
+          ],
+          "cFilePersisted":[
+            
+          ],
+          "cStaleAccepted":[
+            [
+              "Input$0"
+            ]
+          ],
+          "cResolvePersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cOutcome":[
+            [
+              "Rejected409$0"
+            ]
+          ],
+          "cCount":[
+            [
+              "15"
+            ]
+          ],
+          "cGate":[
+            [
+              "First$0",
+              "UnanchoredOnly$0"
+            ],
+            [
+              "Second$0",
+              "UnanchoredOnly$0"
+            ]
+          ],
+          "cRoundPersisted":[
+            [
+              "Persisted$0"
+            ]
+          ],
+          "cAudience":[
+            [
+              "AllContexts$0"
+            ]
+          ],
+          "cPhase":[
+            [
+              "Exited$0"
+            ]
+          ]
+        },
+        "Exited$0":{
+          
+        },
+        "FileThread$0":{
+          
+        },
+        "FileThreadBoundary$0":{
+          
+        },
+        "First$0":{
+          
+        },
+        "FullStaticRequest$0":{
+          
+        },
+        "GateClear$0":{
+          
+        },
+        "GetMethod$0":{
+          
+        },
+        "Global$0":{
+          
+        },
+        "HeadMethod$0":{
+          
+        },
+        "HealthzRoute$0":{
+          
+        },
+        "HtmlRoute$0":{
+          
+        },
+        "Input$0":{
+          "actor":[
+            [
+              "Browser$0"
+            ]
+          ],
+          "owner":[
+            [
+              "First$0"
+            ]
+          ],
+          "generation":[
+            [
+              "1"
+            ]
+          ],
+          "route":[
+            [
+              "SubmitRoute$0"
+            ]
+          ],
+          "file":[
+            [
+              "Second$0"
+            ]
+          ],
+          "decision":[
+            [
+              "Approve$0"
+            ]
+          ],
+          "payload":[
+            [
+              "P2$0"
+            ]
+          ],
+          "scope":[
+            [
+              "FileThread$0"
+            ]
+          ],
+          "context":[
+            [
+              "ValidSecond$0"
+            ]
+          ],
+          "gate":[
+            [
+              "GateClear$0"
+            ]
+          ]
+        },
+        "Input$1":{
+          "actor":[
+            [
+              "Cli$0"
+            ]
+          ],
+          "owner":[
+            [
+              "First$0"
+            ]
+          ],
+          "generation":[
+            [
+              "1"
+            ]
+          ],
+          "route":[
+            [
+              "SubmitRoute$0"
+            ]
+          ],
+          "file":[
+            [
+              "First$0"
+            ]
+          ],
+          "decision":[
+            [
+              "RequestChanges$0"
+            ]
+          ],
+          "payload":[
+            [
+              "P1$0"
+            ]
+          ],
+          "scope":[
+            [
+              "FileThread$0"
+            ]
+          ],
+          "context":[
+            [
+              "ValidFirst$0"
+            ]
+          ],
+          "gate":[
+            [
+              "UnanchoredOnly$0"
+            ]
+          ]
+        },
+        "Invalid$0":{
+          
+        },
+        "InvalidStaticRequest$0":{
+          
+        },
+        "Missing$0":{
+          
+        },
+        "MissingStaticRequest$0":{
+          
+        },
+        "Mux$0":{
+          
+        },
+        "NestedCssAsset$0":{
+          
+        },
+        "NestedStaticRequest$0":{
+          
+        },
+        "NoRange$0":{
+          
+        },
+        "Nobody$0":{
+          
+        },
+        "NonMux$0":{
+          
+        },
+        "NonMuxStaticRequest$0":{
+          
+        },
+        "NotFound404$0":{
+          
+        },
+        "NotPersisted$0":{
+          
+        },
+        "OwnerOnly$0":{
+          
+        },
+        "P1$0":{
+          
+        },
+        "P2$0":{
+          
+        },
+        "Persisted$0":{
+          
+        },
+        "RangeStaticRequest$0":{
+          
+        },
+        "Rejected400$0":{
+          
+        },
+        "Rejected409$0":{
+          
+        },
+        "RepairedState$0":{
+          "rFilePersisted":[
+            
+          ],
+          "rLast":[
+            
+          ],
+          "rReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "rRoundPersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "rPhase":[
+            [
+              "WaitingGo$0"
+            ]
+          ],
+          "rResolvePersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rOutcome":[
+            [
+              "Accepted$0"
+            ]
+          ],
+          "rAudience":[
+            [
+              "Nobody$0"
+            ]
+          ],
+          "rRawEffects":[
+            [
+              "2"
+            ]
+          ],
+          "rEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "rGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "rOwner":[
+            [
+              "First$0"
+            ]
+          ],
+          "rStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "rLatest":[
+            [
+              "First$0",
+              "Input$1"
+            ],
+            [
+              "Second$0",
+              "Input$0"
+            ]
+          ],
+          "rEmitted":[
+            [
+              "1"
+            ]
+          ],
+          "rRetained":[
+            
+          ]
+        },
+        "RepairedState$1":{
+          "rFilePersisted":[
+            
+          ],
+          "rLast":[
+            
+          ],
+          "rReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "rRoundPersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "rPhase":[
+            [
+              "Collecting$0"
+            ]
+          ],
+          "rResolvePersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rOutcome":[
+            [
+              "Accepted$0"
+            ]
+          ],
+          "rAudience":[
+            [
+              "Nobody$0"
+            ]
+          ],
+          "rRawEffects":[
+            [
+              "0"
+            ]
+          ],
+          "rEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "rGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "rOwner":[
+            [
+              "First$0"
+            ]
+          ],
+          "rStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "rLatest":[
+            
+          ],
+          "rEmitted":[
+            
+          ],
+          "rRetained":[
+            
+          ]
+        },
+        "RepairedState$2":{
+          "rFilePersisted":[
+            
+          ],
+          "rLast":[
+            [
+              "Input$1"
+            ]
+          ],
+          "rReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "rRoundPersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "rPhase":[
+            [
+              "RoundComplete$0"
+            ]
+          ],
+          "rResolvePersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rOutcome":[
+            [
+              "Accepted$0"
+            ]
+          ],
+          "rAudience":[
+            [
+              "Nobody$0"
+            ]
+          ],
+          "rRawEffects":[
+            [
+              "2"
+            ]
+          ],
+          "rEffect":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSelected":[
+            [
+              "First$0"
+            ]
+          ],
+          "rGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "rOwner":[
+            [
+              "First$0"
+            ]
+          ],
+          "rStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "rLatest":[
+            [
+              "First$0",
+              "Input$1"
+            ],
+            [
+              "Second$0",
+              "Input$0"
+            ]
+          ],
+          "rEmitted":[
+            [
+              "1"
+            ]
+          ],
+          "rRetained":[
+            
+          ]
+        },
+        "RepairedState$3":{
+          "rFilePersisted":[
+            
+          ],
+          "rLast":[
+            [
+              "Input$0"
+            ]
+          ],
+          "rReply":[
+            [
+              "First$0"
+            ]
+          ],
+          "rSse":[
+            [
+              "First$0"
+            ]
+          ],
+          "rRoundPersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rGeneration":[
+            [
+              "1"
+            ]
+          ],
+          "rPhase":[
+            [
+              "Collecting$0"
+            ]
+          ],
+          "rResolvePersisted":[
+            [
+              "NotPersisted$0"
+            ]
+          ],
+          "rOutcome":[
+            [
+              "Accepted$0"
+            ]
+          ],
+          "rAudience":[
+            [
+              "Nobody$0"
+            ]
+          ],
+          "rRawEffects":[
+            [
+              "1"
+            ]
+          ],
+          "rEffect":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rSelected":[
+            [
+              "Second$0"
+            ]
+          ],
+          "rGate":[
+            [
+              "First$0",
+              "GateClear$0"
+            ],
+            [
+              "Second$0",
+              "GateClear$0"
+            ]
+          ],
+          "rOwner":[
+            [
+              "First$0"
+            ]
+          ],
+          "rStatic":[
+            [
+              "First$0"
+            ]
+          ],
+          "rLatest":[
+            [
+              "Second$0",
+              "Input$0"
+            ]
+          ],
+          "rEmitted":[
+            
+          ],
+          "rRetained":[
+            
+          ]
+        },
+        "ReplyRoute$0":{
+          
+        },
+        "RequestChanges$0":{
+          
+        },
+        "ResolveRoute$0":{
+          
+        },
+        "RoundComplete$0":{
+          
+        },
+        "RoundThread$0":{
+          
+        },
+        "RoundThreadBoundary$0":{
+          
+        },
+        "Second$0":{
+          
+        },
+        "SseRoute$0":{
+          
+        },
+        "StateRoute$0":{
+          
+        },
+        "Static200$0":{
+          
+        },
+        "Static206$0":{
+          
+        },
+        "Static400$0":{
+          
+        },
+        "Static403$0":{
+          
+        },
+        "StaticRoute$0":{
+          
+        },
+        "SubmitRoute$0":{
+          
+        },
+        "TraversalAsset$0":{
+          
+        },
+        "TraversalStaticRequest$0":{
+          
+        },
+        "UiJsRoute$0":{
+          
+        },
+        "UnanchoredOnly$0":{
+          
+        },
+        "ValidFirst$0":{
+          
+        },
+        "ValidSecond$0":{
+          
+        },
+        "WaitingGo$0":{
+          
+        }
+      }
+    }
+  ],
+  "localtime":"2026-08-11T11:32:32.302707",
+  "loopstate":-1,
+  "sigs":{
+    
+  },
+  "timezone":"Asia/Tokyo",
+  "utctime":1786415552302
+}
