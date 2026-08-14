@@ -9,21 +9,21 @@
     "goal_objective": "Finish review-mux implementation and hash-consistent Lean/Alloy/Quint/drift/product/build/real-Chrome evidence without Alloy-only downgrade, commit, push, or global install."
   },
   "working_tree": {
-    "base_commit": "f1d04cb97080dec9a1263935cdf4a79624a29b2a",
-    "dirty": true,
-    "commit_created": false,
-    "external_publication": false,
-    "note": "Exact SHA-256 values identify the verified uncommitted sources; unrelated contributor changes were preserved. Origin remains 6 commits behind; no merge/rebase/reset/stash."
+    "base_commit": "853847721f2967db60859a4adf148f1d8da14621",
+    "dirty": false,
+    "commit_created": true,
+    "external_publication": true,
+    "note": "Exact SHA-256 values identify the verified source snapshot rebased onto origin/main v2.4.8 and pushed as feature commits; internal .agent-work notes remain ignored."
   },
   "source_hashes_sha256": {
     "quint_current": "593f0dc3236f710b4b98868174dcf40bf6c2e4c7fd666870761253c1841872b6",
     "quint_repaired": "0647449d904d6a29dbe10e1b16ac53f85c7a5ccca2fac26d875111b8a267dc74",
     "lean": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd",
-    "alloy": "fe3b620a99a0767c25ea0f06a56bcf5c774a3a730cd6dd3f81d4bcea9119a4a4",
-    "drift_checker": "f8eee9a2b3c8acbabbb98d171d12bf919a9e7fbadfd02fccc6182ae6ca5d9b4c",
+    "alloy": "ee5d256aba1e155a96e0c83fa256c171c7f3441f896cae4ade92935fed366555",
+    "drift_checker": "c4846f7a421c2110b3c64870890679806d609ae8c29b49c061ea35291dadef43",
     "formal_mapping": "5aa3d89d0a596ba68c70ea97128e722ecc939b653a6355abd191f72511a04e5b",
-    "server_main": "ad280f7b169a47463eee77f47f33db77223f92bc330ee9f89a39f266b842467c",
-    "server_ffi": "a7c0af27786ac054e48105f3559f61bf9a42140a1831b457804b2d773599b99b",
+    "server_main": "3c560127aecd0557e994573a780572943d1bcfa1ce05cb6b134c084733ff57f2",
+    "server_ffi": "ffcfac98fecdf1deb46ab303eab3e6c49bb8ef5f21739cff1717cb46ebc762b1",
     "ui_app": "f4c2be067f1db64c9523e56c46ced1c2b97e94b63eb7c8ac6bd5f0190b0a9002",
     "ui_dom": "50479a54936dfc77956d1e4b40f16705cfacbb30464145af546289039cf729c9",
     "ui_css": "fc4d276be1e5704eb84a0a548400ba9a37219ea9e028b2ae175bc23168bbfb79",
@@ -42,8 +42,8 @@
     "session_isolation_full_ui": "1695ed25bc3775f33f297ae27e3fc8f21e5289a0011f0250cb6cdbf338a8a63d",
     "live_session_timeline_4990": "221ec04960b56d7a65ded76beb1197fb89142938abd8a72b19db9de230377335",
     "session_cli_resolution_contract": "4fffc9b7ecaf76f4ef918ab7ffc7568bb24e75946aff094a110fa56a42e16b2e",
-    "dist_server_js": "c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3",
-    "release_server_js_body": "d438b4d3984059e216c735f4f4379e9b46dbc507841eb656e9f671dab2ba2d3b"
+    "dist_server_js": "51f4182ea3b25c7a44db494aa687d3aed235d2c1d2fe6b3eabaf7e377668aeb2",
+    "release_server_js_body": "7196c1cd6d056f413df7f3bacdaf023e926b02f7bc4560b9ecb5864f70317661"
   },
   "scope": {
     "formal_domain": "two files; browser and CLI actors; eleven routes; Single and Mux modes; five context classes; generations 1..4 as typed inputs; two payload identities and decisions; file and round threads; NoThread/Open/Resolved lifecycle; Collecting/RoundComplete/WaitingGo/Exited phases; retry, replacement, resolve, go, persistence, audience, emission, and process-exit effects",
@@ -109,10 +109,13 @@
       "explicit_gap": "Random broad exploration did not reach generation 3 or 4; generation 3/4 are covered independently by Alloy SAT witnesses, Lean bounded closure, and product generation-four E2E."
     },
     "alloy": {
-      "job": "job-1786608070961-3357-259",
+      "job": "job-1786686094909-3357-556",
       "inner_EXIT": 0,
       "artifacts": 39,
-      "receipt_dir": "review-mux/frozen-finish-json"
+      "source_sha256": "ee5d256aba1e155a96e0c83fa256c171c7f3441f896cae4ade92935fed366555",
+      "output": "temporary isolated directory",
+      "retained_prior_receipt_dir": "review-mux/frozen-finish-json",
+      "superseded_job": "job-1786608070961-3357-259"
     },
     "lean": {
       "job": "job-1786615043191-3357-342",
@@ -133,14 +136,11 @@
       "status": "GREEN"
     },
     "semantic_drift": {
-      "green": {"job": "job-1786619286613-3357-389", "inner_EXIT": 0, "lean_hash": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd", "server_hash": "67ffbf738fc4dc4d674ce6e1113a9c48346e26ca31749916e3e499ace0987e77", "ffi_hash": "31d79cf49a07bcefac9401ec3234b66dc90b79cdd7817b136707e6ac8ba42680", "note": "Lean source unchanged after CLI cwd resolver; product server/ffi hashes below are the CLI follow-up freeze"},
+      "green": {"job": "job-1786686015765-3357-554", "inner_EXIT": 0, "lean_hash": "66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd", "alloy_hash": "ee5d256aba1e155a96e0c83fa256c171c7f3441f896cae4ade92935fed366555", "server_hash": "3c560127aecd0557e994573a780572943d1bcfa1ce05cb6b134c084733ff57f2", "ffi_hash": "ffcfac98fecdf1deb46ab303eab3e6c49bb8ef5f21739cff1717cb46ebc762b1", "checker_hash": "c4846f7a421c2110b3c64870890679806d609ae8c29b49c061ea35291dadef43", "note": "Post-rebase GREEN after replacing stale pre-timeline UI expectations with the accepted single-timeline contract."},
       "intentional_red": [
-        {"job": "job-1786608232468-3357-260", "mode": "--break-semantic", "inner_EXIT": 1, "expected_RED": true},
-        {"job": "job-1786608232509-3357-261", "mode": "--break-lifecycle", "inner_EXIT": 1, "expected_RED": true},
-        {"job": "job-1786608232572-3357-262", "mode": "--break-reply", "inner_EXIT": 1, "expected_RED": true},
-        {"job": "job-1786608232641-3357-263", "mode": "--break-round-resolve", "inner_EXIT": 1, "expected_RED": true}
+        {"job": "job-1786686045520-3357-555", "modes": ["--break-semantic", "--break-reply-latch", "--break-round-resolve-latch", "--break-round-create-latch"], "inner_EXIT_each": 1, "expected_RED": true}
       ],
-      "intentional_red_note": "Checker source hash unchanged from the 4.5 RED runs; those RED jobs printed a superseded Lean hash in the JSON blob but failed on injected semantic breaks, not on hash mismatch."
+      "superseded_green": "job-1786619286613-3357-389"
     }
   },
   "product_evidence": {
@@ -150,11 +150,11 @@
     "v2_release_build": {"job": "job-1786618449987-3357-375", "inner_EXIT": 0, "note": "rebuild after session identity; timeline prepack is 469"},
     "session_isolation_red": {"job": "job-1786618823995-3357-380", "inner_EXIT": 1, "binary": "dist/server/server.js", "result": "same-branch different file leaked FOREIGN-FIRST-ROUND-THREAD"},
     "session_isolation_green": {"job": "job-1786630842434-3357-459", "exit_code": 0, "result": "review session isolation contract passed"},
-    "root_npm_test": {"job": "job-1786631600244-3357-469", "exit_code": 0, "moonbit": "190/190", "note": "full root npm test after timeline UI; includes review_loop, review_session_isolation.ts, review_session_cli_resolution.ts"},
+    "root_npm_test": {"job": "job-1786685928249-3357-551", "exit_code": 0, "moonbit": "191/191", "note": "Post-rebase full root npm test; preserves upstream md_hash_nospace_hang and includes review_loop, review_session_isolation.ts, review_session_cli_resolution.ts. Supersedes acceptance-time job 469."},
     "session_cli_resolution_red_green": {"job": "job-1786628418380-3357-436", "exit_code": 0, "old_binary": "global yunomi 2.4.8 bb301af40d0e7ddcda56e8bdd8a040f7a72545ad7c74ce2ef66261983b3ec3d3", "result": "old CLI misses unique live leftover; new binary replies and notifies unique live; unique stored id; collision; multiple live; resolved/missing"},
     "session_cli_resolution_e2e": {"job": "job-1786630843651-3357-460", "exit_code": 0, "result": "review session CLI resolution contract passed"},
     "vim_keys": {"job": "job-1786630844686-3357-461", "exit_code": 0, "note": "r resolves only .review-loop-inline .review-loop-resolve"},
-    "prepack": {"job": "job-1786631600244-3357-469", "exit_code": 0, "dist_sha256": "c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3", "release_body_sha256": "d438b4d3984059e216c735f4f4379e9b46dbc507841eb656e9f671dab2ba2d3b", "superseded_prepack": "job-1786629226496-3357-442"},
+    "prepack": {"job": "job-1786686455452-3357-560", "exit_code": 0, "dist_sha256": "51f4182ea3b25c7a44db494aa687d3aed235d2c1d2fe6b3eabaf7e377668aeb2", "release_body_sha256": "7196c1cd6d056f413df7f3bacdaf023e926b02f7bc4560b9ecb5864f70317661", "superseded_prepack": "job-1786631600244-3357-469"},
     "real_chrome": {
       "job": "job-1786616351939-3357-362",
       "inner_EXIT": 0,

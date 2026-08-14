@@ -6,7 +6,7 @@
 
 review muxの文脈ずれ、重複提出による早期終了、世代混在、round会話の所有/SSE/resolve、unanchored履歴のapprove gate混入を、Lean+Alloy+Quint+製品テスト+実Chromeで閉じました。Alloy-onlyへは落としていません。
 
-Grok 4.6が4.5 dirty treeを保持したまま完了基準を満たしました。その後のRequest Changes（ImageGen説明図、実Chrome画像、branch名だけのsession混在、live sessionへのcwd CLI reply欠落、右下チャットのスレッドライフサイクルUI）も同じtreeで閉じました。現在は再承認待ちです。commit / push / release / deploy / global installはしていません。legacy `.yunomi/reviews/main/review.json` と session `sessions/8bf72cf4a27da2d6afe3304eeb6b8300ec894892d18e449bf1bdff2ba5bd680e/` は削除していません。managerが旧 live `job-1786621926909-3357-427` を履歴削除なしで停止し、prepack dist `c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3` をPATH固定して同じsession identity・port 4990・`--notify-pane p499` で `job-1786632477101-3357-470` を起動しました。現行受入serverは470です。
+Grok 4.6が4.5 dirty treeを保持したまま完了基準を満たしました。その後のRequest Changes（ImageGen説明図、実Chrome画像、branch名だけのsession混在、live sessionへのcwd CLI reply欠落、右下チャットのスレッドライフサイクルUI）も同じtreeで閉じ、ユーザー承認後にorigin/main v2.4.8へrebaseしました。legacy `.yunomi/reviews/main/review.json` と session `sessions/8bf72cf4a27da2d6afe3304eeb6b8300ec894892d18e449bf1bdff2ba5bd680e/` は削除していません。受入時はmanagerが旧 live `job-1786621926909-3357-427` を履歴削除なしで停止し、prepack dist `c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3` をPATH固定して同じsession identity・port 4990・`--notify-pane p499` で `job-1786632477101-3357-470` を起動しました。
 
 ## Why: 修正前に何が壊れていたか
 
@@ -122,7 +122,7 @@ ImageGen図 `review-session-isolation-explainer.png` は保持しています。
 - CLI resolution e2e GREEN: `job-1786630843651-3357-460` exit 0。
 - vim keys GREEN: `job-1786630844686-3357-461` exit 0（`r` は inline Resolve）。
 - headed Chrome dogfood GREEN: `job-1786631130172-3357-465` exit 0。temp `YUNOMI_REVIEW_DIR`。comments 0、New/Past/Resolve conversation なし、timeline 2 messages、Approve enabled。port 4991。当時の 427 は未使用。
-- ルート `npm test` + prepack GREEN: `job-1786631600244-3357-469` exit 0。MoonBit 190/190。`dist/server/server.js` shebang込み `c103ad64f856443b5fa19426cc1044db152437f3ca99365657768a718840b2a3`、body と `v2/_build/js/release/build/server/server.js` はともに `d438b4d3984059e216c735f4f4379e9b46dbc507841eb656e9f671dab2ba2d3b`。
+- 受入時のルート `npm test` + prepack GREEN: `job-1786631600244-3357-469` exit 0。MoonBit 190/190。実Chrome job 470はこの時点のdist `c103ad64...` を使用しました。
 
 ### 現行live 470の実Chrome受入
 
@@ -150,7 +150,8 @@ managerが旧 427 を履歴削除なしで停止し、prepack dist `c103ad64f856
 - v2 release build GREEN: `job-1786616161711-3357-360` inner EXIT 0。session identity後のrebuildは `job-1786618449987-3357-375` inner EXIT 0。タイムライン後の prepack は `job-1786631600244-3357-469`。
 - session isolation RED: `job-1786618823995-3357-380` inner EXIT 1。旧 `dist/server/server.js` は同じbranchの別fileへ `FOREIGN-FIRST-ROUND-THREAD` をリークし、`conversation_open` で新規round会話を拒否しました。
 - session isolation GREEN: `job-1786618822491-3357-379` inner EXIT 0。API/UI隔離、basename別dir、mux順序、worktree、Request Changes→go保持、複数live時のgo fail-closed、disk保全。
-- ルート`npm test` GREEN: `job-1786631600244-3357-469` exit 0。MoonBit 190/190、isolation / CLI resolution / タイムライン review_loop を含む test:v2 全通。旧 437 は CLI follow-up時点。
+- rebase後のルート`npm test` GREEN: `job-1786685928249-3357-551` exit 0。MoonBit 191/191、upstreamの `md_hash_nospace_hang` とisolation / CLI resolution / タイムライン review_loopを含む全スイートが通過しました。
+- rebase後のprepack GREEN: `job-1786686455452-3357-560` exit 0。`dist/server/server.js` は `51f4182ea3b25c7a44db494aa687d3aed235d2c1d2fe6b3eabaf7e377668aeb2`、shebangを除いたbodyとrelease buildは `7196c1cd6d056f413df7f3bacdaf023e926b02f7bc4560b9ecb5864f70317661` で一致しました。
 
 ### Quint
 
@@ -161,13 +162,13 @@ managerが旧 427 を履歴削除なしで停止し、prepack dist `c103ad64f856
 
 ### Alloy
 
-- `job-1786608070961-3357-259` inner EXIT 0、artifacts 39、`review-mux/frozen-finish-json`。
+- rebase後の現行source: `job-1786686094909-3357-556` inner EXIT 0、artifacts 39、SHA256 `ee5d256aba1e155a96e0c83fa256c171c7f3441f896cae4ade92935fed366555`。出力は隔離した一時directoryを使用し、旧receipt `review-mux/frozen-finish-json` と旧job 259は削除せずsuperseded扱いです。
 
 ### Leanとsemantic drift
 
 - Lean full source GREEN: `job-1786615043191-3357-342` inner EXIT 0、154.35s、SHA256 `66d0f1953e1348e144d82eef65e19c08fe3c0e5f53ab7ef166b6f271e9e64bbd`。
-- drift GREEN（現行lean hash）: `job-1786619286613-3357-389` inner EXIT 0。lean `66d0f195...` 不変。CLI follow-upで server/ffi hashは更新（main `ad280f7b...`、ffi `a7c0af27...`）。session identityとcwd CLI解決は形式モデル外の製品境界で、Lean/Alloy/Quint sourceは再実行不要です。
-- 意図的drift RED: `job-1786608232468-3357-260` ほか3本、checker hash不変、inner EXIT 1。
+- rebase後のdrift GREEN: `job-1786686015765-3357-554` inner EXIT 0。Lean `66d0f195...`、Alloy `ee5d256a...`、server main `3c560127...`、ffi `ffcfac98...`、checker `c4846f7a...`。受入済みの単一タイムライン契約へcheckerを同期しました。
+- 意図的drift RED: `job-1786686045520-3357-555`。`--break-semantic`、reply latch、round resolve latch、round create latchの4注入がすべてinner EXIT 1です。
 
 ### 実Chromeドッグフード
 
