@@ -1490,7 +1490,11 @@ async function main(): Promise<void> {
   try {
     const reloadPage = await reloadBrowser.newPage({ viewport: { width: 1280, height: 900 } });
     await installEvaluateNamePolyfill(reloadPage);
+    const sseConnected = reloadPage.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/sse" && response.status() === 200
+    );
     await reloadPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await sseConnected;
     await reloadPage.waitForSelector(".md-left,.md-right", { timeout: 10_000 });
     const beforeReload = await reloadPage.evaluate(() => {
       const preview = document.querySelector<HTMLElement>(".md-left")!;
