@@ -14,6 +14,7 @@ struct ServerContext {
   mut decision_source_change_pending : Bool
   is_loop : Bool
   notify_pane : String
+  notify_tmux_pane : String
 }
 
 ///|
@@ -27,10 +28,6 @@ let encoding_override : Ref[String] = Ref("")
 ///|
 /// Host address to bind to (default: 127.0.0.1)
 let bind_host : Ref[String] = Ref("127.0.0.1")
-
-///|
-/// Optional pane to notify when human decisions are made in the preview.
-let notify_pane_id : Ref[String] = Ref("")
 
 ///|
 /// Results collected from submissions
@@ -60,6 +57,9 @@ let loop_mode : Ref[Bool] = Ref(false)
 let notify_pane_arg : Ref[String] = Ref("")
 
 ///|
+let notify_tmux_pane_arg : Ref[String] = Ref("")
+
+///|
 let review_mux_mode : Ref[Bool] = Ref(false)
 
 ///|
@@ -83,6 +83,17 @@ fn resolve_notify_pane() -> String {
 }
 
 ///|
+fn resolve_notify_tmux_pane() -> String {
+  if notify_tmux_pane_arg.val.length() > 0 {
+    notify_tmux_pane_arg.val
+  } else if resolve_notify_pane().length() == 0 {
+    get_env_var("TMUX_PANE")
+  } else {
+    ""
+  }
+}
+
+///|
 fn review_url(ctx : ServerContext) -> String {
   let host = if bind_host.val == "0.0.0.0" {
     "127.0.0.1"
@@ -94,7 +105,7 @@ fn review_url(ctx : ServerContext) -> String {
 
 ///|
 fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
-  let err = send_notify_message(ctx.notify_pane, msg)
+  let err = send_notify_message(ctx.notify_pane, ctx.notify_tmux_pane, msg)
   if err.length() > 0 {
     console_error("[yunomi] notify failed: " + err)
   }
@@ -528,7 +539,11 @@ fn main {
       i = i + 1
       if i < args.length() {
         notify_pane_arg.val = args[i]
-        notify_pane_id.val = args[i]
+      }
+    } else if arg == "--notify-tmux-pane" {
+      i = i + 1
+      if i < args.length() {
+        notify_tmux_pane_arg.val = args[i]
       }
     } else if arg == "--port" {
       i = i + 1
@@ -561,9 +576,6 @@ fn main {
   if reply_mode {
     handle_reply_command(reply_id, reply_text)
     return
-  }
-  if notify_pane_id.val.length() == 0 {
-    notify_pane_id.val = get_env_var("HERDR_PANE_ID")
   }
   // Interactive terminal with no files: the reader is almost always an
   // AI agent told "run npx yunomi". Serve the skill document before any
@@ -921,6 +933,7 @@ fn print_usage() -> Unit {
     #|  --no-vim          Disable Vim-style review keybindings
     #|  --loop            Keep serving after request_changes; exit only on approve
     #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
+    #|  --notify-tmux-pane id  Send live comments/verdicts to a tmux pane
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -1461,15 +1474,15 @@ fn print_skill_doc_text() -> String {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Resolve and validate the notification route at runtime. Try Herdr first,
-    #|   but do not exit until the tmux route has also been evaluated:
+    #|3. Resolve and validate the notification route at runtime. Prefer Herdr;
+    #|   otherwise use the current tmux pane:
     #|
     #|   ```bash
     #|   if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')" &&
     #|      herdr pane get "$PANE_ID" >/dev/null 2>&1; then
     #|     YUNOMI_ROUTE=herdr
-    #|   elif [ -n "$TMUX" ] && [ -n "$YUNOMI_NOTIFY_CMD" ]; then
-    #|     TMUX_PANE_ID="$(tmux display-message -p '#{pane_id}')" || exit 1
+    #|   elif [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ]; then
+    #|     TMUX_PANE_ID="$TMUX_PANE"
     #|     test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = \
     #|       "$TMUX_PANE_ID" || exit 1
     #|     YUNOMI_ROUTE=tmux
@@ -1495,23 +1508,20 @@ fn print_skill_doc_text() -> String {
     #|   ```
     #|
     #|   If `YUNOMI_ROUTE=tmux`, run this child command with the runtime's
-    #|   managed background facility instead; do not add `--notify-pane`:
+    #|   managed background facility instead:
     #|
     #|   ```bash
-    #|   YUNOMI_NOTIFY_CMD="$YUNOMI_NOTIFY_CMD" npx yunomi REPORT.md --loop
+    #|   npx yunomi REPORT.md --loop --notify-tmux-pane "$TMUX_PANE_ID"
     #|   ```
     #|
     #|   Never start a writable review without a proven notification route,
     #|   with a guessed pane, or after route validation fails. Fail closed
     #|   instead. Do not run `open` after launch; yunomi opens the browser itself.
     #|
-    #|   `--notify-pane` is Herdr-only. Never pass a tmux `%pane` id to it.
-    #|   In a pure tmux environment, start a writable review with `--loop` only
-    #|   when a preconfigured `YUNOMI_NOTIFY_CMD` adapter has already been proven
-    #|   to queue a test message safely to the current agent. The route-selection
-    #|   block above validates its tmux pane. Do not invent an inline
-    #|   `tmux send-keys` fallback. Fail closed if
-    #|   delivery is unproven.
+    #|   `--notify-pane` is Herdr-only and `--notify-tmux-pane` is tmux-only.
+    #|   Yunomi validates the exact target and uses the selected runtime's own
+    #|   command to submit each comment, verdict, decision, and close event.
+    #|   Fail closed if delivery is unproven.
     #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
     #|   Read `.yunomi/reviews/<branch>/review.json`, fix every unresolved
@@ -1585,8 +1595,8 @@ fn print_skill_doc_text() -> String {
     #|
     #|The instant the human presses it, yunomi (a) rewrites the source
     #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
-    #|agent through `herdr agent send` when a Herdr pane is available, or
-    #|`YUNOMI_NOTIFY_CMD` when it is configured, and (c) records the decision
+    #|agent through the installed Herdr's `agent prompt` or `agent send`
+    #|contract, or through `tmux send-keys`, and (c) records the decision
     #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
     #|or multiple-choice direction, implementation agreement, and a pre-release
     #|checklist without waiting for Submit.
@@ -1674,7 +1684,7 @@ fn print_skill_doc_text() -> String {
     #|
     #|```bash
     #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--port n] [--host addr] [--no-open] [-e encoding]
-    #|YUNOMI_NOTIFY_CMD=<preconfigured-verified-adapter> yunomi <file...> --loop
+    #|yunomi <file...> --loop --notify-tmux-pane <proven-tmux-pane-id>
     #|yunomi go              # start the next round for this branch
     #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
     #|yunomi comment <file:line> <text> [--author <name>]
@@ -1703,7 +1713,7 @@ fn print_skill_doc_text() -> String {
     #|  Serve finished work to the human as a browsable report for interactive
     #|  review and approval. Writable reviews must use --loop and a
     #|  runtime-validated notification route. Fail closed when neither Herdr nor
-    #|  a preverified tmux adapter is proven. yunomi share is the read-only exception.
+    #|  a validated tmux pane is proven. yunomi share is the read-only exception.
     #|---
     #|```
     #|
@@ -1713,7 +1723,7 @@ fn print_skill_doc_text() -> String {
     #|
     #|From then on, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
     #|after resolving and validating a Herdr pane. In pure tmux, use `--loop`
-    #|only with the preconfigured, delivery-proven adapter described above.
+    #|with `--notify-tmux-pane "$TMUX_PANE_ID"` after validating that pane.
     #|Use `npx yunomi go` after each fix round.
   doc
 }
@@ -2115,6 +2125,7 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_tmux_pane: resolve_notify_tmux_pane(),
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -2177,6 +2188,7 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_tmux_pane: resolve_notify_tmux_pane(),
   }
 }
 
@@ -3454,48 +3466,13 @@ fn notify_decision(
     quote_line +
     "\nurl=" +
     decision_url(ctx)
-  let custom_cmd = get_env_var("YUNOMI_NOTIFY_CMD")
-  if custom_cmd.length() > 0 {
-    let command = replace_notify_placeholder(custom_cmd, msg)
-    let result = spawn_sync_shell_status(command)
-    if result.0 != 0 {
-      let detail = js_trim_string(result.1)
-      let reason = if detail.length() > 0 {
-        detail
-      } else {
-        "exit " + result.0.to_string()
-      }
-      console_error("yunomi decision: notify command failed: " + reason)
-    }
-    return
-  }
-  if notify_pane_id.val.length() == 0 {
-    return
-  }
-  let herdr = resolve_command("herdr")
-  if herdr.length() == 0 {
-    console_error("yunomi decision: notify failed: herdr command not found")
-    return
-  }
-  let result = spawn_sync_status_args(herdr, [
-    "agent",
-    "send",
-    notify_pane_id.val,
+  let err = send_notify_message(
+    ctx.notify_pane,
+    ctx.notify_tmux_pane,
     msg,
-  ])
-  if result.0 != 0 {
-    let detail = js_trim_string(result.1)
-    let reason = if detail.length() > 0 {
-      detail
-    } else {
-      "exit " + result.0.to_string()
-    }
-    console_error(
-      "yunomi decision: notify failed for pane " +
-      notify_pane_id.val +
-      ": " +
-      reason,
-    )
+  )
+  if err.length() > 0 {
+    console_error("yunomi decision: notify failed: " + err)
   }
 }
 

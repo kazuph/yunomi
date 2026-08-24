@@ -3610,7 +3610,55 @@ fn spawn_sync_status(cmd : String, args : Array[String]) -> String {
 }
 
 ///|
-fn send_notify_message(notify_pane : String, msg : String) -> String {
+fn send_herdr_notification(notify_pane : String, msg : String) -> String {
+  let herdr = resolve_command("herdr")
+  if herdr.length() == 0 {
+    return "herdr command not found"
+  }
+  let prompt_help = spawn_sync_result_args(herdr, ["agent", "prompt", "--help"])
+  if prompt_help.0 == 0 {
+    spawn_sync_status(herdr, ["agent", "prompt", notify_pane, msg])
+  } else {
+    let help = spawn_sync_result_args(herdr, ["agent", "help"])
+    let contract = help.1 + "\n" + help.2
+    if contract.contains("herdr agent send ") {
+      spawn_sync_status(herdr, ["agent", "send", notify_pane, msg])
+    } else {
+      "installed herdr exposes neither agent prompt nor agent send"
+    }
+  }
+}
+
+///|
+fn send_tmux_notification(notify_pane : String, msg : String) -> String {
+  let tmux = resolve_command("tmux")
+  if tmux.length() == 0 {
+    return "tmux command not found"
+  }
+  let resolved = spawn_sync_result_args(tmux, [
+    "display-message", "-p", "-t", notify_pane, "#{pane_id}",
+  ])
+  if resolved.0 != 0 {
+    return tmux + " target validation failed: " + resolved.2
+  }
+  if resolved.1.trim().to_owned() != notify_pane {
+    return "tmux target resolved to a different pane"
+  }
+  let write = spawn_sync_status(tmux, [
+    "send-keys", "-t", notify_pane, "-l", msg,
+  ])
+  if write.length() > 0 {
+    return write
+  }
+  spawn_sync_status(tmux, ["send-keys", "-t", notify_pane, "Enter"])
+}
+
+///|
+fn send_notify_message(
+  notify_pane : String,
+  notify_tmux_pane : String,
+  msg : String,
+) -> String {
   let custom = get_env_var("YUNOMI_NOTIFY_CMD")
   if custom.length() > 0 {
     let parts = split_notify_command(custom, msg)
@@ -3623,10 +3671,20 @@ fn send_notify_message(notify_pane : String, msg : String) -> String {
     }
     return spawn_sync_status(parts[0], args)
   }
-  if notify_pane.length() == 0 {
-    return ""
+  let errors : Array[String] = []
+  if notify_pane.length() > 0 {
+    let err = send_herdr_notification(notify_pane, msg)
+    if err.length() > 0 {
+      errors.push(err)
+    }
   }
-  spawn_sync_status("herdr", ["agent", "send", notify_pane, msg])
+  if notify_tmux_pane.length() > 0 {
+    let err = send_tmux_notification(notify_tmux_pane, msg)
+    if err.length() > 0 {
+      errors.push(err)
+    }
+  }
+  errors.join("; ")
 }
 
 ///|
@@ -3653,20 +3711,6 @@ fn spawn_sync_result_args(
 }
 
 ///|
-fn spawn_sync_shell_status(cmd : String) -> (Int, String) {
-  let result = child_spawn_sync(
-    cmd,
-    js_array_from_strings([]),
-    js_spawn_opts_shell_utf8(),
-  )
-  (js_obj_status(result), js_obj_stderr(result))
-}
-
-///|
-extern "js" fn js_spawn_opts_shell_utf8() -> JsValue =
-  #|() => ({ encoding: "utf8", shell: true, stdio: ["ignore", "pipe", "pipe"] })
-
-///|
 /// Pick the single source line a comment points at. Element comments carry a
 /// "<rendered text> | source: <markdown source>" composite, so the source half
 /// wins when present.
@@ -3684,13 +3728,6 @@ extern "js" fn js_quote_from_candidates(
   #|    if (quote) return quote;
   #|  }
   #|  return "";
-  #|}
-
-///|
-extern "js" fn replace_notify_placeholder(cmd : String, msg : String) -> String =
-  #|(cmd, msg) => {
-  #|  const quoted = "'" + String(msg).replace(/'/g, "'\\''") + "'";
-  #|  return String(cmd).includes("{msg}") ? String(cmd).replaceAll("{msg}", quoted) : String(cmd) + " " + quoted;
   #|}
 
 ///|

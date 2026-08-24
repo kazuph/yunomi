@@ -1,6 +1,6 @@
 {
   "name": "yunomi",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "yunomi 🍵 — Human-in-the-loop approval gate for AI coding workflows. The AI serves its report; you review and approve. (formerly reviw)",
   "type": "module",
   "bin": {
@@ -10,7 +10,7 @@
     "dist/"
   ],
   "scripts": {
-    "test": "npm run test:external-links && npm run test:inline-comments && npm run test:rc2 && npm run test:v2 && npm run test:review-mux",
+    "test": "env HERDR_PANE_ID= TMUX_PANE= YUNOMI_NOTIFY_CMD= bash -c 'npm run test:external-links && npm run test:inline-comments && npm run test:rc2 && npm run test:v2 && npm run test:review-mux'",
     "test:external-links": "cd v2 && moon build --target js --release && node --experimental-strip-types e2e/external_links.ts",
     "test:inline-comments": "cd v2 && moon build --target js --release && node --experimental-strip-types e2e/inline_comments.ts",
     "test:rc2": "cd v2 && node --experimental-strip-types e2e/complex_markdown_showcase.ts && node --experimental-strip-types e2e/inline_comment_modes_layout.ts",
