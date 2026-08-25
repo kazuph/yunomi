@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A browser reload, back/forward navigation, or address-bar re-entry no longer sends `[yunomi] tab closed` to the launching agent: the server waits 1.5 s after a close beacon and drops the notification when the same tab re-registers.
+- Herdr delivery no longer probes the non-existent `herdr agent prompt` subcommand on every event; the installed Herdr's contract is resolved once per process and only `herdr agent send` (present upstream and in the kazuph fork) is used.
+
+### Added
+
+- `--notify-room <room>` (or `YUNOMI_NOTIFY_ROOM`) delivers every comment, verdict, decision, and close event as durable mail through `herdr send <pane> <text> --room <room>` on a Herdr that exposes that contract; yunomi refuses to start with exit 1 when the installed Herdr lacks it.
+- The generated skill document resolves the Herdr pane from `HERDR_PANE_ID` first (upstream exports `p_N`) and only falls back to the fork-only `herdr pane current`.
+
 ## v2.4.2 - 2026-08-05
 
 ### Fixed
