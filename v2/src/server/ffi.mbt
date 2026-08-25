@@ -3610,22 +3610,58 @@ fn spawn_sync_status(cmd : String, args : Array[String]) -> String {
 }
 
 ///|
-fn send_herdr_notification(notify_pane : String, msg : String) -> String {
-  let herdr = resolve_command("herdr")
-  if herdr.length() == 0 {
-    return "herdr command not found"
+/// Herdr delivery contract, resolved once per process from the installed
+/// binary's own help text. Upstream ogulcancelik/herdr and the kazuph fork
+/// both expose `herdr agent send <target> <text>` (text + Enter into the
+/// target pane); only the fork additionally exposes the durable mailbox
+/// `herdr send <to> <text> --room R`. Values: "" (unresolved), "agent-send",
+/// "send-room", or "unsupported:<reason>".
+let herdr_notify_contract : Ref[String] = Ref("")
+
+///|
+fn resolve_herdr_notify_contract(want_room : Bool) -> String {
+  if herdr_notify_contract.val.length() > 0 {
+    return herdr_notify_contract.val
   }
-  let prompt_help = spawn_sync_result_args(herdr, ["agent", "prompt", "--help"])
-  if prompt_help.0 == 0 {
-    spawn_sync_status(herdr, ["agent", "prompt", notify_pane, msg])
+  let herdr = resolve_command("herdr")
+  let resolved = if herdr.length() == 0 {
+    "unsupported:herdr command not found"
+  } else if want_room {
+    let help = spawn_sync_result_args(herdr, ["send", "--help"])
+    let contract = help.1 + "\n" + help.2
+    if contract.contains("herdr send <to> <text>") && contract.contains("--room") {
+      "send-room"
+    } else {
+      "unsupported:installed herdr does not expose `herdr send <to> <text> --room`; drop --notify-room or install a Herdr with the durable mailbox"
+    }
   } else {
     let help = spawn_sync_result_args(herdr, ["agent", "help"])
     let contract = help.1 + "\n" + help.2
     if contract.contains("herdr agent send ") {
-      spawn_sync_status(herdr, ["agent", "send", notify_pane, msg])
+      "agent-send"
     } else {
-      "installed herdr exposes neither agent prompt nor agent send"
+      "unsupported:installed herdr does not expose `herdr agent send <target> <text>`"
     }
+  }
+  herdr_notify_contract.val = resolved
+  resolved
+}
+
+///|
+fn send_herdr_notification(
+  notify_pane : String,
+  notify_room : String,
+  msg : String,
+) -> String {
+  let contract = resolve_herdr_notify_contract(notify_room.length() > 0)
+  if contract.has_prefix("unsupported:") {
+    return contract.substring(start="unsupported:".length())
+  }
+  let herdr = resolve_command("herdr")
+  if contract == "send-room" {
+    spawn_sync_status(herdr, ["send", notify_pane, msg, "--room", notify_room])
+  } else {
+    spawn_sync_status(herdr, ["agent", "send", notify_pane, msg])
   }
 }
 
@@ -3657,6 +3693,7 @@ fn send_tmux_notification(notify_pane : String, msg : String) -> String {
 fn send_notify_message(
   notify_pane : String,
   notify_tmux_pane : String,
+  notify_room : String,
   msg : String,
 ) -> String {
   let custom = get_env_var("YUNOMI_NOTIFY_CMD")
@@ -3673,7 +3710,7 @@ fn send_notify_message(
   }
   let errors : Array[String] = []
   if notify_pane.length() > 0 {
-    let err = send_herdr_notification(notify_pane, msg)
+    let err = send_herdr_notification(notify_pane, notify_room, msg)
     if err.length() > 0 {
       errors.push(err)
     }

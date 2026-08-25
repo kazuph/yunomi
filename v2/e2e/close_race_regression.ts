@@ -452,8 +452,13 @@ async function scenarioTabCloseWaitsForExplicitSubmit(
     await page.locator("#recovery-restore").click();
     const restored = await page.locator('.question-card[data-qid="q-freetext"] .q-answer').inputValue();
     assert(restored === ABANDONED_TEXT, "close前の下書きは再訪時に復元できる", { restored });
-    const closeBtn = page.locator("#yunomi-questions-close");
-    if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click();
+    // The questions overlay intercepts pointer events while it is visible;
+    // dismiss it and wait for it to actually hide before pressing Submit.
+    const overlay = page.locator("#yunomi-questions-overlay");
+    if (await overlay.evaluate((el) => el.classList.contains("visible")).catch(() => false)) {
+      await page.locator("#yunomi-questions-close").click();
+      await page.waitForSelector("#yunomi-questions-overlay.visible", { state: "hidden", timeout: 5000 });
+    }
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
     const exitPromise = waitForExit(proc);

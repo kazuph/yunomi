@@ -183,6 +183,29 @@ try {
     { retiredAfterRequestChanges, closeCount },
   );
   await stop(loop);
+
+  // --- 4. reload / navigation is not a close; a real close still notifies once ---
+  writeFileSync(NOTIFY_LOG, "");
+  const reloadServer = await startServer(docB, true);
+  const reloader = await browser.newPage();
+  await reloader.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await reloader.waitForTimeout(300);
+  await reloader.reload({ waitUntil: "domcontentloaded" });
+  await reloader.waitForTimeout(300);
+  await reloader.reload({ waitUntil: "domcontentloaded" });
+  await reloader.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await reloader.waitForTimeout(2500);
+  const afterReloads = readFileSync(NOTIFY_LOG, "utf8");
+  assert(
+    !/tab closed/.test(afterReloads),
+    "リロード・再ナビゲーションでは tab closed 通知を送らない（猶予窓内の再登録で取り消す）",
+    { afterReloads },
+  );
+  await reloader.goto("about:blank");
+  const closedForReal = await waitForNotification(/\[yunomi\] tab closed b\.md tab=.* active=0/);
+  const realCloseCount = (closedForReal.match(/\[yunomi\] tab closed b\.md/g) || []).length;
+  assert(realCloseCount === 1, "本当にタブを閉じた時だけ tab closed 通知を1回送る", { closedForReal });
+  await stop(reloadServer);
 } finally {
   await browser.close();
   rmSync(WORK_DIR, { recursive: true, force: true });

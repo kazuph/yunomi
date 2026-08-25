@@ -1069,7 +1069,14 @@ async function main(): Promise<void> {
       },
       "collapsed chat has one 40px button frame without an outer border, shadow, or scrollbar",
     );
-    const layoutAfterMinimize = await layoutWidths();
+    // The collapse animates; poll until the preview settles back to its
+    // pre-minimize width (or the deadline passes) before asserting.
+    let layoutAfterMinimize = await layoutWidths();
+    for (let attempt = 0; attempt < 40 && layoutAfterMinimize.preview?.width !== layoutBeforeMinimize.preview?.width; attempt++) {
+      await page.waitForTimeout(50);
+      await settleLayout();
+      layoutAfterMinimize = await layoutWidths();
+    }
     assert.equal(
       layoutAfterMinimize.preview?.width,
       layoutBeforeMinimize.preview?.width,

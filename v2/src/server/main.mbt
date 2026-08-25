@@ -15,6 +15,10 @@ struct ServerContext {
   is_loop : Bool
   notify_pane : String
   notify_tmux_pane : String
+  notify_room : String
+  /// tab_id -> sequence of the close whose notification is still in its grace window
+  pending_close_notify : Map[String, Int]
+  mut close_notify_seq : Int
 }
 
 ///|
@@ -58,6 +62,26 @@ let notify_pane_arg : Ref[String] = Ref("")
 
 ///|
 let notify_tmux_pane_arg : Ref[String] = Ref("")
+
+///|
+let notify_room_arg : Ref[String] = Ref("")
+
+///|
+/// Grace window between a browser "close" beacon and the notification sent to
+/// the launching agent. A reload, back/forward navigation, or address-bar
+/// re-entry fires pagehide exactly like a real close and then re-registers the
+/// same tab via /session/open within milliseconds; only a close that is not
+/// followed by a reopen inside this window is reported.
+let close_notify_grace_ms : Int = 1500
+
+///|
+fn resolve_notify_room() -> String {
+  if notify_room_arg.val.length() > 0 {
+    notify_room_arg.val
+  } else {
+    get_env_var("YUNOMI_NOTIFY_ROOM")
+  }
+}
 
 ///|
 let review_mux_mode : Ref[Bool] = Ref(false)
@@ -105,7 +129,12 @@ fn review_url(ctx : ServerContext) -> String {
 
 ///|
 fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
-  let err = send_notify_message(ctx.notify_pane, ctx.notify_tmux_pane, msg)
+  let err = send_notify_message(
+    ctx.notify_pane,
+    ctx.notify_tmux_pane,
+    ctx.notify_room,
+    msg,
+  )
   if err.length() > 0 {
     console_error("[yunomi] notify failed: " + err)
   }
@@ -545,6 +574,11 @@ fn main {
       if i < args.length() {
         notify_tmux_pane_arg.val = args[i]
       }
+    } else if arg == "--notify-room" {
+      i = i + 1
+      if i < args.length() {
+        notify_room_arg.val = args[i]
+      }
     } else if arg == "--port" {
       i = i + 1
       if i < args.length() {
@@ -583,6 +617,21 @@ fn main {
   if files.is_empty() && is_stdin_tty() {
     print_skill_doc()
     exit_process("no args on tty", 0)
+  }
+  // --notify-room needs the durable mailbox contract; prove it before any
+  // server or browser tab exists so a missing contract fails closed here.
+  if resolve_notify_room().length() > 0 {
+    if resolve_notify_pane().length() == 0 {
+      console_error("[yunomi] --notify-room requires --notify-pane (or HERDR_PANE_ID)")
+      exit_process("notify-room without herdr pane", 1)
+    }
+    let contract = resolve_herdr_notify_contract(true)
+    if contract.has_prefix("unsupported:") {
+      console_error(
+        "[yunomi] " + contract.substring(start="unsupported:".length()),
+      )
+      exit_process("notify-room contract unsupported", 1)
+    }
   }
   server_instance_id.val = gen_instance_id()
   // Initialize live log for real-time comment IPC
@@ -934,6 +983,7 @@ fn print_usage() -> Unit {
     #|  --loop            Keep serving after request_changes; exit only on approve
     #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
     #|  --notify-tmux-pane id  Send live comments/verdicts to a tmux pane
+    #|  --notify-room name  Deliver Herdr notifications as durable mail (herdr send --room)
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -1475,11 +1525,15 @@ fn print_skill_doc_text() -> String {
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
     #|3. Resolve and validate the notification route at runtime. Prefer Herdr;
-    #|   otherwise use the current tmux pane:
+    #|   otherwise use the current tmux pane. `HERDR_PANE_ID` is the
+    #|   authoritative pane identity on every Herdr (upstream exports `p_N`,
+    #|   the kazuph fork accepts `p_N`, `pN`, and `%N`); `herdr pane current`
+    #|   is a fork-only fallback for shells that lost the variable:
     #|
     #|   ```bash
-    #|   if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')" &&
-    #|      herdr pane get "$PANE_ID" >/dev/null 2>&1; then
+    #|   PANE_ID="$HERDR_PANE_ID"
+    #|   [ -n "$PANE_ID" ] || PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"
+    #|   if [ -n "$PANE_ID" ] && herdr pane get "$PANE_ID" >/dev/null 2>&1; then
     #|     YUNOMI_ROUTE=herdr
     #|   elif [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ]; then
     #|     TMUX_PANE_ID="$TMUX_PANE"
@@ -1521,6 +1575,13 @@ fn print_skill_doc_text() -> String {
     #|   `--notify-pane` is Herdr-only and `--notify-tmux-pane` is tmux-only.
     #|   Yunomi validates the exact target and uses the selected runtime's own
     #|   command to submit each comment, verdict, decision, and close event.
+    #|   On Herdr the common contract is `herdr agent send <pane> <text>`
+    #|   (present upstream and in the fork). Add `--notify-room <room>` only on
+    #|   a Herdr that exposes the durable mailbox `herdr send <to> <text> --room`;
+    #|   yunomi then queues every event as mail instead of typing into the
+    #|   pane, and refuses to start if that contract is missing.
+    #|   A browser reload or navigation is not a close: yunomi waits 1.5 s and
+    #|   only reports `tab closed` when the tab did not re-register.
     #|   Fail closed if delivery is unproven.
     #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
@@ -1595,8 +1656,9 @@ fn print_skill_doc_text() -> String {
     #|
     #|The instant the human presses it, yunomi (a) rewrites the source
     #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
-    #|agent through the installed Herdr's `agent prompt` or `agent send`
-    #|contract, or through `tmux send-keys`, and (c) records the decision
+    #|agent through the installed Herdr's `agent send` contract (or
+    #|`herdr send --room` when `--notify-room` is set), or through
+    #|`tmux send-keys`, and (c) records the decision
     #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
     #|or multiple-choice direction, implementation agreement, and a pre-release
     #|checklist without waiting for Submit.
@@ -1683,7 +1745,7 @@ fn print_skill_doc_text() -> String {
     #|## CLI reference
     #|
     #|```bash
-    #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--notify-room <room>] [--port n] [--host addr] [--no-open] [-e encoding]
     #|yunomi <file...> --loop --notify-tmux-pane <proven-tmux-pane-id>
     #|yunomi go              # start the next round for this branch
     #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
@@ -2126,6 +2188,9 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
+    notify_room: resolve_notify_room(),
+    pending_close_notify: {},
+    close_notify_seq: 0,
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -2189,6 +2254,9 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
+    notify_room: resolve_notify_room(),
+    pending_close_notify: {},
+    close_notify_seq: 0,
   }
 }
 
@@ -3469,6 +3537,7 @@ fn notify_decision(
   let err = send_notify_message(
     ctx.notify_pane,
     ctx.notify_tmux_pane,
+    ctx.notify_room,
     msg,
   )
   if err.length() > 0 {
@@ -3994,8 +4063,58 @@ fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
   }
   add_active_tab(ctx, tab_id)
   ctx.active_tab_instances.set(tab_id, instance_id)
+  if ctx.pending_close_notify.contains(tab_id) {
+    ignore(ctx.pending_close_notify.remove(tab_id))
+    log_session_event(
+      "reopen within grace cancels close notify file=\{ctx.filename} tab=\{tab_id}",
+    )
+  }
   log_session_event(
     "open file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()}",
+  )
+}
+
+///|
+/// Defer the "tab closed" notification by `close_notify_grace_ms`. If the same
+/// tab re-registers (reload / navigation) before the window elapses, the
+/// pending entry is dropped by handle_session_open and nothing is sent.
+fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
+  ctx.close_notify_seq = ctx.close_notify_seq + 1
+  let seq = ctx.close_notify_seq
+  ctx.pending_close_notify.set(tab_id, seq)
+  ignore(
+    set_timeout(
+      fn() {
+        match ctx.pending_close_notify.get(tab_id) {
+          Some(pending) if pending == seq => {
+            ignore(ctx.pending_close_notify.remove(tab_id))
+            if ctx.finished || has_active_tab(ctx, tab_id) {
+              log_session_event(
+                "close notify skipped file=\{ctx.filename} tab=\{tab_id} finished=\{ctx.finished}",
+              )
+              return
+            }
+            log_session_event(
+              "close notify file=\{ctx.filename} tab=\{tab_id} active=\{ctx.active_tabs.length()}",
+            )
+            notify_reviewer(
+              ctx,
+              "[yunomi] tab closed " +
+              ctx.filename +
+              " tab=" +
+              tab_id +
+              " active=" +
+              ctx.active_tabs.length().to_string(),
+            )
+          }
+          _ =>
+            log_session_event(
+              "close notify superseded file=\{ctx.filename} tab=\{tab_id}",
+            )
+        }
+      },
+      close_notify_grace_ms,
+    ),
   )
 }
 
@@ -4032,15 +4151,7 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   log_session_event(
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
-  notify_reviewer(
-    ctx,
-    "[yunomi] tab closed " +
-    ctx.filename +
-    " tab=" +
-    tab_id +
-    " active=" +
-    ctx.active_tabs.length().to_string(),
-  )
+  schedule_close_notify(ctx, tab_id)
   // Closing or navigating away only unregisters the tab. The browser has
   // already persisted this draft to localStorage; only an explicit /exit
   // request from the Submit Review dialog may finalize or stop the server.
