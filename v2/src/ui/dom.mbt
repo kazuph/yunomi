@@ -675,6 +675,10 @@ extern "js" fn window_close() -> Unit =
   #|() => window.close()
 
 ///|
+extern "js" fn window_print() -> Unit =
+  #|() => window.print()
+
+///|
 /// Location origin (e.g. "http://127.0.0.1:4989")
 extern "js" fn location_origin() -> String =
   #|() => location.origin

@@ -255,6 +255,23 @@ test "markdown html: has view-toggle button" {
 }
 
 ///|
+test "markdown html: has print action" {
+  let md : MarkdownData = {
+    source: "text",
+    html: "<p>text</p>",
+    frontmatter: {},
+    questions: [],
+  }
+  let html = build_markdown_html(md, "test.md", 4989)
+  debug_inspect(
+    html.contains("id=\"print-report\""),
+    content=(
+      #|true
+    ),
+  )
+}
+
+///|
 test "markdown html: has recovery modal" {
   // Recovery modal for localStorage restore on page reload
   let md : MarkdownData = {

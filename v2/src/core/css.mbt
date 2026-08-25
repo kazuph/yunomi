@@ -3091,5 +3091,52 @@ fn build_css() -> String {
     #|  .history-panel { width: 100vw; }
     #|  body.history-open header { right: 0; }
     #|}
+    #|@page { margin: 14mm; }
+    #|@media print {
+    #|  html, body {
+    #|    height: auto !important;
+    #|    overflow: visible !important;
+    #|    background: #fff !important;
+    #|    color: #111 !important;
+    #|    color-scheme: light;
+    #|  }
+    #|  body { display: block !important; }
+    #|  header,
+    #|  .md-right,
+    #|  .media-sidebar,
+    #|  .media-sidebar-toggle,
+    #|  .comment-list,
+    #|  #review-loop-panel,
+    #|  .modal-overlay,
+    #|  .fullscreen-overlay,
+    #|  .yunomi-comment-button,
+    #|  .yunomi-inline-comment,
+    #|  .review-loop-inline,
+    #|  .copy-toast,
+    #|  .history-panel,
+    #|  .review-file-switcher { display: none !important; }
+    #|  .wrap,
+    #|  .md-layout,
+    #|  .md-left {
+    #|    display: block !important;
+    #|    height: auto !important;
+    #|    min-height: 0 !important;
+    #|    max-height: none !important;
+    #|    overflow: visible !important;
+    #|  }
+    #|  .wrap { padding: 0 !important; }
+    #|  .md-preview {
+    #|    background: #fff !important;
+    #|    color: #111 !important;
+    #|    border: 0 !important;
+    #|    border-radius: 0 !important;
+    #|    box-shadow: none !important;
+    #|    margin: 0 !important;
+    #|    padding: 0 !important;
+    #|  }
+    #|  .md-preview :is(h1, h2, h3, h4, h5, h6, p, li, td, th, blockquote, pre, code) { color: #111 !important; }
+    #|  .md-preview img, .md-preview video, .md-preview svg { max-width: 100% !important; height: auto !important; }
+    #|  .md-preview tr, .md-preview pre, .md-preview blockquote, .md-preview figure { break-inside: avoid; }
+    #|}
   css
 }

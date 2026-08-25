@@ -526,6 +526,10 @@ pub fn init_app() -> Unit {
   }
   // Setup view toggle (cli.cjs L7232-7270: preview-only panel state)
   init_view_toggle()
+  let print_report = query("#print-report")
+  if !is_null(print_report) {
+    on(print_report, "click", fn(_e) { window_print() })
+  }
   // Setup pill-comments (comment list toggle)
   let pill_comments = query("#pill-comments")
   if !is_null(pill_comments) {

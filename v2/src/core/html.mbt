@@ -96,6 +96,9 @@ pub let icon_svg_code : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 
 pub let icon_svg_clock : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"
 
 ///|
+pub let icon_svg_print : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 9V2h12v7\"/><path d=\"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2\"/><path d=\"M6 14h12v8H6z\"/></svg>"
+
+///|
 pub let icon_svg_moon : String = "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z\"/></svg>"
 
 ///|
@@ -124,6 +127,7 @@ fn build_page_start(
   filename : String,
   file_path? : String = "",
   tab_title? : String = "",
+  show_print_action? : Bool = false,
 ) -> Unit {
   let page_title = if tab_title.length() > 0 {
     tab_title
@@ -194,6 +198,13 @@ fn build_page_start(
   )
   buf.write_string(icon_svg_code)
   buf.write_string("</button>")
+  if show_print_action {
+    buf.write_string(
+      "<button class=\"view-toggle print-toggle\" id=\"print-report\" title=\"Print or save PDF\" aria-label=\"Print or save PDF\">",
+    )
+    buf.write_string(icon_svg_print)
+    buf.write_string("</button>")
+  }
   buf.write_string(
     "<button class=\"history-toggle\" id=\"history-toggle\" title=\"Show review history\" aria-label=\"Review history\">",
   )
