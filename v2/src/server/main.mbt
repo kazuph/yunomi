@@ -172,6 +172,7 @@ fn verdict_notify_message(
   decision : String,
   action : String,
   comment_count : Int,
+  summary : String,
 ) -> String {
   let normalized_decision = normalized_decision_for_notify(decision, action)
   let normalized_action = normalized_action_for_notify(
@@ -190,9 +191,31 @@ fn verdict_notify_message(
   }
   buf.write_string(" comments=")
   buf.write_string(comment_count.to_string())
-  buf.write_string(" url=")
+  // comments=0 does not mean "no feedback" — the human's guidance often
+  // lives only in the summary field. Surface it inline (same "human: "
+  // shape as the comment/decision notifications) instead of leaving the
+  // launching agent to mistake a silent summary for silent approval.
+  if summary.length() > 0 {
+    buf.write_string("\nhuman: ")
+    buf.write_string(summary)
+  } else {
+    buf.write_string("\nsummary=(empty)")
+  }
+  buf.write_string("\nurl=")
   buf.write_string(review_url(ctx))
   buf.to_string()
+}
+
+///|
+/// Where the full summary/comments text lives, for stdout/log lines that
+/// only have room for a one-line pointer (a truncated verdict notify or a
+/// terse [YUNOMI_EXIT] line is not enough to act on).
+fn review_json_hint(ctx : ServerContext) -> String {
+  if ctx.file_path == "<stdin>" {
+    "stdin review has no persisted review.json (read the printed YAML instead)"
+  } else {
+    review_json_path_for_file(ctx.file_path)
+  }
 }
 
 ///|
@@ -1680,6 +1703,32 @@ fn print_skill_doc_text() -> String {
     #|
     #|Do not trust the line number alone: use the quoted source line to
     #|re-identify the target before changing it.
+    #|
+    #|Submit (verdict) notifications carry the summary the same way.
+    #|`comments=0` does not mean "no feedback" — read the `human:` line:
+    #|
+    #|```text
+    #|[yunomi] verdict REPORT.md decision=request_changes action=final_request_changes comments=0
+    #|human: Fix the Japanese wording in section 2 and rerun the build.
+    #|url=http://127.0.0.1:5599
+    #|```
+    #|
+    #|An empty summary is marked explicitly instead of silently omitted:
+    #|
+    #|```text
+    #|[yunomi] verdict REPORT.md decision=approve action=final_approve comments=0
+    #|summary=(empty)
+    #|url=http://127.0.0.1:5599
+    #|```
+    #|
+    #|`--loop` also prints a one-line pointer on stdout the moment
+    #|`request_changes` lands, naming the exact next command and where the
+    #|full text lives if the notification above was truncated by your
+    #|delivery channel:
+    #|
+    #|```text
+    #|[yunomi] request_changes received; full summary/comments: .yunomi/reviews/<branch>/review.json (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`
+    #|```
     #|
     #|## Verdict schema (stdout YAML, printed when the human submits)
     #|
@@ -3964,15 +4013,27 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     )
     notify_reviewer(
       ctx,
-      verdict_notify_message(ctx, decision_str, action_str, comments.length()),
+      verdict_notify_message(
+        ctx, decision_str, action_str, comments.length(), summary,
+      ),
     )
     if status == "complete_changes" {
       process_stdout_write(@core.reviews_to_yaml(ordered_mux_results()))
+      console_log(
+        "[yunomi] request_changes received; full summary/comments: " +
+        review_json_hint(ctx) +
+        " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
+      )
       return false
     }
     if status == "complete_approve" {
       ctx.finished = true
       process_stdout_write(@core.reviews_to_yaml(ordered_mux_results()))
+      console_log(
+        "[yunomi] review complete; full summary/comments: " +
+        review_json_hint(ctx) +
+        " (if launched via `herdr run`, read `herdr job log <job>` first)",
+      )
       cleanup_live_log()
       for srv in active_servers {
         if srv.file_path != "<stdin>" {
@@ -4020,7 +4081,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   )
   notify_reviewer(
     ctx,
-    verdict_notify_message(ctx, decision_str, action_str, comments.length()),
+    verdict_notify_message(
+      ctx, decision_str, action_str, comments.length(), summary,
+    ),
   )
   let loop_waiting = ctx.is_loop && decision_str == "request_changes"
   if loop_waiting {
@@ -4028,13 +4091,20 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     process_stdout_write(yaml)
     all_results.clear()
     console_log(
-      "yunomi loop waiting for next round; run `yunomi go` after fixes",
+      "[yunomi] request_changes received; full summary/comments: " +
+      review_json_hint(ctx) +
+      " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
     )
     false
   } else if all_results.length() >= expected_count.val {
     ctx.finished = true
     let yaml = @core.reviews_to_yaml(all_results)
     process_stdout_write(yaml)
+    console_log(
+      "[yunomi] review complete; full summary/comments: " +
+      review_json_hint(ctx) +
+      " (if launched via `herdr run`, read `herdr job log <job>` first)",
+    )
     cleanup_live_log()
     for srv in active_servers {
       if srv.file_path != "<stdin>" {
