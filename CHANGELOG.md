@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.5.3 - 2026-08-25
+
+### Fixed
+
+- Verdict notifications now include the human's summary in full as a `human:` line (or an explicit `summary=(empty)`) on every delivery route, so a request_changes with zero inline comments is no longer read as "no instructions".
+- request_changes and completion logs name where the full review lives (`.yunomi/reviews/<branch>/review.json`, or `herdr job log` when launched via `herdr run`) and the exact next command (`npx yunomi go`); the skill document and CLI reference are aligned with the implemented `yunomi go` contract.
+
 ## v2.5.2 - 2026-08-25
 
 ### Fixed
