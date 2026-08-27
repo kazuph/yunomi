@@ -118,6 +118,7 @@ yunomi (formerly **reviw**) is a lightweight browser-based tool for reviewing an
 - **Theme toggle**: Switch between light and dark modes
 - **Preview-only mode**: Hide source panel for wide preview reading
 - **Heading toggle**: Collapse/expand sections by clicking heading arrows
+- **Print / PDF**: Print Markdown reports or save them as PDFs without source, comments, review controls, or collapsed-content loss
 - **Multi-file support**: Open multiple files simultaneously on separate ports
 - **Drag selection**: Select rectangular regions or multiple rows for batch comments
 - **Real-time updates**: Hot reload on file changes via SSE

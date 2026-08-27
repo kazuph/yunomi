@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.5.4 - 2026-08-27
+
+### Added
+
+- Markdown reports now expose a Print or save PDF action that sends only the rendered report content to the browser print dialog.
+
+### Fixed
+
+- Printed reports restore collapsed section content, constrain wide tables to the printable width, keep code readable from dark themes, and omit review/disclosure controls.
+
 ## v2.5.3 - 2026-08-25
 
 ### Fixed
