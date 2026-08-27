@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http, { type IncomingMessage } from "node:http";
 import net from "node:net";
-import { mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,9 +12,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const ROOT = join(__dirname, "..", "..");
 const SERVER_JS = join(ROOT, "v2", "_build", "js", "release", "build", "server", "server.js");
 const FIXTURE_MD = join(ROOT, "examples", "preview-regression.md");
-const LOCK_DIR = join(tmpdir(), "yunomi-preview-interaction-locks");
-
-mkdirSync(LOCK_DIR, { recursive: true });
+const LOCK_DIR = mkdtempSync(join(tmpdir(), "yunomi-preview-interaction-locks-"));
 
 let passed = 0;
 let failed = 0;
@@ -852,6 +850,7 @@ async function main(): Promise<void> {
     try {
       server.kill("SIGKILL");
     } catch (_: unknown) {}
+    rmSync(LOCK_DIR, { recursive: true, force: true });
   }
 }
 

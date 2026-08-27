@@ -3091,5 +3091,78 @@ fn build_css() -> String {
     #|  .history-panel { width: 100vw; }
     #|  body.history-open header { right: 0; }
     #|}
+    #|@media print {
+    #|  html, body {
+    #|    height: auto !important;
+    #|    overflow: visible !important;
+    #|    background: #fff !important;
+    #|    color: #111 !important;
+    #|    color-scheme: light;
+    #|  }
+    #|  body { display: block !important; }
+    #|  header,
+    #|  .md-right,
+    #|  .media-sidebar,
+    #|  .media-sidebar-toggle,
+    #|  .comment-list,
+    #|  #review-loop-panel,
+    #|  .modal-overlay,
+    #|  .fullscreen-overlay,
+    #|  .yunomi-comment-button,
+    #|  .yunomi-inline-comment,
+    #|  .review-loop-inline,
+    #|  .heading-toggle-icon,
+    #|  .copy-toast,
+    #|  .history-panel,
+    #|  .review-file-switcher { display: none !important; }
+    #|  .wrap,
+    #|  .md-layout,
+    #|  .md-left {
+    #|    display: block !important;
+    #|    height: auto !important;
+    #|    min-height: 0 !important;
+    #|    max-height: none !important;
+    #|    overflow: visible !important;
+    #|  }
+    #|  .wrap { padding: 0 !important; }
+    #|  .md-preview {
+    #|    background: #fff !important;
+    #|    color: #111 !important;
+    #|    border: 0 !important;
+    #|    border-radius: 0 !important;
+    #|    box-shadow: none !important;
+    #|    margin: 0 !important;
+    #|    padding: 0 !important;
+    #|  }
+    #|  .md-preview details.heading-toggle > summary {
+    #|    display: block !important;
+    #|  }
+    #|  .md-preview details.heading-toggle > .toggle-content,
+    #|  .md-preview .heading-section-content.hidden {
+    #|    display: block !important;
+    #|    height: auto !important;
+    #|    opacity: 1 !important;
+    #|    overflow: visible !important;
+    #|  }
+    #|  .md-preview table:not(.frontmatter-table table) {
+    #|    width: 100% !important;
+    #|    min-width: 0 !important;
+    #|    max-width: 100% !important;
+    #|    table-layout: fixed !important;
+    #|  }
+    #|  .md-preview code { background: #f6f8fa !important; }
+    #|  .md-preview pre {
+    #|    background: #f6f8fa !important;
+    #|    border-color: #d0d7de !important;
+    #|    white-space: pre-wrap !important;
+    #|    overflow: visible !important;
+    #|    overflow-wrap: anywhere;
+    #|    word-break: break-word;
+    #|  }
+    #|  .md-preview pre code { background: transparent !important; }
+    #|  .md-preview :is(h1, h2, h3, h4, h5, h6, p, li, td, th, blockquote, pre, code) { color: #111 !important; }
+    #|  .md-preview img, .md-preview video, .md-preview svg { max-width: 100% !important; height: auto !important; }
+    #|  .md-preview tr, .md-preview blockquote, .md-preview figure { break-inside: avoid; }
+    #|}
   css
 }

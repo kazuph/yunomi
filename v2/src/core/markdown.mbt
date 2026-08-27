@@ -2039,7 +2039,7 @@ pub fn build_markdown_html(
   server_instance_id? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
-  build_page_start(buf, filename, file_path~, tab_title~)
+  build_page_start(buf, filename, file_path~, tab_title~, show_print_action=true)
   // History panel (must be after header, before wrap)
   build_history_panel(buf)
   // Main content wrap
