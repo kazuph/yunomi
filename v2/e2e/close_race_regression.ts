@@ -192,12 +192,15 @@ async function scenarioSelfTriggeredReloadNeverCloses(
       "AIエージェントへのコメント機能はとても重要です。長文でも壊れず🎉最後まで反映されること。";
     await page.locator('.question-card[data-qid="q-freetext"] .q-answer').fill(FULL_ANSWER);
 
-    const loadPromise = page.waitForEvent("load", { timeout: 15000 });
     // Change the reviewed file on disk — same trigger as an AI agent
     // live-editing REPORT.md while the human is mid-review. watch_file's
-    // default poll interval can take a few seconds to notice.
+    // default poll interval can take a few seconds to notice. The preview is
+    // patched in place; no navigation happens.
+    let loads = 0;
+    page.on("load", () => (loads += 1));
     writeFileSync(mdPath, fixtureContent(2));
-    await loadPromise;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 1, undefined, { timeout: 15000 });
+    assert(loads === 0, "ファイル更新はその場のプレビュー差し替えで処理され、ページ遷移しない", { loads });
 
     assert(!closeRequestSeen, "SSEリロード中は /close が一度も送られない", { closeRequestSeen });
 
@@ -337,18 +340,15 @@ async function scenarioDelayedReconnectDoesNotLoseTypedAnswer(
     );
     assert(!/^action:/m.test(getOutput()), "リロードではverdictも通知も生成されない");
 
-    // The reloaded page should show the recovery modal with the PARTIAL
-    // draft (persisted live while typing, independent of the close path).
+    // The reloaded page restores the PARTIAL draft on its own (persisted
+    // live while typing, independent of the close path) and only shows a
+    // small "Draft restored" notice.
     const recovered = await page
-      .waitForFunction(() => {
-        const modal = document.querySelector("#recovery-modal");
-        return !!modal && modal.classList.contains("visible");
-      }, undefined, { timeout: 5000 })
+      .waitForSelector(".yunomi-restore-toast", { timeout: 5000 })
       .then(() => true)
       .catch(() => false);
-    assert(recovered, "reconnect後、復元モーダルが表示される");
+    assert(recovered, "reconnect後、下書きが自動復元され通知トーストが出る");
     if (recovered) {
-      await page.locator("#recovery-restore").click();
       await page.waitForTimeout(200);
       const restoredValue = await page
         .locator('.question-card[data-qid="q-freetext"] .q-answer')
@@ -448,8 +448,7 @@ async function scenarioTabCloseWaitsForExplicitSubmit(
     assert(!/^action:/m.test(output), "タブcloseだけではverdictも通知も生成されない");
 
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("#recovery-modal.visible", { timeout: 5000 });
-    await page.locator("#recovery-restore").click();
+    await page.waitForSelector(".yunomi-restore-toast", { timeout: 5000 });
     const restored = await page.locator('.question-card[data-qid="q-freetext"] .q-answer').inputValue();
     assert(restored === ABANDONED_TEXT, "close前の下書きは再訪時に復元できる", { restored });
     // The questions overlay intercepts pointer events while it is visible;
@@ -511,36 +510,20 @@ async function scenarioRecoveryDiscardReopensQuestionsModal(
     await page.goto("about:blank").catch(() => {});
     await page.waitForTimeout(200);
 
-    // Fresh load: check_recovery() shows the recovery modal synchronously
-    // (app.mbt:987-1002), and setup_questions_ui()'s auto-popup (500ms
-    // after init) must see it still visible and skip opening the questions
-    // modal underneath it. That is the exact setup for the HIGH-1
-    // regression: without hide_recovery_modal() doing its own re-check
-    // (app.mbt:1059-1069), the questions modal would never auto-open again
-    // once the human takes longer than 500ms to decide Restore/Discard.
+    // Fresh load: the draft is restored silently and the questions modal
+    // re-opens on its own because a question is still unanswered (HIGH-1).
+    // The "Discard" action on the notice throws the draft away and reloads
+    // into a clean page whose questions modal opens again, empty.
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
-    const recoveryVisible = await page
-      .waitForFunction(() => {
-        const modal = document.querySelector("#recovery-modal");
-        return !!modal && modal.classList.contains("visible");
-      }, undefined, { timeout: 5000 })
+    const toastVisible = await page
+      .waitForSelector(".yunomi-restore-toast", { timeout: 5000 })
       .then(() => true)
       .catch(() => false);
-    assert(recoveryVisible, "再訪問時に復元モーダルが表示される");
-
-    // Wait comfortably past the 500ms auto-popup window before deciding —
-    // this is the exact human behavior that triggered the regression.
-    await page.waitForTimeout(1000);
-    const questionsVisibleBeforeDecision = await page
-      .locator("#yunomi-questions-overlay")
-      .evaluate((el) => el.classList.contains("visible"));
+    assert(toastVisible, "再訪問時に下書きが自動復元され通知トーストが出る（確認モーダルは出ない）");
     assert(
-      !questionsVisibleBeforeDecision,
-      "1秒待った時点ではまだ質問モーダルは自動で開いていない（復元モーダルの後ろに隠れて二重表示されない）",
+      (await page.locator("#recovery-modal").count()) === 0,
+      "復元確認モーダルはもう存在しない",
     );
-
-    await page.locator("#recovery-discard").click();
-
     const questionsReopened = await page
       .waitForFunction(() => {
         const overlay = document.querySelector("#yunomi-questions-overlay");
@@ -550,8 +533,24 @@ async function scenarioRecoveryDiscardReopensQuestionsModal(
       .catch(() => false);
     assert(
       questionsReopened,
-      "HIGH-1修正確認: Discard後、未回答の質問が残っているため質問モーダルが自動で再オープンする",
+      "HIGH-1修正確認: 自動復元後、未回答の質問が残っているため質問モーダルが自動で再オープンする",
     );
+    const restoredPartial = await page.locator('.question-card[data-qid="q-freetext"] .q-answer').inputValue();
+    assert(restoredPartial.length > 0, "自動復元で途中入力が戻っている", { restoredPartial });
+
+    const discardReload = page.waitForEvent("load", { timeout: 10000 });
+    await page.locator(".yunomi-restore-discard").click();
+    await discardReload;
+    const draftAfterDiscard = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${(window as any).__YUNOMI_STORAGE_SCOPE__}`));
+    assert(draftAfterDiscard === null, "Discardで下書きが消える", { draftAfterDiscard });
+    const questionsAfterDiscard = await page
+      .waitForFunction(() => {
+        const overlay = document.querySelector("#yunomi-questions-overlay");
+        return !!overlay && overlay.classList.contains("visible");
+      }, undefined, { timeout: 3000 })
+      .then(() => true)
+      .catch(() => false);
+    assert(questionsAfterDiscard, "Discard後のクリーンな再読込でも未回答の質問モーダルが開く");
 
     await page.close();
     await context.close().catch(() => {});

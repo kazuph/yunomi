@@ -651,6 +651,29 @@ fn build_css() -> String {
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
     #|.review-loop-header-badge { display: none; align-items: center; max-width: 220px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #|.review-loop-header-badge.ready { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+    #|/* Unread AI replies inside the document (inline threads). Red because it
+    #|   is the only header element that asks for attention; hidden at zero. */
+    #|/* A round dot: the header row stretches its children, so pin the height
+    #|   and center it instead of letting the button fill the row. */
+    #|header button.conversation-unread { display: inline-flex; flex: 0 0 auto; align-self: center; align-items: center; justify-content: center; box-sizing: border-box; min-width: 20px; min-height: 0; height: 20px; padding: 0 6px; margin: 0; border: 0; border-radius: 999px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 700; line-height: 20px; cursor: pointer; box-shadow: 0 0 0 2px var(--panel); }
+    #|header button.conversation-unread[hidden] { display: none; }
+    #|header button.conversation-unread:hover { filter: brightness(1.08); background: #e5484d; border-color: transparent; }
+    #|.conversation-unread.is-pulse { animation: conversation-unread-pulse 600ms ease-out 1; }
+    #|@keyframes conversation-unread-pulse { 0% { transform: scale(1); } 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
+    #|/* Unread messages carry no per-message decoration (no side bar); the
+    #|   badge, the chat dot and the click-to-read flash are the only cues. */
+    #|.review-loop-thread-line.is-flash, .review-loop-conversation-message.is-flash { animation: conversation-flash 1.5s ease-out 1; }
+    #|@keyframes conversation-flash { 0% { background: rgba(229, 72, 77, 0.28); } 100% { background: transparent; } }
+    #|/* Red dot on the bottom-right chat: shown when an agent message has not
+    #|   been seen yet (collapsed panel or hidden tab). */
+    #|.review-loop-unread-dot { position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: #e5484d; box-shadow: 0 0 0 2px var(--panel-solid, var(--panel)); pointer-events: none; }
+    #|.review-loop-unread-dot[hidden] { display: none; }
+    #|/* Draft-restored notice: bottom-left so it never covers the chat. */
+    #|.yunomi-restore-toast { position: fixed; left: 16px; bottom: 16px; z-index: 99998; display: inline-flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel-solid, var(--panel)); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); animation: conversation-unread-pulse 400ms ease-out 1; }
+    #|.yunomi-restore-toast.is-leaving { opacity: 0; transition: opacity 400ms ease; }
+    #|.yunomi-restore-discard { padding: 3px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+    #|.yunomi-restore-discard:hover { color: var(--error); border-color: var(--error); }
+    #|.review-loop-sidebar-toggle { position: relative; }
     #|/* Must out-specify the sidebar rule below (id+class), or an empty review
     #|   still reserves 300px and squeezes the preview. */
     #|#review-loop-panel:empty, #review-loop-panel.review-loop-sidebar:empty { display: none; }
@@ -1003,20 +1026,6 @@ fn build_css() -> String {
     #|  max-height: 100%;
     #|  display: block;
     #|}
-    #|.media-sidebar-thumb-index {
-    #|  position: absolute;
-    #|  top: 2px;
-    #|  left: 2px;
-    #|  background: rgba(0,0,0,0.6);
-    #|  color: #fff;
-    #|  font-size: 9px;
-    #|  font-weight: 600;
-    #|  padding: 1px 4px;
-    #|  border-radius: 3px;
-    #|  line-height: 1.2;
-    #|  pointer-events: none;
-    #|  z-index: 1;
-    #|}
     #|/* Highlight ring flashed on the preview media when navigating via sidebar thumbs */
     #|.media-nav-highlight {
     #|  outline: 3px solid var(--accent);
@@ -1051,15 +1060,6 @@ fn build_css() -> String {
     #|.media-sidebar-toggle:hover {
     #|  background: var(--hover-bg);
     #|  border-color: var(--border);
-    #|}
-    #|.media-sidebar-toggle .toggle-count {
-    #|  font-size: 10px;
-    #|  font-weight: 700;
-    #|  background: var(--accent);
-    #|  color: var(--text-inverse);
-    #|  padding: 1px 6px;
-    #|  border-radius: var(--radius-pill);
-    #|  line-height: 1.4;
     #|}
     #|/* Header action buttons are icon-only (SVG, currentColor) with title tooltips */
     #|header .actions button svg {
@@ -2899,20 +2899,6 @@ fn build_css() -> String {
     #|  overflow: hidden;
     #|}
     #|.media-sidebar-thumb-mermaid svg { width: 100% !important; height: 100% !important; max-width: 100%; max-height: 100%; display: block; }
-    #|.media-sidebar-thumb-index {
-    #|  position: absolute;
-    #|  top: 2px;
-    #|  left: 2px;
-    #|  background: rgba(0,0,0,0.6);
-    #|  color: #fff;
-    #|  font-size: 9px;
-    #|  font-weight: 600;
-    #|  padding: 1px 4px;
-    #|  border-radius: 3px;
-    #|  line-height: 1.2;
-    #|  pointer-events: none;
-    #|  z-index: 1;
-    #|}
     #|/* Video timeline */
     #|.video-timeline {
     #|  display: flex;

@@ -169,26 +169,19 @@ test "html compat: has-comment class for commented cells" {
 }
 
 ///|
-test "html compat: recovery modal exists" {
-  // localStorage recovery: #recovery-modal, #recovery-restore, #recovery-discard
+test "html compat: no recovery modal (drafts restore silently)" {
   let data : CsvData = { headers: ["a"], rows: [] }
   let html = build_csv_html(data, "test.csv", 4989)
   debug_inspect(
     html.contains("id=\"recovery-modal\""),
     content=(
-      #|true
+      #|false
     ),
   )
   debug_inspect(
     html.contains("id=\"recovery-restore\""),
     content=(
-      #|true
-    ),
-  )
-  debug_inspect(
-    html.contains("id=\"recovery-discard\""),
-    content=(
-      #|true
+      #|false
     ),
   )
 }

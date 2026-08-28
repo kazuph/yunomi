@@ -299,17 +299,10 @@ async function scenarioAlwaysAutoOpensOnLoadEvenIfFullyAnswered(browser: Browser
     await page.reload({ waitUntil: "domcontentloaded" });
 
     const recoveryVisible = await page
-      .waitForFunction(() => {
-        const m = document.querySelector("#recovery-modal");
-        return !!m && m.classList.contains("visible");
-      }, undefined, { timeout: 5000 })
+      .waitForSelector(".yunomi-restore-toast", { timeout: 5000 })
       .then(() => true)
       .catch(() => false);
-    assertTrue(recoveryVisible, "リロード後、復元モーダルが表示される");
-
-    if (recoveryVisible) {
-      await page.locator("#recovery-restore").click();
-    }
+    assertTrue(recoveryVisible, "リロード後、下書きが自動復元される（確認モーダルなし）");
 
     const stepperReopened = await page
       .waitForFunction(() => {

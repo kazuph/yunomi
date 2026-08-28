@@ -450,7 +450,7 @@ async function main(): Promise<void> {
       }
     });
 
-    await runScenario("saved draft shows the recovery modal and restore works", async () => {
+    await runScenario("saved draft is restored on reload with a discardable notice", async () => {
       const { context, page } = await createPage(browser!);
       try {
         await gotoFixture(page, port);
@@ -469,33 +469,16 @@ async function main(): Promise<void> {
         });
 
         await page.reload({ waitUntil: "domcontentloaded" });
-        await page.waitForFunction(() => {
-          const modal = document.querySelector("#recovery-modal");
-          return !!modal && modal.classList.contains("visible");
-        });
+        await page.waitForSelector(".yunomi-restore-toast");
 
-        const beforeRestore = await page.evaluate(() => {
-          const modal = document.querySelector("#recovery-modal");
-          return {
-            modalVisible: !!modal && modal.classList.contains("visible"),
-            selectedCount: document.querySelectorAll(".has-comment").length,
-          };
-        });
-
-        assert.equal(beforeRestore.modalVisible, true, "recovery modal should be visible after reload with saved draft");
-        assert.equal(beforeRestore.selectedCount, 0, "restore should not happen before the user confirms");
-
-        await page.locator("#recovery-restore").click();
-        await page.waitForTimeout(200);
-
-        const afterRestore = await page.evaluate(() => {
-          const modal = document.querySelector("#recovery-modal");
-          return {
-            modalVisible: !!modal && modal.classList.contains("visible"),
-          };
-        });
-
-        assert.equal(afterRestore.modalVisible, false, "recovery modal should close after restore");
+        const afterRestore = await page.evaluate(() => ({
+          modalCount: document.querySelectorAll("#recovery-modal").length,
+          toastText: document.querySelector(".yunomi-restore-toast")?.textContent || "",
+          selectedCount: document.querySelectorAll(".has-comment").length,
+        }));
+        assert.equal(afterRestore.modalCount, 0, "no recovery modal exists anymore");
+        assert.match(afterRestore.toastText, /Draft restored \(1\)/, "notice names how many items came back");
+        assert.equal(afterRestore.selectedCount, 1, "the draft is applied without asking");
 
         await page.locator('.yunomi-inline-comment-view:has-text("restored image note")').first().click();
         await waitForCommentCard(page);

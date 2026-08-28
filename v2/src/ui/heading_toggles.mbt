@@ -399,9 +399,10 @@ pub fn destroy_all_toggles() -> Unit {
     let parent = parent_element(toggle.details_el)
     if !is_null(parent) {
       insert_before(toggle.details_el, toggle.original_heading)
-      toggle.content_nodes.each(fn(node) {
-        insert_before(toggle.details_el, node)
-      })
+      // Move every current child of the content box, not only the nodes
+      // collected at init: conversation threads and editors mounted inside
+      // the section later must survive a rebuild.
+      unwrap_children_before(toggle.content_el, toggle.details_el)
     }
     remove_element(toggle.details_el)
   })
@@ -415,3 +416,11 @@ pub fn refresh_toggles(config? : ToggleConfig) -> Unit {
   destroy_all_toggles()
   init_heading_toggles(config?)
 }
+
+///|
+/// Move all children of `container` to sit right before `anchor`.
+extern "js" fn unwrap_children_before(container : Element, anchor : Element) -> Unit =
+  #|(container, anchor) => {
+  #|  if (!container || !anchor || !anchor.parentNode) return;
+  #|  while (container.firstChild) anchor.parentNode.insertBefore(container.firstChild, anchor);
+  #|}

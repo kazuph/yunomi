@@ -1490,8 +1490,8 @@ async function main(): Promise<void> {
   assert.equal(singleMissingResolve.status, 200, "a single-review missing resolve preserves the legacy 200 no-op");
   assert.equal(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"), reviewBeforeSingleMissingResolve, "a single-review missing resolve leaves review persistence unchanged");
 
-  // A round event reloads the tab. Keep the two real split-pane positions
-  // through that navigation, then prove normal preview-to-source sync resumes.
+  // A round event patches the tab in place. Keep the two real split-pane
+  // positions through that refresh, then prove normal preview-to-source sync resumes.
   writeFileSync(REPORT, ["# Review Loop", "", ...Array.from({ length: 120 }, (_, index) => `Reload scroll line ${index + 1}`)].join("\n"));
   const reloadBrowser = await chromium.launch({ headless: true });
   try {
@@ -1510,11 +1510,13 @@ async function main(): Promise<void> {
       source.scrollTop = Math.max(0, (source.scrollHeight - source.clientHeight) / 2);
       return { preview: preview.scrollTop, source: source.scrollTop };
     });
-    const navigated = reloadPage.waitForEvent("framenavigated", (frame) => frame === reloadPage.mainFrame());
-    assert.equal((await request(port, "POST", "/go")).status, 200, "round signal triggers the SSE reload path");
-    await navigated;
+    let roundNavigations = 0;
+    reloadPage.on("framenavigated", (frame) => { if (frame === reloadPage.mainFrame()) roundNavigations += 1; });
+    assert.equal((await request(port, "POST", "/go")).status, 200, "round signal triggers the SSE round path");
+    await reloadPage.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 1, undefined, { timeout: 15_000 });
     await reloadPage.waitForSelector("#review-loop-panel", { timeout: 10_000 });
-    await reloadPage.waitForFunction(() => !(window as typeof window & { __YUNOMI_RELOAD_SCROLL_RESTORING__?: boolean }).__YUNOMI_RELOAD_SCROLL_RESTORING__, undefined, { timeout: 3_000 });
+    await reloadPage.waitForTimeout(500);
+    assert.equal(roundNavigations, 0, "a new round patches the page in place instead of navigating");
     const restored = await reloadPage.evaluate(() => {
       const preview = document.querySelector<HTMLElement>(".md-left")!;
       const source = document.querySelector<HTMLElement>(".md-right")!;

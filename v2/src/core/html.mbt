@@ -187,12 +187,13 @@ fn build_page_start(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
   )
   buf.write_string(
+    "<button type=\"button\" class=\"conversation-unread\" id=\"conversation-unread\" title=\"Unread AI replies in the document\" aria-label=\"Unread AI replies\" hidden>0</button>",
+  )
+  buf.write_string(
     "<button class=\"media-sidebar-toggle\" id=\"media-sidebar-toggle\" title=\"Show / hide media thumbnail list\" aria-label=\"Toggle media gallery\">",
   )
   buf.write_string(icon_svg_media)
-  buf.write_string(
-    "<span class=\"toggle-count\" id=\"media-toggle-count\"></span></button>",
-  )
+  buf.write_string("</button>")
   buf.write_string(
     "<button class=\"view-toggle\" id=\"view-toggle\" title=\"Hide source panel\" aria-label=\"Toggle source panel\">",
   )
@@ -333,23 +334,6 @@ fn build_history_panel(buf : StringBuilder) -> Unit {
   )
   buf.write_string("<div class=\"history-empty\">No review history yet.</div>")
   buf.write_string("</div></aside>")
-}
-
-///|
-fn build_recovery_modal(buf : StringBuilder) -> Unit {
-  buf.write_string("<div class=\"modal-overlay\" id=\"recovery-modal\">")
-  buf.write_string(
-    "<div class=\"modal-dialog\"><h3>Restore Previous Draft?</h3>",
-  )
-  buf.write_string(
-    "<p class=\"modal-summary\" id=\"recovery-summary\">Found an unsaved draft from a previous session.</p>",
-  )
-  buf.write_string("<div class=\"modal-actions\">")
-  buf.write_string("<button id=\"recovery-discard\">Discard</button>")
-  buf.write_string(
-    "<button class=\"primary\" id=\"recovery-restore\">Restore</button>",
-  )
-  buf.write_string("</div></div></div>")
 }
 
 ///|
@@ -755,7 +739,6 @@ pub fn build_csv_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   buf.write_string("<script>const DATA = ")
   buf.write_string(serialize_csv_data_json(data))
   buf.write_string(";</script>")
@@ -919,7 +902,6 @@ pub fn build_diff_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   build_script_footer(buf, port, "diff", filename, server_instance_id~)
   buf.to_string()
 }
@@ -951,7 +933,6 @@ pub fn build_text_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   build_script_footer(buf, port, "text", filename, server_instance_id~)
   buf.to_string()
 }

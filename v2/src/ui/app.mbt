@@ -469,15 +469,6 @@ pub fn init_app() -> Unit {
       submit_review(port)
     })
   }
-  // Setup recovery modal buttons
-  let recovery_restore = query("#recovery-restore")
-  if !is_null(recovery_restore) {
-    on(recovery_restore, "click", fn(_e) { restore_comments() })
-  }
-  let recovery_discard = query("#recovery-discard")
-  if !is_null(recovery_discard) {
-    on(recovery_discard, "click", fn(_e) { discard_comments() })
-  }
   on_doc("keydown", fn(e) {
     if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
       if _event_is_composing(e) {
@@ -593,8 +584,119 @@ pub fn init_app() -> Unit {
   }
   // Register the tab so the server can tell reload from close.
   setup_close_detection(port)
+  // Unread cues for agent replies (header counter, chat dot, bell).
+  install_conversation_unread(get_yunomi_storage_scope())
+  install_typing_tracker()
   // Setup SSE for live reload
   setup_sse(port)
+}
+
+///|
+let quiet_refresh_pending : Ref[Bool] = Ref(false)
+
+///|
+let quiet_refresh_requested_at : Ref[Double] = Ref(0.0)
+
+///|
+/// A change event that arrived while a refresh was already fetching. The
+/// fetched HTML is stale by definition, so one more refresh runs after it.
+let quiet_refresh_dirty : Ref[Bool] = Ref(false)
+
+///|
+/// Full navigation — the last resort when the preview cannot be patched.
+fn full_reload() -> Unit {
+  save_reload_scroll_state(reload_scroll_key())
+  intentional_reload_in_progress.val = true
+  ls_set(reload_inflight_key(), "1")
+  location_reload()
+}
+
+///|
+/// The reviewed file changed. Markdown previews are patched in place; other
+/// modes keep the classic reload. Several change events in a row collapse
+/// into one refresh, and the refresh waits for a pause in typing (at most
+/// 6s) so it never lands mid-word.
+fn request_quiet_refresh() -> Unit {
+  if get_yunomi_mode() != "markdown" {
+    full_reload()
+    return
+  }
+  if quiet_refresh_pending.val {
+    quiet_refresh_dirty.val = true
+    return
+  }
+  quiet_refresh_pending.val = true
+  quiet_refresh_requested_at.val = now_ms()
+  schedule_quiet_refresh()
+}
+
+///|
+fn schedule_quiet_refresh() -> Unit {
+  let waited = now_ms() - quiet_refresh_requested_at.val
+  if user_typing_recently(900) && waited < 6000.0 {
+    ignore(set_timeout(fn() { schedule_quiet_refresh() }, 300))
+    return
+  }
+  perform_quiet_refresh()
+}
+
+///|
+fn perform_quiet_refresh() -> Unit {
+  fetch_get(yunomi_request_url("/"), fn(html) {
+    quiet_refresh_pending.val = false
+    if html.length() == 0 || html == "[]" || !html.contains("md-preview") {
+      full_reload()
+      return
+    }
+    let editor_state = capture_inline_editor_state()
+    capture_active_control()
+    capture_preview_anchor()
+    let saved_key = active_key.val
+    let saved_row = selected_comment_row.val
+    let saved_col = selected_comment_col.val
+    let saved_original_text = active_original_text.val
+    let saved_original_image = active_original_image.val
+    let saved_was_new = active_was_new.val
+    destroy_all_toggles()
+    destroy_media_sidebar()
+    let result = morph_markdown_preview(html)
+    if result == "reload" {
+      full_reload()
+      return
+    }
+    render_new_preview_blocks()
+    init_heading_toggles()
+    setup_task_decision_checkboxes()
+    setup_csv_clicks()
+    update_comment_indicators()
+    if editor_state.length() > 0 && !inline_editor_still_connected() {
+      // The block hosting the editor was replaced: reopen it on the new
+      // node with the text the human already typed (kept in `comments`).
+      match comments.get(saved_key) {
+        Some(comment) => {
+          let target = resolve_restored_comment_target(
+            saved_key, saved_row, saved_col, comment.surface,
+          )
+          if !is_null(target) {
+            open_inline_comment_editor(target, saved_key, saved_row, saved_col)
+            active_original_text.val = saved_original_text
+            active_original_image.val = saved_original_image
+            active_was_new.val = saved_was_new
+          }
+        }
+        None => ()
+      }
+    }
+    restore_inline_editor_focus(editor_state)
+    restore_active_control()
+    restore_preview_anchor()
+    load_review_loop_state()
+    ignore(set_timeout(fn() { init_media_sidebar() }, 500))
+    if quiet_refresh_dirty.val {
+      quiet_refresh_dirty.val = false
+      request_quiet_refresh()
+    }
+  })
 }
 
 ///|
@@ -606,6 +708,9 @@ let review_loop_state_loaded : Ref[Bool] = Ref(false)
 ///|
 fn load_review_loop_state() -> Unit {
   if review_loop_state_loading.val {
+    // The response in flight was requested against the previous DOM;
+    // render it, then fetch once more so threads land on the new blocks.
+    review_loop_state_dirty.val = true
     return
   }
   review_loop_state_loading.val = true
@@ -615,8 +720,15 @@ fn load_review_loop_state() -> Unit {
     restore_reload_scroll_state(reload_scroll_key())
     review_loop_state_loaded.val = true
     review_loop_state_loading.val = false
+    if review_loop_state_dirty.val {
+      review_loop_state_dirty.val = false
+      load_review_loop_state()
+    }
   })
 }
+
+///|
+let review_loop_state_dirty : Ref[Bool] = Ref(false)
 
 ///|
 fn pending_comment_count() -> Int {
@@ -761,9 +873,10 @@ fn reload_scroll_key() -> String {
 
 ///|
 /// Check for a saved draft (comments, summary, and/or question answers) and
-/// either auto-restore it (if this load follows a reload this app
-/// triggered itself — see reload_inflight_key()) or show the recovery
-/// modal for the human to decide (with TTL validation).
+/// restore it. Same file, not yet submitted, not expired: the draft simply
+/// comes back, with a small "Draft restored (N) · Discard" notice. The old
+/// Restore/Discard modal asked on every manual reload and the answer was
+/// always "restore" — the question itself was the friction.
 ///
 /// Skipping the confirmation modal for self-triggered reloads matters in
 /// practice: a busy review session where the file under review keeps
@@ -790,15 +903,27 @@ fn check_recovery() -> Unit {
     ls_remove(key)
     return
   }
-  if was_self_triggered_reload {
-    restore_comments()
-    return
+  let restored_count = stored_draft_item_count(stored)
+  restore_comments()
+  if !was_self_triggered_reload && restored_count > 0 {
+    show_restore_toast(restored_count, fn() { discard_comments() })
   }
-  let modal = query("#recovery-modal")
-  if !is_null(modal) {
-    add_class(modal, "visible")
-    remove_class(modal, "hidden")
+}
+
+///|
+/// How many things a draft brings back: comments with text, the overall
+/// summary, and answered questions.
+fn stored_draft_item_count(stored : String) -> Int {
+  let mut count = 0
+  for entry in parse_stored_comments(stored) {
+    if entry.length() >= 4 && entry[3].length() > 0 {
+      count = count + 1
+    }
   }
+  if parse_stored_summary(stored).length() > 0 {
+    count = count + 1
+  }
+  count + stored_answer_count(parse_stored_answers(stored))
 }
 
 ///|
@@ -895,9 +1020,11 @@ fn restore_comments() -> Unit {
 }
 
 ///|
+/// Throw the restored draft away. A plain reload (no inflight marker, no
+/// draft left in storage) is the simplest way back to a clean page.
 fn discard_comments() -> Unit {
   ls_remove(get_storage_key())
-  hide_recovery_modal()
+  full_reload()
 }
 
 ///|
@@ -933,11 +1060,6 @@ fn has_unresolved_questions() -> Bool {
 /// already-answered ones just arrive prefilled so confirming is a matter
 /// of stepping through, not re-typing.
 fn hide_recovery_modal() -> Unit {
-  let modal = query("#recovery-modal")
-  if !is_null(modal) {
-    remove_class(modal, "visible")
-    add_class(modal, "hidden")
-  }
   if has_unresolved_questions() && !app_dialog_visible() {
     open_questions_modal()
   }
@@ -1853,35 +1975,16 @@ fn setup_sse(_port : Int) -> Unit {
     sse_server_instance.val = get_yunomi_server_instance()
   }
   let es = new_event_source(url)
-  sse_on(es, "reload", fn(_e) {
-    save_reload_scroll_state(reload_scroll_key())
-    intentional_reload_in_progress.val = true
-    // intentional_reload_in_progress is an in-memory flag — it dies with
-    // this page's JS realm the instant location_reload() actually
-    // navigates, so the FRESH page load that follows has no way to know
-    // "the recovery modal I'm about to show is for a reload I triggered
-    // myself 200ms ago", not a genuinely stale/ambiguous draft. Carry that
-    // fact across the reload via localStorage (survives navigation, unlike
-    // any in-memory Ref) so check_recovery() on the other side can skip
-    // straight to restoring instead of making the human click through a
-    // confirmation modal for every single file-change reload — see its
-    // comment for why that matters (a busy multi-agent session can trigger
-    // several of these reloads in quick succession).
-    ls_set(reload_inflight_key(), "1")
-    location_reload()
-  })
+  sse_on(es, "reload", fn(_e) { request_quiet_refresh() })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
-    if !suppress_next_round_reload.val {
-      save_reload_scroll_state(reload_scroll_key())
-    }
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
     if suppress_next_round_reload.val {
+      // A reply only changes the conversation, which is already on screen.
       suppress_next_round_reload.val = false
     } else {
-      intentional_reload_in_progress.val = true
-      ls_set(reload_inflight_key(), "1")
-      location_reload()
+      // A new round may come with a rewritten report: patch it in quietly.
+      request_quiet_refresh()
     }
   })
   sse_on(es, "resolve", fn(e) {
@@ -3653,10 +3756,8 @@ fn fullscreen_overlay_visible() -> Bool {
 ///|
 fn app_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
-  let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
   (!is_null(submit) && has_class(submit, "visible")) ||
-  (!is_null(recovery) && has_class(recovery, "visible")) ||
   (!is_null(questions) && has_class(questions, "visible")) ||
   fullscreen_overlay_visible() ||
   inline_comment_editor_open()
@@ -3989,12 +4090,7 @@ fn setup_questions_ui() -> Unit {
     // Auto-open after short delay
     ignore(
       set_timeout(
-        fn() {
-          let recovery_modal = query("#recovery-modal")
-          if is_null(recovery_modal) || !has_class(recovery_modal, "visible") {
-            open_questions_modal()
-          }
-        },
+        fn() { open_questions_modal() },
         500,
       ),
     )
@@ -4444,6 +4540,18 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
   on_doc("click", fn(e) {
     let target = event_target(e)
     if !is_null(closest(target, ".yunomi-comment-button")) {
+      return
+    }
+    // Only the diagram itself opens fullscreen. Conversation threads and
+    // comment editors are mounted inside `.mermaid-container` (right after
+    // the `.mermaid` node), so a click on their form must never be read as a
+    // click on the diagram.
+    if is_null(closest(target, ".mermaid")) ||
+      !is_null(
+        closest(
+          target, ".review-loop-inline,.review-loop-inline-row,.review-loop-inline-item,.review-loop-reply-form,.yunomi-inline-comment,.yunomi-inline-comment-editor,.mermaid-error-banner",
+        ),
+      ) {
       return
     }
     let container = closest(target, ".mermaid-container")
