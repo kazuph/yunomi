@@ -78,6 +78,7 @@ pub fn init_media_sidebar() -> Unit {
   // Collect media items from preview
   let items = collect_media_items(preview)
   if items.is_empty() {
+    hide_media_sidebar_chrome(sidebar, toggle_btn)
     return
   }
 
@@ -205,23 +206,27 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
 ///|
 /// Tear the sidebar down so it can be rebuilt after an in-place preview
 /// refresh: listeners, observers, thumbnails and the toggle state.
+/// The sidebar and its header button stay visible meanwhile so the layout
+/// does not jump; init_media_sidebar() hides them only if the refreshed
+/// document has no media left.
 pub fn destroy_media_sidebar() -> Unit {
   match global_sidebar.val {
     Some(state) => {
       state.handles.each(fn(h) { unlisten(h) })
       state.handles.clear()
       clear_children(state.thumbs_container)
-      add_class(state.sidebar, "hidden")
-      sync_media_sidebar_offset(state.sidebar)
-      let toggle_btn = query("#media-sidebar-toggle")
-      if !is_null(toggle_btn) {
-        remove_class(toggle_btn, "has-media")
-        set_style(toggle_btn, "display", "none")
-      }
       global_sidebar.val = None
     }
     None => ()
   }
+}
+
+///|
+fn hide_media_sidebar_chrome(sidebar : Element, toggle_btn : Element) -> Unit {
+  add_class(sidebar, "hidden")
+  sync_media_sidebar_offset(sidebar)
+  remove_class(toggle_btn, "has-media")
+  set_style(toggle_btn, "display", "none")
 }
 
 ///|
@@ -590,10 +595,8 @@ fn media_nav_key(key : String) -> String {
 ///|
 fn review_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
-  let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
   (!is_null(submit) && has_class(submit, "visible")) ||
-  (!is_null(recovery) && has_class(recovery, "visible")) ||
   (!is_null(questions) && has_class(questions, "visible")) ||
   inline_comment_editor_open()
 }

@@ -106,10 +106,6 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|      markSeen(keysIn(el));
   #|    }, 1200);
   #|  };
-  #|  // Inline threads are never auto-read by scrolling past them: the human
-  #|  // consumes them one message per badge click, or by interacting with the
-  #|  // thread (clicking into it / typing a reply).
-  #|  const watchInlines = (_unread) => {};
   #|  const render = (unread) => {
   #|    const inlineUnread = new Set();
   #|    for (const inline of document.querySelectorAll(inlineSelector)) {
@@ -162,7 +158,6 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|    }
   #|    primed = true;
   #|    render(unread);
-  #|    watchInlines(unread);
   #|    if (fresh > 0) bell();
   #|    scheduleGlobalSeen();
   #|  };
@@ -197,6 +192,11 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|    const node = firstUnreadMessage();
   #|    if (!node) return;
   #|    if (node.closest("#review-loop-panel")) expandPanel();
+  #|    // A thread inside a collapsed section is invisible; open every
+  #|    // enclosing <details> first so the jump and the flash can be seen.
+  #|    for (let details = node.closest("details"); details; details = details.parentElement?.closest("details")) {
+  #|      if (!details.open) details.open = true;
+  #|    }
   #|    node.scrollIntoView({ block: "center", behavior: "smooth" });
   #|    node.classList.remove("is-flash");
   #|    void node.offsetWidth;
@@ -207,7 +207,9 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|  document.addEventListener("focusin", (event) => {
   #|    const inline = event.target?.closest?.(inlineSelector);
   #|    if (inline) markSeen(keysIn(inline));
-  #|    else if (event.target?.closest?.("#review-loop-panel")) markSeen(keysIn(panel() || document.createElement("div")));
+  #|    // Focus inside the chat reads it only when the chat is actually open;
+  #|    // tabbing onto the collapsed toggle shows nothing.
+  #|    else if (event.target?.closest?.("#review-loop-panel") && panelOpenAndVisible()) markSeen(keysIn(panel() || document.createElement("div")));
   #|  });
   #|  document.addEventListener("pointerdown", (event) => {
   #|    const inline = event.target?.closest?.(inlineSelector);

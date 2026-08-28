@@ -272,6 +272,13 @@ async function main(): Promise<void> {
     }
     assert.equal(await page.locator('.mermaid-container .review-loop-inline[data-review-comment-id="c-1-1"]').count(), 1, "diagram thread follows the shifted diagram");
 
+    // Two writes within one fetch window: the second must not be dropped.
+    writeFileSync(REPORT, fixture(4, { shift: true }));
+    await sleep(60);
+    writeFileSync(REPORT, fixture(5, { shift: true }));
+    await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("Second paragraph revision 5."), undefined, { timeout: 25000 });
+    assert.equal(loads, loadsBefore, "back-to-back edits still never reload");
+
     // A new round patches the page too instead of navigating.
     const go = await request(port, "POST", "/go");
     assert.equal(go.status, 200);

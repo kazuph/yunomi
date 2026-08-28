@@ -586,7 +586,7 @@ pub fn init_app() -> Unit {
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
   install_conversation_unread(get_yunomi_storage_scope())
-  ignore(user_typing_recently(0))
+  install_typing_tracker()
   // Setup SSE for live reload
   setup_sse(port)
 }
@@ -596,6 +596,11 @@ let quiet_refresh_pending : Ref[Bool] = Ref(false)
 
 ///|
 let quiet_refresh_requested_at : Ref[Double] = Ref(0.0)
+
+///|
+/// A change event that arrived while a refresh was already fetching. The
+/// fetched HTML is stale by definition, so one more refresh runs after it.
+let quiet_refresh_dirty : Ref[Bool] = Ref(false)
 
 ///|
 /// Full navigation — the last resort when the preview cannot be patched.
@@ -617,6 +622,7 @@ fn request_quiet_refresh() -> Unit {
     return
   }
   if quiet_refresh_pending.val {
+    quiet_refresh_dirty.val = true
     return
   }
   quiet_refresh_pending.val = true
@@ -686,6 +692,10 @@ fn perform_quiet_refresh() -> Unit {
     restore_preview_anchor()
     load_review_loop_state()
     ignore(set_timeout(fn() { init_media_sidebar() }, 500))
+    if quiet_refresh_dirty.val {
+      quiet_refresh_dirty.val = false
+      request_quiet_refresh()
+    }
   })
 }
 
@@ -698,6 +708,9 @@ let review_loop_state_loaded : Ref[Bool] = Ref(false)
 ///|
 fn load_review_loop_state() -> Unit {
   if review_loop_state_loading.val {
+    // The response in flight was requested against the previous DOM;
+    // render it, then fetch once more so threads land on the new blocks.
+    review_loop_state_dirty.val = true
     return
   }
   review_loop_state_loading.val = true
@@ -707,8 +720,15 @@ fn load_review_loop_state() -> Unit {
     restore_reload_scroll_state(reload_scroll_key())
     review_loop_state_loaded.val = true
     review_loop_state_loading.val = false
+    if review_loop_state_dirty.val {
+      review_loop_state_dirty.val = false
+      load_review_loop_state()
+    }
   })
 }
+
+///|
+let review_loop_state_dirty : Ref[Bool] = Ref(false)
 
 ///|
 fn pending_comment_count() -> Int {
@@ -1004,7 +1024,7 @@ fn restore_comments() -> Unit {
 /// draft left in storage) is the simplest way back to a clean page.
 fn discard_comments() -> Unit {
   ls_remove(get_storage_key())
-  location_reload()
+  full_reload()
 }
 
 ///|
@@ -1040,11 +1060,6 @@ fn has_unresolved_questions() -> Bool {
 /// already-answered ones just arrive prefilled so confirming is a matter
 /// of stepping through, not re-typing.
 fn hide_recovery_modal() -> Unit {
-  let modal = query("#recovery-modal")
-  if !is_null(modal) {
-    remove_class(modal, "visible")
-    add_class(modal, "hidden")
-  }
   if has_unresolved_questions() && !app_dialog_visible() {
     open_questions_modal()
   }
@@ -1961,23 +1976,6 @@ fn setup_sse(_port : Int) -> Unit {
   }
   let es = new_event_source(url)
   sse_on(es, "reload", fn(_e) { request_quiet_refresh() })
-  sse_on(es, "reload-legacy", fn(_e) {
-    save_reload_scroll_state(reload_scroll_key())
-    intentional_reload_in_progress.val = true
-    // intentional_reload_in_progress is an in-memory flag — it dies with
-    // this page's JS realm the instant location_reload() actually
-    // navigates, so the FRESH page load that follows has no way to know
-    // "the recovery modal I'm about to show is for a reload I triggered
-    // myself 200ms ago", not a genuinely stale/ambiguous draft. Carry that
-    // fact across the reload via localStorage (survives navigation, unlike
-    // any in-memory Ref) so check_recovery() on the other side can skip
-    // straight to restoring instead of making the human click through a
-    // confirmation modal for every single file-change reload — see its
-    // comment for why that matters (a busy multi-agent session can trigger
-    // several of these reloads in quick succession).
-    ls_set(reload_inflight_key(), "1")
-    location_reload()
-  })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
@@ -3758,10 +3756,8 @@ fn fullscreen_overlay_visible() -> Bool {
 ///|
 fn app_dialog_visible() -> Bool {
   let submit = query("#submit-modal")
-  let recovery = query("#recovery-modal")
   let questions = query("#yunomi-questions-overlay")
   (!is_null(submit) && has_class(submit, "visible")) ||
-  (!is_null(recovery) && has_class(recovery, "visible")) ||
   (!is_null(questions) && has_class(questions, "visible")) ||
   fullscreen_overlay_visible() ||
   inline_comment_editor_open()
@@ -4094,12 +4090,7 @@ fn setup_questions_ui() -> Unit {
     // Auto-open after short delay
     ignore(
       set_timeout(
-        fn() {
-          let recovery_modal = query("#recovery-modal")
-          if is_null(recovery_modal) || !has_class(recovery_modal, "visible") {
-            open_questions_modal()
-          }
-        },
+        fn() { open_questions_modal() },
         500,
       ),
     )

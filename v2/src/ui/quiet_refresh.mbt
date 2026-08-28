@@ -39,6 +39,19 @@ extern "js" fn morph_markdown_preview(html : String) -> String =
   #|  if (!Array.isArray(nextLines)) return "reload";
   #|  const prevLines = Array.isArray(window.__DATA__) ? window.__DATA__ : [];
   #|  const runtimeSelector = ".review-loop-inline,.review-loop-inline-row,.review-loop-inline-item,.yunomi-inline-comment,.yunomi-inline-comment-editor-mount";
+  #|  // Text of a block minus the conversation UI mounted inside it, so a
+  #|  // holder or editor never makes an unchanged block look changed.
+  #|  const textWithoutRuntime = (el) => {
+  #|    let out = "";
+  #|    const walk = (node) => {
+  #|      for (const child of node.childNodes) {
+  #|        if (child.nodeType === 3) out += child.nodeValue;
+  #|        else if (child.nodeType === 1 && !child.matches(runtimeSelector)) walk(child);
+  #|      }
+  #|    };
+  #|    walk(el);
+  #|    return out;
+  #|  };
   #|  const lineAttr = (el, name) => {
   #|    const value = Number(el.getAttribute(name));
   #|    return Number.isFinite(value) && value > 0 ? value : 0;
@@ -60,7 +73,7 @@ extern "js" fn morph_markdown_preview(html : String) -> String =
   #|      }
   #|      return "L:" + el.tagName + ":" + lines.slice(line - 1, Math.max(line, stop)).join("\n");
   #|    }
-  #|    return "H:" + el.tagName + ":" + (el.textContent || "").replace(/\s+/g, " ").trim();
+  #|    return "H:" + el.tagName + ":" + textWithoutRuntime(el).replace(/\s+/g, " ").trim();
   #|  };
   #|  const firstLine = (el) => lineAttr(el, "data-source-start-line") || lineAttr(el, "data-source-line");
   #|  const oldBlocks = Array.from(preview.children).filter(el => !el.matches(runtimeSelector));
@@ -209,10 +222,9 @@ extern "js" fn restore_inline_editor_focus(json : String) -> Unit =
   #|}
 
 ///|
-/// True while the human is actively typing anywhere on the page. A refresh
-/// waits for a pause so the swap never lands mid-keystroke.
-extern "js" fn user_typing_recently(window_ms : Int) -> Bool =
-  #|(windowMs) => {
+/// Start tracking keystrokes so user_typing_recently() has data.
+extern "js" fn install_typing_tracker() -> Unit =
+  #|() => {
   #|  if (!window.__yunomiTypingTracker) {
   #|    window.__yunomiTypingTracker = { last: 0 };
   #|    const bump = () => { window.__yunomiTypingTracker.last = Date.now(); };
@@ -224,7 +236,15 @@ extern "js" fn user_typing_recently(window_ms : Int) -> Bool =
   #|      if (tag === "TEXTAREA" || tag === "INPUT" || event.isComposing) bump();
   #|    }, { capture: true, passive: true });
   #|  }
-  #|  return Date.now() - window.__yunomiTypingTracker.last < windowMs;
+  #|}
+
+///|
+/// True while the human is actively typing anywhere on the page. A refresh
+/// waits for a pause so the swap never lands mid-keystroke.
+extern "js" fn user_typing_recently(window_ms : Int) -> Bool =
+  #|(windowMs) => {
+  #|  const tracker = window.__yunomiTypingTracker;
+  #|  return !!tracker && Date.now() - tracker.last < windowMs;
   #|}
 
 ///|

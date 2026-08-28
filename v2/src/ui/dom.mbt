@@ -2554,7 +2554,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|  };
   #|  const dialogVisible = () => {
   #|    if (visible(document.querySelector(".yunomi-inline-comment-editor"))) return true;
-  #|    return !!document.querySelector("#submit-modal.visible,#recovery-modal.visible,#yunomi-questions-overlay.visible,.image-fullscreen.visible,.video-fullscreen.visible");
+  #|    return !!document.querySelector("#submit-modal.visible,#yunomi-questions-overlay.visible,.image-fullscreen.visible,.video-fullscreen.visible");
   #|  };
   #|  const mediaSidebarActive = () => {
   #|    const active = document.activeElement;
