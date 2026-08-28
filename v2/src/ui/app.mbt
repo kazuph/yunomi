@@ -469,15 +469,6 @@ pub fn init_app() -> Unit {
       submit_review(port)
     })
   }
-  // Setup recovery modal buttons
-  let recovery_restore = query("#recovery-restore")
-  if !is_null(recovery_restore) {
-    on(recovery_restore, "click", fn(_e) { restore_comments() })
-  }
-  let recovery_discard = query("#recovery-discard")
-  if !is_null(recovery_discard) {
-    on(recovery_discard, "click", fn(_e) { discard_comments() })
-  }
   on_doc("keydown", fn(e) {
     if event_key(e) == "Enter" && (event_meta_key(e) || event_ctrl_key(e)) {
       if _event_is_composing(e) {
@@ -862,9 +853,10 @@ fn reload_scroll_key() -> String {
 
 ///|
 /// Check for a saved draft (comments, summary, and/or question answers) and
-/// either auto-restore it (if this load follows a reload this app
-/// triggered itself — see reload_inflight_key()) or show the recovery
-/// modal for the human to decide (with TTL validation).
+/// restore it. Same file, not yet submitted, not expired: the draft simply
+/// comes back, with a small "Draft restored (N) · Discard" notice. The old
+/// Restore/Discard modal asked on every manual reload and the answer was
+/// always "restore" — the question itself was the friction.
 ///
 /// Skipping the confirmation modal for self-triggered reloads matters in
 /// practice: a busy review session where the file under review keeps
@@ -891,15 +883,27 @@ fn check_recovery() -> Unit {
     ls_remove(key)
     return
   }
-  if was_self_triggered_reload {
-    restore_comments()
-    return
+  let restored_count = stored_draft_item_count(stored)
+  restore_comments()
+  if !was_self_triggered_reload && restored_count > 0 {
+    show_restore_toast(restored_count, fn() { discard_comments() })
   }
-  let modal = query("#recovery-modal")
-  if !is_null(modal) {
-    add_class(modal, "visible")
-    remove_class(modal, "hidden")
+}
+
+///|
+/// How many things a draft brings back: comments with text, the overall
+/// summary, and answered questions.
+fn stored_draft_item_count(stored : String) -> Int {
+  let mut count = 0
+  for entry in parse_stored_comments(stored) {
+    if entry.length() >= 4 && entry[3].length() > 0 {
+      count = count + 1
+    }
   }
+  if parse_stored_summary(stored).length() > 0 {
+    count = count + 1
+  }
+  count + stored_answer_count(parse_stored_answers(stored))
 }
 
 ///|
@@ -996,9 +1000,11 @@ fn restore_comments() -> Unit {
 }
 
 ///|
+/// Throw the restored draft away. A plain reload (no inflight marker, no
+/// draft left in storage) is the simplest way back to a clean page.
 fn discard_comments() -> Unit {
   ls_remove(get_storage_key())
-  hide_recovery_modal()
+  location_reload()
 }
 
 ///|

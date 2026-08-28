@@ -654,12 +654,13 @@ extern "js" fn inline_comment_surface(target : Element) -> String =
   #|(target) => target?.closest?.("#md-preview") ? "preview" : "source"
 
 ///|
-/// Check if stored comments JSON has expired (TTL: 3 hours)
+/// Check if stored comments JSON has expired (TTL: 24 hours — a draft from
+/// last evening must still be there the next morning)
 extern "js" fn is_storage_expired(json : String) -> Bool =
   #|(json) => {
   #|  try {
   #|    const data = JSON.parse(json);
-  #|    const TTL = 3 * 60 * 60 * 1000;
+  #|    const TTL = 24 * 60 * 60 * 1000;
   #|    return !data.timestamp || (Date.now() - data.timestamp > TTL);
   #|  } catch(e) { return true; }
   #|}
@@ -2831,4 +2832,35 @@ extern "js" fn log_mermaid_errors_to_console() -> Unit =
   #|    console.error('[yunomi] Mermaid has ' + errs.length + ' error(s):');
   #|    errs.forEach(function(e, i) { console.error('[yunomi] Mermaid error #' + (i+1) + ' (line ' + (e.line||'?') + '):', e.message || String(e)); });
   #|  }
+  #|}
+
+///|
+/// Quiet notice that a saved draft came back on its own, with the one action
+/// the human might still want: throwing it away. Replaces the old
+/// Restore/Discard modal that asked on every manual reload.
+extern "js" fn show_restore_toast(count : Int, on_discard : () -> Unit) -> Unit =
+  #|(count, onDiscard) => {
+  #|  document.querySelectorAll(".yunomi-restore-toast").forEach(el => el.remove());
+  #|  const toast = document.createElement("div");
+  #|  toast.className = "yunomi-restore-toast";
+  #|  toast.setAttribute("role", "status");
+  #|  const label = document.createElement("span");
+  #|  label.textContent = `Draft restored (${count})`;
+  #|  const discard = document.createElement("button");
+  #|  discard.type = "button";
+  #|  discard.className = "yunomi-restore-discard";
+  #|  discard.textContent = "Discard";
+  #|  discard.addEventListener("click", () => { toast.remove(); onDiscard(); });
+  #|  toast.append(label, discard);
+  #|  document.body.appendChild(toast);
+  #|  setTimeout(() => { toast.classList.add("is-leaving"); setTimeout(() => toast.remove(), 400); }, 8000);
+  #|}
+
+///|
+extern "js" fn stored_answer_count(answers_json : String) -> Int =
+  #|(json) => {
+  #|  try {
+  #|    const answers = JSON.parse(json || "{}");
+  #|    return Object.values(answers || {}).filter(v => v && (typeof v === "string" ? v.trim() : (v.text || v.option))).length;
+  #|  } catch (_) { return 0; }
   #|}

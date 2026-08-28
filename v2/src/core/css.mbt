@@ -668,6 +668,11 @@ fn build_css() -> String {
     #|   been seen yet (collapsed panel or hidden tab). */
     #|.review-loop-unread-dot { position: absolute; top: 2px; right: 2px; width: 9px; height: 9px; border-radius: 50%; background: #e5484d; box-shadow: 0 0 0 2px var(--panel-solid, var(--panel)); pointer-events: none; }
     #|.review-loop-unread-dot[hidden] { display: none; }
+    #|/* Draft-restored notice: bottom-left so it never covers the chat. */
+    #|.yunomi-restore-toast { position: fixed; left: 16px; bottom: 16px; z-index: 99998; display: inline-flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel-solid, var(--panel)); color: var(--text); font-size: 12px; font-weight: 600; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18); animation: conversation-unread-pulse 400ms ease-out 1; }
+    #|.yunomi-restore-toast.is-leaving { opacity: 0; transition: opacity 400ms ease; }
+    #|.yunomi-restore-discard { padding: 3px 9px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: transparent; color: var(--muted); font-size: 11px; font-weight: 600; cursor: pointer; }
+    #|.yunomi-restore-discard:hover { color: var(--error); border-color: var(--error); }
     #|.review-loop-sidebar-toggle { position: relative; }
     #|/* Must out-specify the sidebar rule below (id+class), or an empty review
     #|   still reserves 300px and squeezes the preview. */

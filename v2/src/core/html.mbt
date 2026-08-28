@@ -337,23 +337,6 @@ fn build_history_panel(buf : StringBuilder) -> Unit {
 }
 
 ///|
-fn build_recovery_modal(buf : StringBuilder) -> Unit {
-  buf.write_string("<div class=\"modal-overlay\" id=\"recovery-modal\">")
-  buf.write_string(
-    "<div class=\"modal-dialog\"><h3>Restore Previous Draft?</h3>",
-  )
-  buf.write_string(
-    "<p class=\"modal-summary\" id=\"recovery-summary\">Found an unsaved draft from a previous session.</p>",
-  )
-  buf.write_string("<div class=\"modal-actions\">")
-  buf.write_string("<button id=\"recovery-discard\">Discard</button>")
-  buf.write_string(
-    "<button class=\"primary\" id=\"recovery-restore\">Restore</button>",
-  )
-  buf.write_string("</div></div></div>")
-}
-
-///|
 /// Build questions modal HTML: a one-question-per-screen stepper (mirrors
 /// Claude Code's AskUserQuestion — answer one, advance to the next, never a
 /// tall scrolling stack of every question at once). The internal frontmatter
@@ -756,7 +739,6 @@ pub fn build_csv_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   buf.write_string("<script>const DATA = ")
   buf.write_string(serialize_csv_data_json(data))
   buf.write_string(";</script>")
@@ -920,7 +902,6 @@ pub fn build_diff_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   build_script_footer(buf, port, "diff", filename, server_instance_id~)
   buf.to_string()
 }
@@ -952,7 +933,6 @@ pub fn build_text_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_recovery_modal(buf)
   build_script_footer(buf, port, "text", filename, server_instance_id~)
   buf.to_string()
 }

@@ -372,7 +372,6 @@ try {
   });
 
   await page.reload({ waitUntil: "domcontentloaded" });
-  await page.locator("#recovery-restore").click();
   await page.waitForSelector(".yunomi-inline-comment-editor #comment-input", { state: "visible" });
   const restoredEditingState = await page.evaluate(() => ({
     editors: document.querySelectorAll(".yunomi-inline-comment-editor").length,

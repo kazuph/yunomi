@@ -189,9 +189,6 @@ try {
 
       await page.evaluate(() => (window as unknown as { __sendNowEs?: EventSource }).__sendNowEs?.close());
       await page.reload({ waitUntil: "domcontentloaded" });
-      const restore = page.locator("#recovery-restore");
-      const restoreVisible = await restore.waitFor({ state: "visible", timeout: 3000 }).then(() => true).catch(() => false);
-      if (restoreVisible) await restore.click();
       await page.waitForFunction((commentId) => {
         const durable = document.querySelector(`.review-loop-inline[data-review-comment-id="${CSS.escape(commentId)}"]`);
         const local = document.querySelector(`.yunomi-inline-comment[data-comment-key="${CSS.escape(commentId)}"]`);

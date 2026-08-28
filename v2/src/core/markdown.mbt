@@ -2110,7 +2110,6 @@ pub fn build_markdown_html(
   buf.write_string("</div>")
   build_comment_list_aside(buf)
   build_submit_modal(buf)
-  build_recovery_modal(buf)
   build_mermaid_fullscreen(buf)
   build_image_fullscreen(buf)
   build_video_fullscreen(buf)

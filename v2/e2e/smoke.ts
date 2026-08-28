@@ -212,9 +212,7 @@ lastTestResult = await runTest("Markdown Server", TEST_MD, "markdown", async (mo
   assert(html.body.includes("md-layout"), "Has markdown side-by-side layout");
   assert(html.body.includes("md-left"), "Has markdown left panel");
   assert(html.body.includes("md-right"), "Has markdown source panel");
-  assert(html.body.includes("recovery-modal"), "Markdown has recovery modal");
-  assert(html.body.includes("recovery-restore"), "Markdown has restore button");
-  assert(html.body.includes("recovery-discard"), "Markdown has discard button");
+  assert(!html.body.includes("recovery-modal"), "Markdown no longer ships a Restore/Discard modal (drafts restore silently)");
 
   const health = await httpGet(port, "/healthz");
   assert(health.status === 200, "Healthz returns 200");
@@ -236,7 +234,7 @@ lastTestResult = await runTest("CSV Server", TEST_CSV, "csv", async (mode: strin
   assert(html.body.includes("<table"), "Has table element");
   assert(html.body.includes("Alice"), "Contains CSV data");
   assert(html.body.includes("data-row"), "Has data-row attributes");
-  assert(html.body.includes("recovery-modal"), "CSV has recovery modal");
+  assert(!html.body.includes("recovery-modal"), "CSV no longer ships a recovery modal");
 });
 
 // ===== Test: Static file serving & Range requests =====
@@ -366,7 +364,7 @@ function parseStoredComments(json: string): [string, string, string, string][] {
 function isStorageExpired(json: string): boolean {
   try {
     const data = JSON.parse(json);
-    const TTL = 3 * 60 * 60 * 1000;
+    const TTL = 24 * 60 * 60 * 1000;
     return !data.timestamp || (Date.now() - data.timestamp > TTL);
   } catch(e: unknown) { return true; }
 }
@@ -412,9 +410,11 @@ function isStorageExpired(json: string): boolean {
 
 // Test: TTL expired (old timestamp)
 {
-  const fourHoursAgo = Date.now() - 4 * 60 * 60 * 1000;
-  const old = JSON.stringify({ comments: {}, timestamp: fourHoursAgo });
-  assert(isStorageExpired(old), "4-hour-old timestamp is expired");
+  const dayAndHourAgo = Date.now() - 25 * 60 * 60 * 1000;
+  const old = JSON.stringify({ comments: {}, timestamp: dayAndHourAgo });
+  assert(isStorageExpired(old), "25-hour-old timestamp is expired");
+  const lastEvening = JSON.stringify({ comments: {}, timestamp: Date.now() - 12 * 60 * 60 * 1000 });
+  assert(!isStorageExpired(lastEvening), "12-hour-old draft is still restorable (24h TTL)");
 }
 
 // Test: missing timestamp is treated as expired
@@ -474,7 +474,7 @@ function simulateRestore(json: string): Record<string, { row: number; col: numbe
 {
   const expiredStored = JSON.stringify({
     comments: { "3:0": { row: 3, col: 0, text: "old comment" } },
-    timestamp: Date.now() - 4 * 60 * 60 * 1000,
+    timestamp: Date.now() - 25 * 60 * 60 * 1000,
   });
   assert(isStorageExpired(expiredStored), "CRV-007: expired data is detected before restore");
 }

@@ -329,15 +329,11 @@ async function main(): Promise<void> {
     await page.reload({ waitUntil: "domcontentloaded" });
 
     const recoveryVisible = await page
-      .waitForFunction(() => {
-        const modal = document.querySelector("#recovery-modal");
-        return !!modal && modal.classList.contains("visible");
-      }, undefined, { timeout: 5000 })
+      .waitForSelector(".yunomi-restore-toast", { timeout: 5000 })
       .then(() => true)
       .catch(() => false);
-    assertTrue(recoveryVisible, "リロード後に復元モーダルが表示される");
+    assertTrue(recoveryVisible, "リロード後に下書きが自動復元される（確認モーダルなし）");
     if (recoveryVisible) {
-      await page.locator("#recovery-restore").click();
       await page.waitForTimeout(200);
 
       const q2Restored = page.locator('.question-card[data-qid="q2-freetext"]');

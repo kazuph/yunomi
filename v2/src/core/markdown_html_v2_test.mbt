@@ -272,8 +272,9 @@ test "markdown html: has print action" {
 }
 
 ///|
-test "markdown html: has recovery modal" {
-  // Recovery modal for localStorage restore on page reload
+test "markdown html: no recovery modal (drafts restore silently)" {
+  // Drafts come back on their own with a small notice; the old
+  // Restore/Discard modal is gone.
   let md : MarkdownData = {
     source: "text",
     html: "<p>text</p>",
@@ -284,7 +285,7 @@ test "markdown html: has recovery modal" {
   debug_inspect(
     html.contains("id=\"recovery-modal\""),
     content=(
-      #|true
+      #|false
     ),
   )
 }
