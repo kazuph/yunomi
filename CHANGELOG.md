@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.6.0 - 2026-08-28
+
+### Added
+
+- Unread cues for agent replies: a header counter that sums unread replies across inline threads and the bottom-right chat, a red dot on the collapsed chat, a `(N)` tab-title prefix, and a short bell. One click on the counter jumps to exactly one unread message (opening the chat when the message lives there) and reads it; scrolling past never marks anything read.
+- Markdown previews refresh in place when the reviewed file changes or a new round starts: only blocks whose source text changed are swapped, so open editors, reply forms, caret position, rendered Mermaid diagrams and scroll position all survive without a page reload.
+- Drafts restore silently on reload with a small "Draft restored (N) · Discard" notice; the draft TTL is now 24 hours.
+
+### Changed
+
+- Media thumbnail numbering (header total and per-thumbnail index) is gone; the header number now means unread replies.
+- The Restore / Discard confirmation modal shown on every manual reload is removed.
+
+### Fixed
+
+- Clicking a reply form or editor mounted inside a Mermaid block no longer opens the diagram fullscreen and hides the form; only the diagram itself does.
+- Re-rendering conversation threads no longer recreates the form being typed in.
+
 ## v2.5.4 - 2026-08-27
 
 ### Added
