@@ -593,8 +593,109 @@ pub fn init_app() -> Unit {
   }
   // Register the tab so the server can tell reload from close.
   setup_close_detection(port)
+  // Unread cues for agent replies (header counter, chat dot, bell).
+  install_conversation_unread(get_yunomi_storage_scope())
+  ignore(user_typing_recently(0))
   // Setup SSE for live reload
   setup_sse(port)
+}
+
+///|
+let quiet_refresh_pending : Ref[Bool] = Ref(false)
+
+///|
+let quiet_refresh_requested_at : Ref[Double] = Ref(0.0)
+
+///|
+/// Full navigation — the last resort when the preview cannot be patched.
+fn full_reload() -> Unit {
+  save_reload_scroll_state(reload_scroll_key())
+  intentional_reload_in_progress.val = true
+  ls_set(reload_inflight_key(), "1")
+  location_reload()
+}
+
+///|
+/// The reviewed file changed. Markdown previews are patched in place; other
+/// modes keep the classic reload. Several change events in a row collapse
+/// into one refresh, and the refresh waits for a pause in typing (at most
+/// 6s) so it never lands mid-word.
+fn request_quiet_refresh() -> Unit {
+  if get_yunomi_mode() != "markdown" {
+    full_reload()
+    return
+  }
+  if quiet_refresh_pending.val {
+    return
+  }
+  quiet_refresh_pending.val = true
+  quiet_refresh_requested_at.val = now_ms()
+  schedule_quiet_refresh()
+}
+
+///|
+fn schedule_quiet_refresh() -> Unit {
+  let waited = now_ms() - quiet_refresh_requested_at.val
+  if user_typing_recently(900) && waited < 6000.0 {
+    ignore(set_timeout(fn() { schedule_quiet_refresh() }, 300))
+    return
+  }
+  perform_quiet_refresh()
+}
+
+///|
+fn perform_quiet_refresh() -> Unit {
+  fetch_get(yunomi_request_url("/"), fn(html) {
+    quiet_refresh_pending.val = false
+    if html.length() == 0 || html == "[]" || !html.contains("md-preview") {
+      full_reload()
+      return
+    }
+    let editor_state = capture_inline_editor_state()
+    capture_active_control()
+    capture_preview_anchor()
+    let saved_key = active_key.val
+    let saved_row = selected_comment_row.val
+    let saved_col = selected_comment_col.val
+    let saved_original_text = active_original_text.val
+    let saved_original_image = active_original_image.val
+    let saved_was_new = active_was_new.val
+    destroy_all_toggles()
+    destroy_media_sidebar()
+    let result = morph_markdown_preview(html)
+    if result == "reload" {
+      full_reload()
+      return
+    }
+    render_new_preview_blocks()
+    init_heading_toggles()
+    setup_task_decision_checkboxes()
+    setup_csv_clicks()
+    update_comment_indicators()
+    if editor_state.length() > 0 && !inline_editor_still_connected() {
+      // The block hosting the editor was replaced: reopen it on the new
+      // node with the text the human already typed (kept in `comments`).
+      match comments.get(saved_key) {
+        Some(comment) => {
+          let target = resolve_restored_comment_target(
+            saved_key, saved_row, saved_col, comment.surface,
+          )
+          if !is_null(target) {
+            open_inline_comment_editor(target, saved_key, saved_row, saved_col)
+            active_original_text.val = saved_original_text
+            active_original_image.val = saved_original_image
+            active_was_new.val = saved_was_new
+          }
+        }
+        None => ()
+      }
+    }
+    restore_inline_editor_focus(editor_state)
+    restore_active_control()
+    restore_preview_anchor()
+    load_review_loop_state()
+    ignore(set_timeout(fn() { init_media_sidebar() }, 500))
+  })
 }
 
 ///|
@@ -1853,7 +1954,8 @@ fn setup_sse(_port : Int) -> Unit {
     sse_server_instance.val = get_yunomi_server_instance()
   }
   let es = new_event_source(url)
-  sse_on(es, "reload", fn(_e) {
+  sse_on(es, "reload", fn(_e) { request_quiet_refresh() })
+  sse_on(es, "reload-legacy", fn(_e) {
     save_reload_scroll_state(reload_scroll_key())
     intentional_reload_in_progress.val = true
     // intentional_reload_in_progress is an in-memory flag — it dies with
@@ -1872,16 +1974,13 @@ fn setup_sse(_port : Int) -> Unit {
   })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
-    if !suppress_next_round_reload.val {
-      save_reload_scroll_state(reload_scroll_key())
-    }
     review_loop_unresolved_count.val = render_review_loop_panel_json(data)
     if suppress_next_round_reload.val {
+      // A reply only changes the conversation, which is already on screen.
       suppress_next_round_reload.val = false
     } else {
-      intentional_reload_in_progress.val = true
-      ls_set(reload_inflight_key(), "1")
-      location_reload()
+      // A new round may come with a rewritten report: patch it in quietly.
+      request_quiet_refresh()
     }
   })
   sse_on(es, "resolve", fn(e) {
@@ -4444,6 +4543,18 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
   on_doc("click", fn(e) {
     let target = event_target(e)
     if !is_null(closest(target, ".yunomi-comment-button")) {
+      return
+    }
+    // Only the diagram itself opens fullscreen. Conversation threads and
+    // comment editors are mounted inside `.mermaid-container` (right after
+    // the `.mermaid` node), so a click on their form must never be read as a
+    // click on the diagram.
+    if is_null(closest(target, ".mermaid")) ||
+      !is_null(
+        closest(
+          target, ".review-loop-inline,.review-loop-inline-row,.review-loop-inline-item,.review-loop-reply-form,.yunomi-inline-comment,.yunomi-inline-comment-editor,.mermaid-error-banner",
+        ),
+      ) {
       return
     }
     let container = closest(target, ".mermaid-container")

@@ -901,6 +901,29 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const draftKey = globalChat ? "global-timeline" : `${endpoint}:${threadId}`;
   #|    saveReplyDraft(draftKey, String(editor.value || ""));
   #|  });
+  #|  // Remember where the human is typing so a re-render never steals the
+  #|  // caret: the same form is found again by thread id + endpoint.
+  #|  const activeEditor = document.activeElement;
+  #|  const activeForm = activeEditor?.closest?.(".review-loop-reply-form");
+  #|  const focusMemo = activeForm && activeEditor.matches("textarea, input[type='text']") ? {
+  #|    threadId: activeForm.getAttribute("data-review-comment-id") || "",
+  #|    endpoint: activeForm.getAttribute("data-review-endpoint") || "/reply-comment",
+  #|    inline: !!activeForm.closest(".review-loop-inline"),
+  #|    start: activeEditor.selectionStart,
+  #|    end: activeEditor.selectionEnd,
+  #|  } : null;
+  #|  const restoreFocus = () => {
+  #|    if (!focusMemo || document.activeElement === activeEditor && activeEditor.isConnected) return;
+  #|    const scope = focusMemo.inline ? document : panel;
+  #|    const form = Array.from(scope.querySelectorAll(".review-loop-reply-form")).find(candidate =>
+  #|      (candidate.getAttribute("data-review-comment-id") || "") === focusMemo.threadId
+  #|      && (candidate.getAttribute("data-review-endpoint") || "/reply-comment") === focusMemo.endpoint
+  #|      && (!!candidate.closest(".review-loop-inline")) === focusMemo.inline);
+  #|    const editor = form?.querySelector("textarea, input[type='text']");
+  #|    if (!editor) return;
+  #|    editor.focus({ preventScroll: true });
+  #|    try { editor.setSelectionRange(focusMemo.start, focusMemo.end); } catch (_) {}
+  #|  };
   #|  const clearPanel = () => {
   #|    panel.innerHTML = "";
   #|  };
@@ -950,6 +973,20 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
   #|  const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+  #|  // Text of a document node without the conversation UI mounted inside it,
+  #|  // so a thread's own quote never matches its host during re-anchoring.
+  #|  const runtimeNodeSelector = ".review-loop-inline,.review-loop-inline-row,.review-loop-inline-item,.yunomi-inline-comment,.yunomi-inline-comment-editor-mount";
+  #|  const textOf = (el) => {
+  #|    let out = "";
+  #|    const walk = (node) => {
+  #|      for (const child of node.childNodes) {
+  #|        if (child.nodeType === 3) out += child.nodeValue;
+  #|        else if (child.nodeType === 1 && !child.matches(runtimeNodeSelector)) walk(child);
+  #|      }
+  #|    };
+  #|    walk(el);
+  #|    return out;
+  #|  };
   #|  const baseName = (file) => String(file || "").split("/").filter(Boolean).pop() || String(file || "");
   #|  const lineText = (line) => String((line && line.text) || "");
   #|  const diffLines = state.diff && Array.isArray(state.diff.lines) ? state.diff.lines : [];
@@ -1036,8 +1073,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    candidates.push(...visibleCandidates(document.querySelectorAll(".diff-line")));
   #|    if (snippet) {
   #|      for (const el of candidates) {
-  #|        if (norm(el.textContent || "").includes(snippet)) {
-  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(child.textContent || "").includes(snippet)) : null;
+  #|        if (norm(textOf(el)).includes(snippet)) {
+  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(textOf(child)).includes(snippet)) : null;
   #|          return listItem || el;
   #|        }
   #|      }
@@ -1047,16 +1084,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        if (after) {
   #|          const afterText = norm(lineText(after));
   #|          for (const el of visibleCandidates(document.querySelectorAll(".diff-line.addition"))) {
-  #|            if (norm(el.textContent || "").includes(afterText)) return el;
+  #|            if (norm(textOf(el)).includes(afterText)) return el;
   #|          }
   #|          for (const el of visibleCandidates(document.querySelectorAll("[data-row],[data-source-line],[data-source-start-line]"))) {
-  #|            if (norm(el.textContent || "").includes(afterText)) return el;
+  #|            if (norm(textOf(el)).includes(afterText)) return el;
   #|          }
   #|        }
   #|      }
   #|      for (const el of visibleCandidates(document.querySelectorAll("[data-row],[data-source-line],[data-source-start-line]"))) {
-  #|        if (norm(el.textContent || "").includes(snippet)) {
-  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(child.textContent || "").includes(snippet)) : null;
+  #|        if (norm(textOf(el)).includes(snippet)) {
+  #|          const listItem = el.matches?.("ul,ol") ? Array.from(el.children).find(child => norm(textOf(child)).includes(snippet)) : null;
   #|          return listItem || el;
   #|        }
   #|      }
@@ -1151,16 +1188,27 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    });
   #|  };
   #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
+  #|  // Stable identity for every message so unread tracking survives
+  #|  // re-renders: thread id + position + author + a cheap text hash.
+  #|  const textHash = (text) => {
+  #|    let h = 0;
+  #|    const value = String(text || "");
+  #|    for (let i = 0; i < value.length; i += 1) h = (h * 31 + value.charCodeAt(i)) | 0;
+  #|    return (h >>> 0).toString(36);
+  #|  };
+  #|  const messageKey = (threadId, index, message) => `${threadId}#${index}#${message.author === "human" ? "h" : "a"}#${textHash(message.text)}`;
+  #|  const unreadKeys = window.__yunomiUnread?.unreadKeys?.() || new Set();
   #|  const reviewLoopCard = (c, includeSnippet, options = {}) => {
   #|    const replies = Array.isArray(c.replies) ? c.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
-  #|    const threadLine = (r) => {
+  #|    const threadLine = (r, key) => {
   #|      const human = r.author === "human";
-  #|      const className = human ? "review-loop-thread-line is-human" : "review-loop-thread-line is-agent";
+  #|      const unread = !human && unreadKeys.has(key) ? " is-unread" : "";
+  #|      const className = human ? "review-loop-thread-line is-human" : `review-loop-thread-line is-agent${unread}`;
   #|      const attachments = (Array.isArray(r.attachments) ? r.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<div class="${className}">${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
+  #|      return `<div class="${className}" data-message-key="${esc(key)}" data-message-author="${human ? "human" : "agent"}">${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
   #|    };
-  #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] })]
-  #|      .concat(replies.map(threadLine)).join("");
+  #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] }, `${c.id}#root#h`)]
+  #|      .concat(replies.map((r, index) => threadLine(r, messageKey(c.id, index, r)))).join("");
   #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
   #|    const resolveAction = `<div class="review-loop-thread-actions">${resolve}</div>`;
   #|    const replyForm = c.status === "resolved" ? "" : conversationForm(c.id, "/reply-comment", t.replyPlaceholder, t.reply);
@@ -1171,6 +1219,37 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const title = `${c.file || ""}:${c.line || ""}`;
   #|    const classes = `review-loop-comment${options.sidebar ? " review-loop-sidebar-card" : ""}${c.status === "resolved" ? " is-resolved" : ""}`;
   #|    return `<li class="${classes}" data-review-comment-id="${esc(c.id)}"><div class="review-loop-comment-head">${number}<strong title="${esc(title)}">${esc(file)}</strong></div>${snippet}<div class="review-loop-thread">${thread}</div>${resolveAction}${replyForm}</li>`;
+  #|  };
+  #|  // Refresh only the message list of an inline thread that is already on
+  #|  // the page. The reply form (and the caret inside it) is left untouched.
+  #|  const updateInlineCard = (inline, c) => {
+  #|    const card = inline.querySelector(".review-loop-comment");
+  #|    if (!card) return false;
+  #|    const fresh = document.createElement("template");
+  #|    fresh.innerHTML = reviewLoopCard(c, false);
+  #|    const freshCard = fresh.content.firstElementChild;
+  #|    if (!freshCard) return false;
+  #|    card.className = freshCard.className;
+  #|    const swap = (selector) => {
+  #|      const current = card.querySelector(`:scope > ${selector}`);
+  #|      const next = freshCard.querySelector(`:scope > ${selector}`);
+  #|      if (current && next) {
+  #|        if (current.innerHTML !== next.innerHTML) current.innerHTML = next.innerHTML;
+  #|      } else if (current && !next) {
+  #|        current.remove();
+  #|      } else if (!current && next) {
+  #|        card.appendChild(next);
+  #|      }
+  #|    };
+  #|    swap(".review-loop-comment-head");
+  #|    swap(".review-loop-thread");
+  #|    swap(".review-loop-thread-actions");
+  #|    const currentForm = card.querySelector(":scope > .review-loop-reply-form");
+  #|    const nextForm = freshCard.querySelector(":scope > .review-loop-reply-form");
+  #|    if (currentForm && !nextForm) currentForm.remove();
+  #|    else if (!currentForm && nextForm) { card.appendChild(nextForm); bindReplyForms(card); }
+  #|    bindResolveButtons(card);
+  #|    return true;
   #|  };
   #|  // Anchors are often inline (an image lives in span.yunomi-media-comment-host
   #|  // inside a <p>). Dropping a <div> there nests a block inside a <p>, which is
@@ -1196,10 +1275,28 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    (previous?.isConnected ? previous : anchor).insertAdjacentElement("afterend", inline);
   #|    lastInlineByAnchor.set(anchor, inline);
   #|  };
+  #|  const existingInlines = new Map();
+  #|  document.querySelectorAll(".review-loop-inline[data-review-comment-id]").forEach(el => {
+  #|    const id = el.dataset.reviewCommentId || "";
+  #|    if (id && !existingInlines.has(id)) existingInlines.set(id, el);
+  #|  });
+  #|  const reusedInlines = new Set();
+  #|  const holderOf = (inline) => inline.parentElement?.matches?.(".review-loop-inline-row > td, .review-loop-inline-item")
+  #|    ? inline.parentElement.closest(".review-loop-inline-row, .review-loop-inline-item")
+  #|    : inline;
   #|  const insertInline = (rawTarget, comment) => {
   #|    const tableCell = rawTarget.closest?.("td,th");
   #|    const target = rawTarget.closest?.("tr") ? rawTarget : insertionAnchor(rawTarget);
+  #|    const previous = existingInlines.get(String(comment.id || ""));
+  #|    if (previous && previous.isConnected && previous.__yunomiAnchor === rawTarget && updateInlineCard(previous, comment)) {
+  #|      reusedInlines.add(previous);
+  #|      const anchorKey = tableCell && Number(comment.col || 0) > 0 ? null : (target.closest?.("tr") || target.closest?.("li") || target);
+  #|      if (anchorKey) lastInlineByAnchor.set(anchorKey, holderOf(previous));
+  #|      return;
+  #|    }
   #|    const inline = document.createElement("div");
+  #|    inline.__yunomiAnchor = rawTarget;
+  #|    reusedInlines.add(inline);
   #|    inline.className = "review-loop-inline";
   #|    inline.tabIndex = -1;
   #|    inline.dataset.reviewCommentId = String(comment.id || "");
@@ -1235,7 +1332,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    bindResolveButtons(inline);
   #|    bindReplyForms(inline);
   #|  };
-  #|  document.querySelectorAll(".review-loop-inline, .review-loop-inline-row, .review-loop-inline-item").forEach(el => el.remove());
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
   #|  const placementCandidates = unresolved.map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
@@ -1248,14 +1344,23 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    return a.order - b.order;
   #|  });
   #|  placements.forEach(placement => insertInline(placement.target, placement.comment));
+  #|  document.querySelectorAll(".review-loop-inline").forEach(el => {
+  #|    if (reusedInlines.has(el)) return;
+  #|    holderOf(el).remove();
+  #|  });
+  #|  document.querySelectorAll(".review-loop-inline-row, .review-loop-inline-item").forEach(el => {
+  #|    if (!el.querySelector(".review-loop-inline")) el.remove();
+  #|  });
   #|  const timelineMessage = (message) => {
   #|    const human = message.author === "human";
+  #|    const unread = !human && unreadKeys.has(message.key) ? " is-unread" : "";
   #|    const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
+  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}${unread}" data-message-key="${esc(message.key)}" data-message-author="${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
   #|  };
   #|  const timelineMessages = roundThreads.flatMap(thread => {
   #|    const replies = Array.isArray(thread.replies) ? thread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
-  #|    return [{ author: "human", text: thread.text, attachments: thread.attachments || [] }].concat(replies);
+  #|    return [{ author: "human", text: thread.text, attachments: thread.attachments || [], key: `${thread.id}#root#h` }]
+  #|      .concat(replies.map((r, index) => ({ ...r, key: messageKey(thread.id, index, r) })));
   #|  });
   #|  const activeRoundThread = roundThreads.filter(thread => thread.status !== "resolved").at(-1);
   #|  const replyForm = activeRoundThread
@@ -1271,14 +1376,41 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
   #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
   #|  const chatIcon = `<svg class="lucide lucide-message-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>`;
+  #|  const unreadDot = `<span class="review-loop-unread-dot" hidden></span>`;
   #|  // Global conversation lives in the fixed bottom-right chat; anchored
   #|  // line comments stay beside the document text and never enter it.
-  #|  panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main" role="img" aria-label="Chat">${esc(t.header)}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}">${collapsed ? chatIcon : "−"}</button></div><div class="review-loop-body">${summaryHtml}</div></section>`;
+  #|  const activeThreadId = activeRoundThread ? String(activeRoundThread.id) : "";
+  #|  const activeEndpoint = activeRoundThread ? "/reply-comment" : "/create-global-comment";
+  #|  const existingSection = panel.querySelector(".review-loop-details .review-loop-conversation");
+  #|  const existingForm = existingSection?.querySelector(":scope > .review-loop-reply-form");
+  #|  const existingStream = existingSection?.querySelector(":scope > .review-loop-conversation-stream");
+  #|  const canPatch = !!existingForm && !!existingStream
+  #|    && (existingForm.getAttribute("data-review-comment-id") || "") === activeThreadId
+  #|    && (existingForm.getAttribute("data-review-endpoint") || "") === activeEndpoint;
+  #|  if (canPatch) {
+  #|    // Same thread, same form: only the message list changes. The textarea
+  #|    // keeps its node, caret and IME state.
+  #|    existingSection.dataset.reviewCommentId = activeThreadId;
+  #|    const nextStream = timelineMessages.map(timelineMessage).join("");
+  #|    if (existingStream.innerHTML !== nextStream) existingStream.innerHTML = nextStream;
+  #|    const button = panel.querySelector(".review-loop-sidebar-toggle");
+  #|    if (button) {
+  #|      const icon = collapsed ? chatIcon : "−";
+  #|      if (!button.querySelector(".review-loop-unread-dot")) button.insertAdjacentHTML("beforeend", unreadDot);
+  #|      const dot = button.querySelector(".review-loop-unread-dot");
+  #|      const iconHtml = Array.from(button.childNodes).filter(node => node !== dot).map(node => node.nodeType === 1 ? node.outerHTML : node.textContent).join("");
+  #|      if (iconHtml !== icon) button.innerHTML = icon + unreadDot;
+  #|      button.title = toggleTitle;
+  #|      button.setAttribute("aria-label", toggleTitle);
+  #|    }
+  #|  } else {
+  #|    panel.innerHTML = `<section class="review-loop-details"><div class="review-loop-header"><span class="review-loop-header-main" role="img" aria-label="Chat">${esc(t.header)}</span><button type="button" class="review-loop-sidebar-toggle" title="${esc(toggleTitle)}" aria-label="${esc(toggleTitle)}">${collapsed ? chatIcon : "−"}${unreadDot}</button></div><div class="review-loop-body">${summaryHtml}</div></section>`;
+  #|    bindResolveButtons(panel);
+  #|    bindReplyForms(panel);
+  #|  }
   #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
   #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
   #|  }
-  #|  bindResolveButtons(panel);
-  #|  bindReplyForms(panel);
   #|  const restoreScroll = (selector, previous) => {
   #|    const element = panel.querySelector(selector);
   #|    if (!element) return;
@@ -1291,12 +1423,16 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    panel.classList.toggle("review-loop-sidebar-collapsed", next);
   #|    localStorage.setItem(sidebarStorageKey, next ? "collapsed" : "expanded");
   #|    if (button) {
-  #|      button.innerHTML = next ? chatIcon : "−";
+  #|      const dot = button.querySelector(".review-loop-unread-dot");
+  #|      button.innerHTML = (next ? chatIcon : "−") + (dot ? dot.outerHTML : unreadDot);
   #|      button.title = next ? t.expandTitle : t.collapseTitle;
   #|      button.setAttribute("aria-label", button.title);
   #|    }
+  #|    window.__yunomiUnread?.sync?.();
   #|  };
-  #|  panel.querySelector(".review-loop-sidebar-toggle")?.addEventListener("click", togglePanel);
+  #|  if (!canPatch) panel.querySelector(".review-loop-sidebar-toggle")?.addEventListener("click", togglePanel);
+  #|  restoreFocus();
+  #|  window.__yunomiUnread?.sync?.();
   #|  return gateUnresolved;
   #|}
 
@@ -1318,6 +1454,9 @@ extern "js" fn render_inline_saved_comment(
 ) -> Unit =
   #|(key, row, col, text, image, value, pending, target, surface) => {
   #|  if (window.__YUNOMI_DURABLE_COMMENT_IDS__?.has(String(key || ""))) return;
+  #|  // While this comment is being edited, the editor is its only inline
+  #|  // representation; a second read-only holder would just push the page.
+  #|  if (document.querySelector(`.yunomi-inline-comment-editor[data-comment-key="${CSS.escape(String(key || ""))}"]`)) return;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);

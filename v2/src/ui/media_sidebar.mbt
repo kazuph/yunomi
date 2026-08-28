@@ -65,7 +65,6 @@ pub fn init_media_sidebar() -> Unit {
   let sidebar = query("#media-sidebar")
   let thumbs_c = query("#media-sidebar-thumbs")
   let toggle_btn = query("#media-sidebar-toggle")
-  let toggle_count = query("#media-toggle-count")
 
   // Check if all required elements exist
   if is_null(md_layout) ||
@@ -98,9 +97,6 @@ pub fn init_media_sidebar() -> Unit {
   // Show toggle button and sidebar
   set_style(toggle_btn, "display", "")
   add_class(toggle_btn, "has-media")
-  if !is_null(toggle_count) {
-    set_text_content(toggle_count, items.length().to_string())
-  }
   remove_class(sidebar, "hidden")
 
   // Create thumbnails
@@ -207,6 +203,28 @@ fn collect_media_items(preview : Element) -> Array[MediaItem] {
 }
 
 ///|
+/// Tear the sidebar down so it can be rebuilt after an in-place preview
+/// refresh: listeners, observers, thumbnails and the toggle state.
+pub fn destroy_media_sidebar() -> Unit {
+  match global_sidebar.val {
+    Some(state) => {
+      state.handles.each(fn(h) { unlisten(h) })
+      state.handles.clear()
+      clear_children(state.thumbs_container)
+      add_class(state.sidebar, "hidden")
+      sync_media_sidebar_offset(state.sidebar)
+      let toggle_btn = query("#media-sidebar-toggle")
+      if !is_null(toggle_btn) {
+        remove_class(toggle_btn, "has-media")
+        set_style(toggle_btn, "display", "none")
+      }
+      global_sidebar.val = None
+    }
+    None => ()
+  }
+}
+
+///|
 /// Create thumbnail elements
 fn create_thumbnails(state : MediaSidebarState) -> Unit {
   state.items.eachi(fn(idx, item) {
@@ -216,12 +234,6 @@ fn create_thumbnails(state : MediaSidebarState) -> Unit {
     set_tabindex(thumb, 0)
     set_attribute(thumb, "role", "button")
     set_aria_label(thumb, item.alt)
-
-    // Index badge
-    let badge = create_element("span")
-    set_class_name(badge, "media-sidebar-thumb-index")
-    set_text_content(badge, (idx + 1).to_string())
-    append_child(thumb, badge)
 
     // Thumbnail content based on type
     match item.type_ {
@@ -717,8 +729,8 @@ fn setup_mermaid_observer(state : MediaSidebarState) -> Unit {
   // Initial check
   check_mermaid()
 
-  // Setup mutation observer via FFI
-  let _h = setup_mutation_observer(state.preview, check_mermaid)
+  // Setup mutation observer via FFI (released with the sidebar)
+  state.handles.push(setup_mutation_observer(state.preview, check_mermaid))
 
   // Periodic checks
   let _ = set_timeout(check_mermaid, 1000)

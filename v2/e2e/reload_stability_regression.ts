@@ -362,13 +362,18 @@ async function scenarioReloadRestoresWithoutFinalizing(browser: Browser): Promis
 
     // Two edits in a row, like the real incident's log evidence.
     await page.waitForTimeout(500);
+    // Since the in-place refresh, a file change patches the preview without
+    // navigating: the questions dialog and its input never leave the DOM.
+    let loads = 0;
+    page.on("load", () => (loads += 1));
     writeFileSync(mdPath, threeQuestionFixture(2));
-    const nav1 = page.waitForEvent("load", { timeout: 15000 });
-    await nav1;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 1, undefined, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("rev 2"), undefined, { timeout: 5000 });
     await page.waitForTimeout(1500);
     writeFileSync(mdPath, threeQuestionFixture(3));
-    const nav2 = page.waitForEvent("load", { timeout: 15000 });
-    await nav2;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 2, undefined, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("rev 3"), undefined, { timeout: 5000 });
+    assertTrue(loads === 0, "2回連続のファイル更新でもページはリロードされない（その場でプレビューだけ差し替わる）", { loads });
 
     assertTrue(!closeRequestSeen, "2回連続のリロードでも /close は一度も送られない（意図的リロードとして扱われる）", {
       closeRequestSeen,
@@ -489,14 +494,30 @@ async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise
       scrollBeforeReload,
     );
 
-    const firstRefresh = page.waitForEvent("load", { timeout: 15000 });
+    let loads = 0;
+    page.on("load", () => (loads += 1));
+    const editorBefore = await page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>("#comment-input")!;
+      (input as any).__same = true;
+      input.focus();
+      input.setSelectionRange(3, 3);
+      return { focused: document.activeElement === input };
+    });
+    assertTrue(editorBefore.focused, "更新前はインライン編集のtextareaにフォーカスがある");
     writeFileSync(mdPath, reviewInputFixture(2));
-    await firstRefresh;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 1, undefined, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("preview revision 2"), undefined, { timeout: 5000 });
     await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible", timeout: 5000 });
+    assertTrue(loads === 0, "実ファイル更新でページはリロードされない（差分だけその場で差し替え）", { loads });
     assertTrue(
       await page.locator("#comment-input").inputValue() === commentText,
       "プレビュー更新後も開いていたインライン編集と未保存入力がそのまま残る",
     );
+    const editorAfter = await page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>("#comment-input")!;
+      return { same: (input as any).__same === true, focused: document.activeElement === input, caret: input.selectionStart };
+    });
+    assertTrue(editorAfter.same && editorAfter.focused && editorAfter.caret === 3, "変更のないブロック上のインライン編集は同じDOMノードのままフォーカスとカーソル位置を保つ", editorAfter);
     await page.waitForFunction(
       (expected) => {
         const preview = document.querySelector<HTMLElement>(".md-left");
@@ -550,9 +571,10 @@ async function scenarioPreviewRefreshKeepsReviewInput(browser: Browser): Promise
     const summary = "入力途中の全体コメントは消えない";
     await page.locator("#global-comment").fill(summary);
 
-    const secondRefresh = page.waitForEvent("load", { timeout: 15000 });
     writeFileSync(mdPath, reviewInputFixture(3));
-    await secondRefresh;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 2, undefined, { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("preview revision 3"), undefined, { timeout: 5000 });
+    assertTrue(loads === 0, "Submit Reviewダイアログを開いたままのファイル更新でもリロードされない", { loads });
     await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
     assertTrue(
       await page.locator("#global-comment").inputValue() === summary,

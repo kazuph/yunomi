@@ -187,12 +187,13 @@ fn build_page_start(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
   )
   buf.write_string(
+    "<button type=\"button\" class=\"conversation-unread\" id=\"conversation-unread\" title=\"Unread AI replies in the document\" aria-label=\"Unread AI replies\" hidden>0</button>",
+  )
+  buf.write_string(
     "<button class=\"media-sidebar-toggle\" id=\"media-sidebar-toggle\" title=\"Show / hide media thumbnail list\" aria-label=\"Toggle media gallery\">",
   )
   buf.write_string(icon_svg_media)
-  buf.write_string(
-    "<span class=\"toggle-count\" id=\"media-toggle-count\"></span></button>",
-  )
+  buf.write_string("</button>")
   buf.write_string(
     "<button class=\"view-toggle\" id=\"view-toggle\" title=\"Hide source panel\" aria-label=\"Toggle source panel\">",
   )

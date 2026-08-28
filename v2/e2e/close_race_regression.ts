@@ -192,12 +192,15 @@ async function scenarioSelfTriggeredReloadNeverCloses(
       "AIエージェントへのコメント機能はとても重要です。長文でも壊れず🎉最後まで反映されること。";
     await page.locator('.question-card[data-qid="q-freetext"] .q-answer').fill(FULL_ANSWER);
 
-    const loadPromise = page.waitForEvent("load", { timeout: 15000 });
     // Change the reviewed file on disk — same trigger as an AI agent
     // live-editing REPORT.md while the human is mid-review. watch_file's
-    // default poll interval can take a few seconds to notice.
+    // default poll interval can take a few seconds to notice. The preview is
+    // patched in place; no navigation happens.
+    let loads = 0;
+    page.on("load", () => (loads += 1));
     writeFileSync(mdPath, fixtureContent(2));
-    await loadPromise;
+    await page.waitForFunction(() => (window as any).__YUNOMI_QUIET_REFRESH_COUNT__ === 1, undefined, { timeout: 15000 });
+    assert(loads === 0, "ファイル更新はその場のプレビュー差し替えで処理され、ページ遷移しない", { loads });
 
     assert(!closeRequestSeen, "SSEリロード中は /close が一度も送られない", { closeRequestSeen });
 
