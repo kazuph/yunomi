@@ -410,7 +410,7 @@ async function main(): Promise<void> {
           const left = (el: Element | null | undefined) => (el ? Math.round(el.getBoundingClientRect().left) : -1);
           return {
             file: left(inline.querySelector(".review-loop-comment-head strong")),
-            message: left(inline.querySelector(".review-loop-thread-line > p")),
+            message: left(inline.querySelector(".review-loop-thread-line > .review-loop-markdown, .review-loop-thread-line > p")),
           };
         })(),
         resolve: (() => {
@@ -621,8 +621,10 @@ async function main(): Promise<void> {
           cancelText: cancel.textContent?.trim() || "",
           cancelIsIconOnly: cancel.classList.contains("icon-only"),
           horizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
-          actionsFit: Array.from(editor.querySelectorAll<HTMLElement>(".yunomi-inline-comment-actions button"))
+          actionsFit: Array.from(editor.querySelectorAll<HTMLElement>(".yunomi-inline-comment-action-start button, .yunomi-inline-comment-action-group button"))
             .every(button => button.getBoundingClientRect().right <= editorBox.right),
+          editorWidth: Math.round(editorBox.width),
+          conversationWidth: Math.round(document.querySelector<HTMLElement>("#md-preview .review-loop-inline")?.getBoundingClientRect().width || 0),
         };
       });
       const desktopEditorLayout = await newCommentEditorLayout();
@@ -638,6 +640,7 @@ async function main(): Promise<void> {
       assert.equal(desktopEditorLayout?.cancelIsIconOnly, false, "the Cancel action is not rendered as the old x icon");
       assert.equal(desktopEditorLayout?.horizontalOverflow, false, "the editor does not create page-level horizontal overflow");
       assert.equal(desktopEditorLayout?.actionsFit, true, "all inline comment actions remain inside the editor");
+      assert.equal(desktopEditorLayout?.editorWidth, desktopEditorLayout?.conversationWidth, "the compose dialog uses the same width as the inline conversation card");
       await editorLayoutPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
       await editorLayoutPage.waitForSelector("#review-loop-panel.review-loop-sidebar-collapsed");
       const collapsedEditorLayout = await newCommentEditorLayout();
@@ -647,7 +650,11 @@ async function main(): Promise<void> {
       await editorLayoutPage.waitForFunction(() => !document.querySelector("#review-loop-panel")?.classList.contains("review-loop-sidebar-collapsed"));
       await editorLayoutPage.setViewportSize({ width: 980, height: 900 });
       const narrowDesktopEditorLayout = await newCommentEditorLayout();
-      assert.ok((narrowDesktopEditorLayout?.separation ?? -1) >= 0, "the comment dialog stays clear of chat immediately above the mobile breakpoint");
+      assert.equal(
+        narrowDesktopEditorLayout?.editorWidth,
+        narrowDesktopEditorLayout?.conversationWidth,
+        "above the mobile breakpoint the compose dialog stays the same width as the conversation card",
+      );
       assert.equal(narrowDesktopEditorLayout?.horizontalOverflow, false, "the breakpoint-adjacent editor keeps the page width stable");
       assert.equal(narrowDesktopEditorLayout?.actionsFit, true, "the breakpoint-adjacent editor keeps every action clickable");
       await editorLayoutPage.locator('.yunomi-inline-comment-editor [data-action="cancel"]').click();
@@ -853,6 +860,34 @@ async function main(): Promise<void> {
     }));
     assert.equal(longAgentConversationReply.status, 200);
     await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("Long conversation line 30"), undefined, { timeout: 3000 });
+    await page.evaluate(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      if (!stream) return;
+      stream.scrollTop = Math.max(0, stream.scrollHeight - stream.clientHeight - 16);
+    });
+    await summaryInput.fill("See me without extra scrolling");
+    await summaryInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+    await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("See me without extra scrolling"), undefined, { timeout: 3000 });
+    await page.waitForFunction(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      if (!stream) return false;
+      return stream.scrollHeight - stream.scrollTop - stream.clientHeight <= 2;
+    }, undefined, { timeout: 3000 });
+    const postedInView = await page.evaluate(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      const last = stream?.querySelector<HTMLElement>(".review-loop-conversation-message:last-child");
+      if (!stream || !last) return null;
+      const streamBox = stream.getBoundingClientRect();
+      const lastBox = last.getBoundingClientRect();
+      return {
+        distanceFromBottom: stream.scrollHeight - stream.scrollTop - stream.clientHeight,
+        lastVisible: lastBox.bottom <= streamBox.bottom + 2,
+        lastText: (last.textContent || "").trim(),
+      };
+    });
+    assert.match(postedInView?.lastText || "", /See me without extra scrolling/, "the newest human reply is the last timeline message");
+    assert.ok((postedInView?.distanceFromBottom ?? 99) <= 2, "posting a reply while near the bottom keeps the timeline on the newest message", postedInView);
+    assert.equal(postedInView?.lastVisible, true, "the newest human reply is visible without a manual scroll", postedInView);
     const fixedComposerLayout = await page.evaluate(() => {
       const panel = document.querySelector<HTMLElement>("#review-loop-panel");
       const stream = panel?.querySelector<HTMLElement>(".review-loop-conversation-stream");
@@ -878,13 +913,13 @@ async function main(): Promise<void> {
     );
     assert.equal(
       (readFileSync(NOTIFY_LOG, "utf-8").match(/\[yunomi\] conversation reply/g) || []).length,
-      notificationCountBeforeGlobalAgent,
-      "agent API replies do not notify the agent back",
+      notificationCountBeforeGlobalAgent + 1,
+      "agent API replies do not notify the agent back; a later human reply still does",
     );
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForSelector("#review-loop-panel .review-loop-conversation-image", { timeout: 3000 });
     assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /Sidebar reply remains in the global conversation/, "human conversation text survives reload");
-    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /Agent reply through the yunomi API/, "agent API reply survives reload");
+    assert.match(await page.locator("#review-loop-panel .review-loop-conversation").textContent() || "", /See me without extra scrolling/, "the auto-scrolled human reply survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-image").count(), 1, "conversation image survives reload");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation-head").count(), 0, "global chat omits the redundant Conversation heading");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-resolve").count(), 0, "global chat does not expose Resolve conversation");
@@ -898,7 +933,7 @@ async function main(): Promise<void> {
     );
     const timelineOrder = await page.locator("#review-loop-panel .review-loop-conversation-message").allTextContents();
     assert.match(timelineOrder[0] || "", /Round 1 needs a text update/, "the timeline starts with the oldest global message");
-    assert.match(timelineOrder.at(-1) || "", /Long conversation line 30/, "the timeline ends with the latest global message");
+    assert.match(timelineOrder.at(-1) || "", /See me without extra scrolling/, "the timeline ends with the latest global message");
     const scrollReach = await page.evaluate(() => {
       const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
       if (!stream) return null;
@@ -920,6 +955,26 @@ async function main(): Promise<void> {
       Math.abs((scrollReach?.scrollTop || 0) - (scrollReach?.maxScroll || 0)) <= 1,
       `scrollTop can reach the latest message ${JSON.stringify(scrollReach)}`,
     );
+    const jumpLatest = await page.evaluate(() => {
+      const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
+      const button = document.querySelector<HTMLButtonElement>("#review-loop-panel .review-loop-jump-latest");
+      if (!stream || !button) return { missing: true };
+      stream.scrollTop = 0;
+      stream.dispatchEvent(new Event("scroll"));
+      const shownAtTop = button.classList.contains("is-visible");
+      button.click();
+      const distance = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
+      return {
+        shownAtTop,
+        label: button.getAttribute("aria-label"),
+        hiddenAtBottom: !button.classList.contains("is-visible"),
+        distance,
+      };
+    });
+    assert.equal(jumpLatest.shownAtTop, true, "a jump-to-latest control appears when the timeline is scrolled away from the newest messages", jumpLatest);
+    assert.equal(jumpLatest.label, "Jump to latest", "jump-to-latest stays English like the rest of the chat chrome", jumpLatest);
+    assert.ok((jumpLatest.distance ?? 99) <= 2, "jump-to-latest scrolls the timeline to the newest messages", jumpLatest);
+    assert.equal(jumpLatest.hiddenAtBottom, true, "jump-to-latest hides again once the newest messages are in view", jumpLatest);
     for (const width of [375, 450, 768, 1440]) {
       await page.setViewportSize({ width, height: 900 });
       const box = await page.evaluate(() => {

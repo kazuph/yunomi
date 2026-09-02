@@ -8,6 +8,12 @@
 ///   - the red dot on the bottom-right chat (unread replies in the global chat),
 ///   - a short bell plus a `(N)` tab-title prefix when something new arrives.
 ///
+/// The yellow header counter is separate: it is the number of unresolved
+/// *resolvable* inline comments (the ones with Resolve). The bottom-right
+/// chat is not counted, because it has no Resolve control.
+/// Clicking the yellow badge jumps to the next inline thread without
+/// changing the count; the count falls only when a thread is resolved.
+///
 /// An inline reply counts as seen only when the human consumes it: one badge
 /// click scrolls to and reads exactly one message, or interacting with the
 /// thread reads that thread. Scrolling past never reads anything. The global
@@ -136,7 +142,48 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|    const total = inlineUnread.size + globalUnread.size;
   #|    document.title = total > 0 ? `(${total}) ${baseTitle}` : baseTitle;
   #|    window.__YUNOMI_UNREAD__ = { inline: inlineUnread.size, global: globalUnread.size, total };
+  #|    syncUnresolved();
   #|    return { inlineUnread, globalUnread };
+  #|  };
+  #|  const unresolvedNavTargets = () => {
+  #|    const inlineIds = window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ || new Set();
+  #|    const seen = new Set();
+  #|    const targets = [];
+  #|    for (const el of document.querySelectorAll(".review-loop-inline[data-review-comment-id]")) {
+  #|      const id = el.getAttribute("data-review-comment-id") || "";
+  #|      if (!id || !inlineIds.has(id) || seen.has(id)) continue;
+  #|      seen.add(id);
+  #|      targets.push({ id, el: el.querySelector(".review-loop-comment") || el, kind: "inline" });
+  #|    }
+  #|    return targets;
+  #|  };
+  #|  const flashUnresolved = (node) => {
+  #|    if (!node) return;
+  #|    node.classList.remove("is-unresolved-flash");
+  #|    void node.offsetWidth;
+  #|    node.classList.add("is-unresolved-flash");
+  #|    setTimeout(() => node.classList.remove("is-unresolved-flash"), 1600);
+  #|  };
+  #|  const reveal = (node) => {
+  #|    for (let details = node.closest("details"); details; details = details.parentElement?.closest("details")) {
+  #|      if (!details.open) details.open = true;
+  #|    }
+  #|    if (node.closest("#review-loop-panel")) expandPanel();
+  #|    node.scrollIntoView({ block: "center", behavior: "smooth" });
+  #|    flashUnresolved(node);
+  #|  };
+  #|  const syncUnresolved = () => {
+  #|    const targets = unresolvedNavTargets();
+  #|    const count = targets.length;
+  #|    const badge = document.querySelector("#conversation-unresolved");
+  #|    if (badge) {
+  #|      badge.textContent = String(count);
+  #|      badge.hidden = count === 0;
+  #|    }
+  #|    const cursor = Number(window.__yunomiUnresolvedCursor || 0);
+  #|    if (count === 0) window.__yunomiUnresolvedCursor = 0;
+  #|    else if (cursor >= count) window.__yunomiUnresolvedCursor = cursor % count;
+  #|    window.__YUNOMI_UNRESOLVED_NAV__ = { count, ids: targets.map((t) => t.id) };
   #|  };
   #|  const sync = () => {
   #|    let store = readStore();
@@ -185,6 +232,18 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|  // One click, one message: scroll to the oldest unread reply, flash it,
   #|  // and count it as read. The badge goes 3 → 2 → 1 → 0, never 3 → 0.
   #|  document.addEventListener("click", (event) => {
+  #|    const unresolvedBadge = event.target?.closest?.("#conversation-unresolved");
+  #|    if (unresolvedBadge) {
+  #|      event.preventDefault();
+  #|      event.stopPropagation();
+  #|      const targets = unresolvedNavTargets();
+  #|      if (!targets.length) return;
+  #|      const index = Number(window.__yunomiUnresolvedCursor || 0) % targets.length;
+  #|      reveal(targets[index].el);
+  #|      window.__yunomiUnresolvedCursor = (index + 1) % targets.length;
+  #|      syncUnresolved();
+  #|      return;
+  #|    }
   #|    const badge = event.target?.closest?.("#conversation-unread");
   #|    if (!badge) return;
   #|    event.preventDefault();
@@ -218,5 +277,5 @@ extern "js" fn install_conversation_unread(scope : String) -> Unit =
   #|  document.addEventListener("visibilitychange", () => {
   #|    if (document.visibilityState === "visible") sync();
   #|  });
-  #|  window.__yunomiUnread = { sync, unreadKeys, markSeen, bell };
+  #|  window.__yunomiUnread = { sync, unreadKeys, markSeen, bell, syncUnresolved };
   #|}

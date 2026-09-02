@@ -56,6 +56,11 @@ async function stopServer(proc: ChildProcess): Promise<void> {
   await new Promise<void>((resolve) => { proc.once("exit", () => resolve()); proc.kill("SIGTERM"); setTimeout(resolve, 2_000); });
 }
 
+function commentTexts(page: Page, text: string, root = "") {
+  const scope = root ? page.locator(root) : page;
+  return scope.locator(".yunomi-inline-comment-text").filter({ hasText: text });
+}
+
 async function clickElement(page: Page, selector: string): Promise<void> {
   await page.locator(selector).first().evaluate((element) => {
     const media = element.matches("img:not(.timeline-thumb),video.video-preview,.mermaid-container");
@@ -129,13 +134,16 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
       const contentRect = content.getBoundingClientRect();
       const editorRect = editor.getBoundingClientRect();
       const reservedWidth = parseFloat(getComputedStyle(editor).marginRight);
-      return { headingBottom: headingRect.bottom, editorTop: editorRect.top, editorWidth: editorRect.width, contentWidth: contentRect.width, reservedWidth };
+      const borderLeft = parseFloat(getComputedStyle(editor).borderLeftWidth);
+      const borderRight = parseFloat(getComputedStyle(editor).borderRightWidth);
+      return { headingBottom: headingRect.bottom, editorTop: editorRect.top, editorWidth: editorRect.width, contentWidth: contentRect.width, reservedWidth, borderLeft, borderRight };
     });
     assert(
       placement !== null
         && placement.editorTop >= placement.headingBottom
-        && Math.abs(placement.contentWidth - placement.editorWidth - placement.reservedWidth) <= 1,
-      "heading editor renders below the heading at the fixed comment width",
+        && Math.abs(placement.borderLeft - placement.borderRight) <= 0.5
+        && placement.borderLeft <= 1.5,
+      "heading editor renders below the heading as a matching comment card without a left accent bar",
       placement,
     );
     const overlaps = await layoutOverlaps(page);
@@ -144,23 +152,72 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
   if (EVIDENCE_DIR && name === "heading") {
     await page.screenshot({ path: join(EVIDENCE_DIR, "01-inline-editor-under-heading.png"), fullPage: true });
   }
-  const initial = `created ${name}`;
+  const source = `created ${name}`;
+  const initial = name === "paragraph" ? "**bold** and `code`" : source;
+  const visible = name === "paragraph" ? "bold and code" : source;
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill(initial);
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  await page.waitForFunction((text) => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === text), initial, { timeout: 5_000 }).catch(async (error) => {
+  await page.waitForFunction((text) => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => (node.textContent || "").trim() === text), visible, { timeout: 5_000 }).catch(async (error) => {
     throw new Error(`${name}: saved inline comment did not render; editor=${await page.locator(".yunomi-inline-comment-editor").count()} comments=${await page.locator(".yunomi-inline-comment-text").allTextContents()}\n${error}`);
   });
-  const surfaces = await page.locator(`.yunomi-inline-comment-text:text-is("${initial}")`).count();
+  const surfaces = await commentTexts(page, visible).count();
   assert(surfaces === 1, `${name}: saved comment has one canonical inline view`, { surfaces });
+  if (name === "paragraph") {
+    const rendered = await page.locator(".yunomi-inline-comment-text").evaluate((node) => {
+      const holder = node.closest<HTMLElement>(".yunomi-inline-comment");
+      const style = holder ? getComputedStyle(holder) : null;
+      return {
+        strong: node.querySelectorAll("strong").length,
+        code: node.querySelectorAll("code").length,
+        html: node.innerHTML,
+        borderLeft: style ? parseFloat(style.borderLeftWidth) : -1,
+        borderRight: style ? parseFloat(style.borderRightWidth) : -1,
+        padTop: style ? parseFloat(style.paddingTop) : -1,
+        padRight: style ? parseFloat(style.paddingRight) : -1,
+        padBottom: style ? parseFloat(style.paddingBottom) : -1,
+        padLeft: style ? parseFloat(style.paddingLeft) : -1,
+        bubbleGap: (() => {
+          const bubble = node.getBoundingClientRect();
+          const card = holder?.getBoundingClientRect();
+          if (!card) return null;
+          return {
+            top: bubble.top - card.top,
+            right: card.right - bubble.right,
+            bottom: card.bottom - bubble.bottom,
+            left: bubble.left - card.left,
+          };
+        })(),
+      };
+    });
+    assert(
+      rendered.strong === 1 &&
+        rendered.code === 1 &&
+        Math.abs(rendered.borderLeft - rendered.borderRight) <= 0.5 &&
+        rendered.borderLeft <= 1.5,
+      "pending paragraph comments render markdown in a card without a left accent bar",
+      rendered,
+    );
+    assert(
+      rendered.padTop >= 10 &&
+        rendered.padRight >= 12 &&
+        rendered.padBottom >= 10 &&
+        rendered.padLeft >= 12 &&
+        (rendered.bubbleGap?.bottom ?? 0) >= 10 &&
+        (rendered.bubbleGap?.right ?? 0) >= 12 &&
+        (rendered.bubbleGap?.left ?? 0) >= 24,
+      "pending comment cards keep inset around the header and bubble",
+      rendered,
+    );
+  }
   if (name === "image") {
-    const savedPlacement = await page.locator(`.yunomi-inline-comment-text:text-is("${initial}")`).evaluate((text) => {
+    const savedPlacement = await commentTexts(page, visible).evaluate((text) => {
       const holder = text.closest<HTMLElement>(".yunomi-inline-comment");
       return { parent: holder?.parentElement?.tagName || "", previous: holder?.previousElementSibling?.tagName || "" };
     });
     assert(savedPlacement.parent !== "P" && savedPlacement.previous === "P", "image saved view is one valid sibling after its nearest block", savedPlacement);
   }
   if (name === "unordered-list" || name === "ordered-list" || name === "list-item") {
-    const savedListPlacement = await page.locator(`#md-preview .yunomi-inline-comment-text:text-is("${initial}")`).evaluate((text) => {
+    const savedListPlacement = await commentTexts(page, visible, "#md-preview").evaluate((text) => {
       const holder = text.closest<HTMLElement>(".yunomi-inline-comment");
       return {
         holderTag: holder?.tagName || "",
@@ -182,18 +239,18 @@ async function exerciseType(page: Page, name: string, selector: string): Promise
     await page.screenshot({ path: join(EVIDENCE_DIR, "02-saved-comment-both-panes.png"), fullPage: true });
   }
 
-  await page.locator(`.yunomi-inline-comment-view:has-text("${initial}")`).first().click();
+  await page.locator(`.yunomi-inline-comment-view:has-text("${visible}")`).first().click();
   const edited = `edited ${name}`;
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill(edited);
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  await page.waitForFunction((text) => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === text), edited, { timeout: 5_000 });
-  assert(await page.locator(`.yunomi-inline-comment-text:text-is("${edited}")`).count() === 1, `${name}: clicking the inline comment edits it in place without a duplicate view`);
+  await page.waitForFunction((text) => Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => (node.textContent || "").includes(text)), edited, { timeout: 5_000 });
+  assert(await commentTexts(page, edited).count() === 1, `${name}: clicking the inline comment edits it in place without a duplicate view`);
 
   await page.locator(`.yunomi-inline-comment-view:has-text("${edited}")`).first().click();
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("");
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  await page.waitForFunction((text) => !Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => node.textContent === text), edited, { timeout: 5_000 });
-  assert(await page.locator(`.yunomi-inline-comment-text:text-is("${edited}")`).count() === 0, `${name}: empty save deletes the comment`);
+  await page.waitForFunction((text) => !Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).some((node) => (node.textContent || "").includes(text)), edited, { timeout: 5_000 });
+  assert(await commentTexts(page, edited).count() === 0, `${name}: empty save deletes the comment`);
 }
 
 const server = await startServer();
@@ -208,6 +265,36 @@ try {
   assert(await page.locator("#comment-card").count() === 0, "floating comment card is absent");
   const titlePath = await page.locator("header h1 .title-path").evaluate((element) => ({ text: element.textContent || "", display: getComputedStyle(element).display }));
   assert(titlePath.display !== "none" && titlePath.text.includes("project-alpha/docs"), "header shows project and relative directory path", titlePath);
+  const headerScrollClip = await page.evaluate(() => {
+    const header = document.querySelector("header")?.getBoundingClientRect();
+    const left = document.querySelector<HTMLElement>(".md-left");
+    const preview = document.querySelector<HTMLElement>(".md-preview");
+    if (!header || !left || !preview) return null;
+    const beforeGap = left.getBoundingClientRect().top - header.bottom;
+    const previousMinHeight = preview.style.minHeight;
+    preview.style.minHeight = "2000px";
+    left.scrollTop = 120;
+    const afterHeader = document.querySelector("header")!.getBoundingClientRect();
+    const afterLeft = left.getBoundingClientRect();
+    const heading = document.querySelector<HTMLElement>("#md-preview h1, #md-preview .md-heading-toggle");
+    const headingTop = heading?.getBoundingClientRect().top ?? -1;
+    left.scrollTop = 0;
+    preview.style.minHeight = previousMinHeight;
+    return {
+      beforeGap,
+      afterLeftTop: afterLeft.top,
+      afterHeaderBottom: afterHeader.bottom,
+      headingTop,
+    };
+  });
+  assert(
+    headerScrollClip !== null &&
+      headerScrollClip.beforeGap <= 1 &&
+      Math.abs(headerScrollClip.afterLeftTop - headerScrollClip.afterHeaderBottom) <= 1 &&
+      headerScrollClip.headingTop <= headerScrollClip.afterHeaderBottom + 1,
+    "preview scrolls away under the header edge instead of a gap below it",
+    headerScrollClip,
+  );
   const initialOverlaps = await layoutOverlaps(page);
   assert(initialOverlaps.length === 0, "rendered block elements do not overlap before an editor opens", initialOverlaps);
   if (EVIDENCE_DIR) {
@@ -261,6 +348,104 @@ try {
   await page.locator('.yunomi-inline-comment-editor [data-action="cancel"]').click();
 
   await clickElement(page, "#md-preview p[data-source-start-line]");
+  const paragraphEditorAlign = await page.evaluate(() => {
+    const selected = document.querySelector<HTMLElement>("#md-preview p.preview-highlight");
+    const editor = document.querySelector<HTMLElement>("#md-preview .yunomi-inline-comment-editor");
+    if (!selected || !editor) return null;
+    const walker = document.createTreeWalker(selected, NodeFilter.SHOW_TEXT);
+    let glyphLeft = selected.getBoundingClientRect().left;
+    let node: Node | null = walker.nextNode();
+    while (node) {
+      const text = node.textContent || "";
+      const idx = text.search(/\S/);
+      if (idx >= 0) {
+        const range = document.createRange();
+        range.setStart(node, idx);
+        range.setEnd(node, Math.min(idx + 1, text.length));
+        glyphLeft = range.getBoundingClientRect().left;
+        break;
+      }
+      node = walker.nextNode();
+    }
+    return {
+      glyphLeft,
+      editorLeft: editor.getBoundingClientRect().left,
+      highlightLeft: selected.getBoundingClientRect().left,
+      boxShadow: getComputedStyle(selected).boxShadow,
+      quoteVisible: (() => {
+        const quote = editor.querySelector<HTMLElement>(".yunomi-inline-comment-context");
+        if (!quote) return true;
+        const box = quote.getBoundingClientRect();
+        return box.width > 2 && box.height > 2 && getComputedStyle(quote).display !== "none";
+      })(),
+      hasStatusDot: !!editor.querySelector(".review-loop-status-dot"),
+      hasAttach: !!editor.querySelector(".review-loop-reply-attach"),
+      usesReplyForm: !!editor.querySelector(".review-loop-reply-form"),
+      saveBg: getComputedStyle(editor.querySelector("#save-comment") as HTMLElement).backgroundColor,
+      sendNowBg: getComputedStyle(editor.querySelector("#send-now-comment") as HTMLElement).backgroundColor,
+      cancelBg: getComputedStyle(editor.querySelector("[data-action='cancel']") as HTMLElement).backgroundColor,
+      panelBg: getComputedStyle(editor).backgroundColor,
+      editorWidth: editor.getBoundingClientRect().width,
+      cardMax: (() => {
+        const sidebar = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--review-loop-sidebar-width"));
+        return sidebar * 1.5;
+      })(),
+      saveLeft: editor.querySelector("#save-comment")?.getBoundingClientRect().left ?? -1,
+      sendNowLeft: editor.querySelector("#send-now-comment")?.getBoundingClientRect().left ?? -1,
+      sendNowColor: getComputedStyle(editor.querySelector("#send-now-comment") as HTMLElement).color,
+      buttonTops: ["[data-action='cancel']", "#send-now-comment", "#save-comment"].map((selector) => {
+        const button = editor.querySelector<HTMLElement>(selector);
+        return button ? Math.round(button.getBoundingClientRect().top) : -1;
+      }),
+    };
+  });
+  assert(
+    paragraphEditorAlign !== null &&
+      Math.abs(paragraphEditorAlign.glyphLeft - paragraphEditorAlign.editorLeft) <= 2 &&
+      Math.abs(paragraphEditorAlign.highlightLeft - paragraphEditorAlign.editorLeft) <= 2 &&
+      !/\b0px 0px 0px 6px\b/.test(paragraphEditorAlign.boxShadow),
+    "paragraph highlight and comment dialog share the first glyph's left edge",
+    paragraphEditorAlign,
+  );
+  assert(
+    paragraphEditorAlign !== null &&
+      paragraphEditorAlign.quoteVisible === false &&
+      paragraphEditorAlign.hasStatusDot === true &&
+      paragraphEditorAlign.hasAttach === true &&
+      paragraphEditorAlign.usesReplyForm === true &&
+      paragraphEditorAlign.saveBg !== paragraphEditorAlign.sendNowBg &&
+      paragraphEditorAlign.sendNowBg !== paragraphEditorAlign.cancelBg &&
+      paragraphEditorAlign.saveBg !== paragraphEditorAlign.panelBg &&
+      paragraphEditorAlign.sendNowBg !== paragraphEditorAlign.panelBg &&
+      paragraphEditorAlign.saveLeft < paragraphEditorAlign.sendNowLeft &&
+      paragraphEditorAlign.sendNowColor !== paragraphEditorAlign.sendNowBg &&
+      Math.abs(paragraphEditorAlign.editorWidth - paragraphEditorAlign.cardMax) <= 2 &&
+      paragraphEditorAlign.buttonTops.length === 3 &&
+      paragraphEditorAlign.buttonTops.every((top) => top === paragraphEditorAlign.buttonTops[0]),
+    "compose dialog uses the conversation card width, reply chrome, and filled send now / save actions",
+    paragraphEditorAlign,
+  );
+  await page.locator(".yunomi-inline-comment-editor #comment-input").fill("**testtest**");
+  await page.locator(".yunomi-inline-comment-editor #comment-input").evaluate((el) => {
+    const input = el as HTMLTextAreaElement;
+    input.focus();
+    input.setSelectionRange(0, input.value.length);
+  });
+  await page.locator(".yunomi-inline-comment-editor #save-comment").click();
+  await page.waitForTimeout(150);
+  const savedAfterPrimary = await page.evaluate(() => ({
+    editors: document.querySelectorAll(".yunomi-inline-comment-editor").length,
+    texts: Array.from(document.querySelectorAll(".yunomi-inline-comment-text")).map((node) => (node.textContent || "").trim()),
+  }));
+  assert(
+    savedAfterPrimary.editors === 0 && savedAfterPrimary.texts.includes("testtest"),
+    "Save keeps the typed draft instead of wiping back to idle",
+    savedAfterPrimary,
+  );
+  await page.locator('.yunomi-inline-comment-view:has-text("testtest")').first().click();
+  await page.locator(".yunomi-inline-comment-editor #comment-input").fill("");
+  await page.locator(".yunomi-inline-comment-editor #save-comment").click();
+  await clickElement(page, "#md-preview p[data-source-start-line]");
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("draft before fullscreen");
   await page.locator("#md-preview img:not(.timeline-thumb)").first().click();
   await page.waitForSelector("#image-fullscreen.visible");
@@ -306,7 +491,7 @@ try {
   await clickElement(page, "td[data-row]:not(#md-preview *)");
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
-  assert(await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "saved source comment stays at its clicked source surface");
+  assert(await commentTexts(page, "survives reload", '.yunomi-inline-comment[data-comment-surface="source"]').count() === 1, "saved source comment stays at its clicked source surface");
   await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-view:has-text("survives reload")').click();
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("survives reload");
   const storageBefore = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "");
@@ -316,6 +501,10 @@ try {
     "the header identifies its count as unsubmitted drafts rather than saved review threads",
   );
   assert(await page.locator("#pill-comments").isVisible(), "the Drafts button appears when an unsubmitted draft exists");
+  assert(
+    (await page.locator("#comment-list-minimize").textContent() || "").trim() === "−",
+    "Drafts minimize uses the same minus control as the chat sidebar",
+  );
 
   if (await page.locator(".comment-list.collapsed").count() > 0) {
     await page.locator("#pill-comments").click();
@@ -382,12 +571,45 @@ try {
   assert(await page.locator('.yunomi-inline-comment-editor[data-comment-surface="source"]').count() === 1, "reload restores the source editor at its clicked surface");
   await page.locator(".yunomi-inline-comment-editor #save-comment").click();
   await page.waitForFunction(() => document.querySelectorAll('.yunomi-inline-comment-view:has(.yunomi-inline-comment-text)').length === 1);
-  assert(await page.locator('.yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "reload restore recreates one canonical inline comment after editing finishes");
-  assert(await page.locator('.yunomi-inline-comment[data-comment-surface="source"] .yunomi-inline-comment-text:text-is("survives reload")').count() === 1, "reload restore keeps the saved view at its clicked source surface");
+  assert(await commentTexts(page, "survives reload").count() === 1, "reload restore recreates one canonical inline comment after editing finishes");
+  assert(await commentTexts(page, "survives reload", '.yunomi-inline-comment[data-comment-surface="source"]').count() === 1, "reload restore keeps the saved view at its clicked source surface");
   assert(await page.locator('.yunomi-inline-comment-view:has-text("survives reload") .yunomi-inline-comment-pending').count() === 1, "reload restore keeps one Pending badge on the canonical view");
   if (EVIDENCE_DIR) {
     await page.screenshot({ path: join(EVIDENCE_DIR, "03-comment-restored-after-reload.png"), fullPage: true });
   }
+  if (await page.locator(".comment-list.collapsed").count() > 0) {
+    await page.locator("#pill-comments").click();
+    await page.waitForSelector(".comment-list:not(.collapsed)", { state: "visible" });
+  }
+  await page.locator("#comment-list li[data-key] button").click();
+  await page.waitForSelector(".yunomi-inline-comment-editor #comment-input", { state: "visible" });
+  await page.locator(".yunomi-inline-comment-editor #comment-input").fill("");
+  await page.locator(".yunomi-inline-comment-editor #save-comment").click();
+  await page.waitForFunction(() => {
+    const panel = document.querySelector(".comment-list");
+    const pill = document.querySelector("#pill-comments");
+    return !!panel && panel.classList.contains("collapsed") && !!pill && getComputedStyle(pill).display === "none";
+  });
+  const emptyDraftsLayout = await page.evaluate(() => {
+    const panel = document.querySelector<HTMLElement>(".comment-list");
+    const pill = document.querySelector<HTMLElement>("#pill-comments");
+    if (!panel) return null;
+    const rect = panel.getBoundingClientRect();
+    return {
+      left: rect.left,
+      top: rect.top,
+      collapsed: panel.classList.contains("collapsed"),
+      pillDisplay: pill ? getComputedStyle(pill).display : "missing",
+    };
+  });
+  assert(
+    emptyDraftsLayout !== null &&
+      emptyDraftsLayout.collapsed &&
+      emptyDraftsLayout.pillDisplay === "none" &&
+      emptyDraftsLayout.left > 8,
+    "deleting the last draft collapses the panel instead of parking it at the viewport origin",
+    emptyDraftsLayout,
+  );
   assert(!server.output().includes("TypeError") && !server.output().includes("ReferenceError"), "server output has no runtime JS errors", server.output());
 } finally {
   if (browser) await browser.close();

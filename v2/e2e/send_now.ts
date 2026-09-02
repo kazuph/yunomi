@@ -103,8 +103,8 @@ try {
 
       await page.locator(".text-line[data-row='1']").click();
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
-      assert(await page.locator("#send-now-comment").textContent() === "Add single comment", "Immediate action uses GitHub's Add single comment label");
-      assert(await page.locator("#save-comment").textContent() === "Start a review", "First pending action uses GitHub's Start a review label");
+      assert(await page.locator("#send-now-comment").textContent() === "send now", "Immediate action uses send now");
+      assert(await page.locator("#save-comment").textContent() === "save", "Pending action uses save");
       await page.locator("#comment-input").fill("send-now review comment");
       await page.locator("#send-now-comment").click();
 
@@ -115,18 +115,18 @@ try {
       const sendEvents = await page.evaluate(() => (window as unknown as { __sendNowSeen: string[] }).__sendNowSeen.filter((line) => line.startsWith("send-now:")));
       const storageScope = await page.evaluate(() => window.__YUNOMI_STORAGE_SCOPE__);
       const durableCommentId = `${storageScope}|1:0`;
-      assert(sendEvents.length === 1 && sendEvents[0].includes(`\"key\":${JSON.stringify(durableCommentId)}`), "Add single comment emits a path-scoped SSE comment key", { sendEvents, durableCommentId });
+      assert(sendEvents.length === 1 && sendEvents[0].includes(`\"key\":${JSON.stringify(durableCommentId)}`), "Send now emits a path-scoped SSE comment key", { sendEvents, durableCommentId });
 
       const reviewPath = join(REVIEW_DIR, "review.json");
       const review = existsSync(reviewPath) ? JSON.parse(readFileSync(reviewPath, "utf8")) : {};
       const stored = Array.isArray(review.comments) ? review.comments.find((comment: { id?: string }) => comment.id === durableCommentId) : null;
-      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Add single comment writes a path-scoped durable ID to review.json");
+      assert(stored?.text === "send-now review comment" && stored?.send_now === true, "Send now writes a path-scoped durable ID to review.json");
       const sentDraft = await page.evaluate(() => localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "");
       assert(sentDraft.includes('"pending":false') && sentDraft.includes('"sent":true'), "Immediate comments persist as sent, not pending", { sentDraft });
 
       // Sending a comment must not pop the drafts panel open from the top: it
       // interrupts the review and was never a request to read the draft list.
-      assert(await page.locator(".comment-list:not(.collapsed)").count() === 0, "Add single comment leaves the drafts panel closed");
+      assert(await page.locator(".comment-list:not(.collapsed)").count() === 0, "Send now leaves the drafts panel closed");
       // A sent comment is not a draft. It already lives in the document as an
       // inline thread, so counting it as unsubmitted work contradicts the pill.
       assert(await page.locator("#comment-count").textContent() === "0", "a sent comment is not counted as a draft");
@@ -141,14 +141,14 @@ try {
         draft: localStorage.getItem(`yunomi:comments:${window.__YUNOMI_STORAGE_SCOPE__}`) || "",
         badges: Array.from(document.querySelectorAll(".yunomi-inline-comment-pending")).map((element) => element.textContent),
       }));
-      assert(!pendingState.events.some((line) => line.startsWith("comment:") && line.includes("pending review comment")), "Start a review keeps the comment local until Submit review", pendingState);
+      assert(!pendingState.events.some((line) => line.startsWith("comment:") && line.includes("pending review comment")), "Save keeps the comment local until Submit review", pendingState);
       assert(pendingState.draft.includes('"pending":true') && pendingState.draft.includes('"sent":false') && pendingState.badges.includes("Pending"), "Pending state and badge persist locally", pendingState);
       // ...and an actually unsubmitted comment brings the pill back, counting
       // only itself rather than the comment that was already sent above.
       assert(await page.locator("#comment-count").textContent() === "1", "an unsubmitted comment counts as exactly one draft");
       assert(await page.locator("#pill-comments").isVisible() === true, "the drafts pill reappears once there is unsubmitted work");
       await page.locator(".text-line[data-row='0']").click();
-      assert(await page.locator("#save-comment").textContent() === "Add review comment", "Later pending actions use GitHub's Add review comment label");
+      assert(await page.locator("#save-comment").textContent() === "save", "A later pending action still uses save");
       await page.keyboard.press("Escape");
 
       const replyResponse = await fetch(`http://127.0.0.1:${server.port}/reply-comment`, {

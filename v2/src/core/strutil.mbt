@@ -105,3 +105,39 @@ pub fn is_path_under(base : String, child : String) -> Bool {
   }
   child.has_prefix(base + "/") || child.has_prefix(base + "\\")
 }
+
+///|
+/// Expand literal `\n` / `\t` / `\\` in notify payloads so the launching pane
+/// matches chat markdown (which already unescapes the same sequences).
+pub fn expand_notify_escapes(text : String) -> String {
+  let chars = text.to_array()
+  let len = chars.length()
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < len {
+    if chars[i] == '\\' && i + 1 < len {
+      match chars[i + 1] {
+        'n' => {
+          buf.write_char('\n')
+          i = i + 2
+        }
+        't' => {
+          buf.write_char('\t')
+          i = i + 2
+        }
+        '\\' => {
+          buf.write_char('\\')
+          i = i + 2
+        }
+        _ => {
+          buf.write_char(chars[i])
+          i = i + 1
+        }
+      }
+    } else {
+      buf.write_char(chars[i])
+      i = i + 1
+    }
+  }
+  buf.to_string()
+}

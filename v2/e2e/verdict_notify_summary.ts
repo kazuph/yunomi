@@ -124,6 +124,26 @@ async function main() {
       { notifyLog },
     );
 
+    writeFileSync(NOTIFY_LOG, "");
+    const escapedNewline = await request(port, "POST", "/exit", JSON.stringify({
+      summary: "**太字** と改行\\n二行目の Markdown 表示",
+      decision: "request_changes",
+      action: "final_request_changes",
+      comments: [],
+    }));
+    assertLine(escapedNewline.status === 200, "literal \\\\n in summary is accepted", escapedNewline);
+    notifyLog = readFileSync(NOTIFY_LOG, "utf-8");
+    assertLine(
+      notifyLog.includes("human: **太字** と改行\n二行目の Markdown 表示\nurl="),
+      "verdict notify expands literal \\\\n in the human: payload to a real newline",
+      { notifyLog },
+    );
+    assertLine(
+      !notifyLog.includes("改行\\n二行目"),
+      "verdict notify does not leave a two-character \\\\n sequence in the human: payload",
+      { notifyLog },
+    );
+
     assertLine(
       /\[yunomi\] request_changes received; full summary\/comments: .*review\.json \(if launched via `herdr run`, read `herdr job log <job>` first\); next: fix the review items, then run `npx yunomi go`/.test(out.get()),
       "request_changes-received log names review.json and the exact next command (`npx yunomi go`)",

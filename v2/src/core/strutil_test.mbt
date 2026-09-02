@@ -173,3 +173,30 @@ test "quote_source_line truncates at 300 chars" {
     ),
   )
 }
+
+///|
+test "expand_notify_escapes turns literal n into a real newline" {
+  let out = expand_notify_escapes("a\\nb")
+  debug_inspect(
+    out.length(),
+    content=(
+      #|3
+    ),
+  )
+  debug_inspect(
+    out == "a\nb",
+    content=(
+      #|true
+    ),
+  )
+}
+
+///|
+test "expand_notify_escapes leaves real newlines and expands tabs" {
+  debug_inspect(
+    expand_notify_escapes("a\nb\\tc") == "a\nb\tc",
+    content=(
+      #|true
+    ),
+  )
+}

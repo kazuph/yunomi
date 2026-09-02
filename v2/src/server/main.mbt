@@ -197,7 +197,7 @@ fn verdict_notify_message(
   // launching agent to mistake a silent summary for silent approval.
   if summary.length() > 0 {
     buf.write_string("\nhuman: ")
-    buf.write_string(summary)
+    buf.write_string(@core.expand_notify_escapes(summary))
   } else {
     buf.write_string("\nsummary=(empty)")
   }
@@ -2020,6 +2020,7 @@ fn compute_tab_title(file_path : String, filename : String) -> String {
 fn load_and_build_html(ctx : ServerContext) -> String {
   let content = decode_file(ctx.file_path, encoding_override.val)
   let tab_title = compute_tab_title(ctx.file_path, ctx.filename)
+  let app_version = get_package_version()
   let html = match ctx.mode {
     @core.FileMode::Csv | @core.FileMode::Tsv => {
       let delimiter = if ctx.mode == @core.FileMode::Tsv { '\t' } else { ',' }
@@ -2032,6 +2033,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         tab_title~,
         server_instance_id=server_instance_id.val,
         mode=ctx.mode.to_string(),
+        app_version~,
       )
     }
     @core.FileMode::Diff => {
@@ -2042,6 +2044,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         ctx.port,
         tab_title~,
         server_instance_id=server_instance_id.val,
+        app_version~,
       )
     }
     @core.FileMode::Markdown => {
@@ -2053,6 +2056,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         file_path=ctx.file_path,
         tab_title~,
         server_instance_id=server_instance_id.val,
+        app_version~,
       )
     }
     @core.FileMode::Html => {
@@ -2063,6 +2067,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         ctx.port,
         tab_title~,
         server_instance_id=server_instance_id.val,
+        app_version~,
       )
     }
     @core.FileMode::Text => {
@@ -2073,6 +2078,7 @@ fn load_and_build_html(ctx : ServerContext) -> String {
         ctx.port,
         tab_title~,
         server_instance_id=server_instance_id.val,
+        app_version~,
       )
     }
   }
@@ -2221,7 +2227,12 @@ fn inject_review_file_switcher(ctx : ServerContext, html : String) -> String {
 ///|
 fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
   let data = @core.parse_diff(content)
-  let html = @core.build_diff_html(data, "stdin", port)
+  let html = @core.build_diff_html(
+    data,
+    "stdin",
+    port,
+    app_version=get_package_version(),
+  )
   let ctx : ServerContext = {
     file_path: "<stdin>",
     filename: "stdin",
@@ -3126,7 +3137,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             " round=" +
             round.to_string() +
             "\nhuman: " +
-            text +
+            @core.expand_notify_escapes(text) +
             attachment_line +
             "\nreply with: yunomi reply " +
             id +
@@ -3214,7 +3225,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         " round=" +
         round.to_string() +
         "\nhuman: " +
-        text +
+        @core.expand_notify_escapes(text) +
         attachment_line +
         "\nreply with: yunomi reply " +
         id +
@@ -3748,7 +3759,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       target_suffix +
       quote_line +
       "\nhuman: " +
-      text +
+      @core.expand_notify_escapes(text) +
       "\nurl=" +
       review_url(ctx),
     )

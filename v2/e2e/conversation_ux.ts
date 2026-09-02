@@ -4,6 +4,8 @@
  *      must not open the diagram fullscreen (only the diagram itself does).
  *   2. Agent replies surface as unread cues: header counter for inline
  *      threads, red dot on the bottom-right chat, tab-title prefix, bell.
+ *      Unresolved comments have a yellow counter to the left of that red
+ *      badge; clicks cycle through them without decreasing the number.
  *   3. Thumbnail numbering is gone (header total + per-thumb index).
  *   4. A file change patches the preview in place: no navigation, the caret
  *      and text in an open reply form survive, unchanged Mermaid SVG nodes
@@ -106,7 +108,19 @@ async function main(): Promise<void> {
 
     const html = await request(port, "GET", "/");
     assert.doesNotMatch(html.body, /media-toggle-count/, "header no longer renders a media total counter");
+    assert.match(html.body, /id="conversation-unresolved"/, "header renders the unresolved-comment counter");
     assert.match(html.body, /id="conversation-unread"/, "header renders the unread-replies counter");
+    assert.match(html.body, /id="sse-status"/, "header renders the live-connection status dot");
+    assert.match(
+      html.body,
+      /id="sse-status"[^>]*data-sse-hint="Live connection to the review server/,
+      "the green status dot explains the live connection on hover",
+    );
+    assert.match(
+      html.body,
+      /id="conversation-unresolved"[\s\S]*id="conversation-unread"/,
+      "the unresolved (yellow) counter sits left of the unread (red) counter",
+    );
 
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     let loads = 0;
@@ -118,6 +132,17 @@ async function main(): Promise<void> {
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
     await page.waitForSelector(".mermaid-container .mermaid svg", { timeout: 15000 });
     await page.waitForSelector("#review-loop-panel .review-loop-reply-form", { timeout: 10000 });
+    await page.locator("#sse-status").hover();
+    await page.waitForFunction(() => {
+      const el = document.querySelector("#sse-status");
+      if (!el) return false;
+      const style = getComputedStyle(el, "::after");
+      return (el.getAttribute("data-sse-hint") || "").includes("Live connection to the review server")
+        && style.content !== "none"
+        && Number(style.opacity) > 0;
+    }, undefined, { timeout: 5000 });
+    const sseHint = await page.locator("#sse-status").evaluate((el) => el.getAttribute("data-sse-hint") || "");
+    assert.match(sseHint, /Live connection to the review server/, "status dot hover copy names the live connection");
 
     // --- 3. numbering gone -------------------------------------------------
     await page.waitForSelector("#media-sidebar-thumbs .media-sidebar-thumb", { timeout: 10000 });
@@ -147,6 +172,16 @@ async function main(): Promise<void> {
     await page.waitForSelector('.mermaid-container .review-loop-inline[data-review-comment-id="c-1-1"] textarea', { timeout: 10000 });
     await page.waitForSelector('.review-loop-inline[data-review-comment-id="c-1-2"] textarea', { timeout: 10000 });
     await page.waitForFunction(() => (window as any).__YUNOMI_UNREAD__ !== undefined, undefined, { timeout: 5000 });
+    await page.waitForFunction(() => (window as any).__YUNOMI_UNRESOLVED_NAV__?.count === 2, undefined, { timeout: 5000 });
+    assert.equal(await page.locator("#conversation-unresolved:not([hidden])").textContent(), "2", "yellow counter counts resolvable inline threads only, not the global chat");
+    const unresolvedBox = await page.locator("#conversation-unresolved").boundingBox();
+    assert.ok(unresolvedBox, "unresolved badge is laid out");
+    assert.equal(Math.round(unresolvedBox?.width || 0), Math.round(unresolvedBox?.height || 0), "unresolved badge is a circle, not a vertical oval");
+    assert.equal(
+      await page.evaluate(() => document.querySelector("#conversation-unresolved")?.nextElementSibling?.id),
+      "conversation-unread",
+      "yellow unresolved badge is immediately left of the red unread badge",
+    );
 
     // --- 1. reply form inside a Mermaid block does not maximize ------------
     const diagramTextarea = page.locator('.mermaid-container .review-loop-inline[data-review-comment-id="c-1-1"] textarea');
@@ -272,12 +307,33 @@ async function main(): Promise<void> {
     }
     assert.equal(await page.locator('.mermaid-container .review-loop-inline[data-review-comment-id="c-1-1"]').count(), 1, "diagram thread follows the shifted diagram");
 
+    const navIds = await page.evaluate(() => (window as any).__YUNOMI_UNRESOLVED_NAV__.ids as string[]);
+    await page.locator("#conversation-unresolved").click();
+    await page.waitForSelector(".is-unresolved-flash", { timeout: 5000 });
+    const firstJump = await page.evaluate(() => {
+      const flashed = document.querySelector(".is-unresolved-flash");
+      return flashed?.closest("[data-review-comment-id]")?.getAttribute("data-review-comment-id") || "";
+    });
+    assert.equal(firstJump, navIds[0], "first yellow click jumps to the first unresolved comment");
+    assert.equal(await page.locator("#conversation-unresolved").textContent(), "2", "yellow count does not fall when jumping");
+    await page.locator("#conversation-unresolved").click();
+    await page.waitForFunction((id) => {
+      const flashed = document.querySelector(".is-unresolved-flash");
+      return (flashed?.closest("[data-review-comment-id]")?.getAttribute("data-review-comment-id") || "") === id;
+    }, navIds[1], { timeout: 5000 });
+    assert.equal(await page.locator("#conversation-unresolved").textContent(), "2", "yellow count stays put on the second jump");
+
     // Two writes within one fetch window: the second must not be dropped.
     writeFileSync(REPORT, fixture(4, { shift: true }));
     await sleep(60);
     writeFileSync(REPORT, fixture(5, { shift: true }));
     await page.waitForFunction(() => document.querySelector("#md-preview")?.textContent?.includes("Second paragraph revision 5."), undefined, { timeout: 25000 });
     assert.equal(loads, loadsBefore, "back-to-back edits still never reload");
+
+    assert.equal(await page.locator("#conversation-unresolved:not([hidden])").textContent(), "2", "yellow count is still 2 before any resolve");
+    await page.locator('.review-loop-inline[data-review-comment-id="c-1-2"] .review-loop-resolve').click();
+    await page.waitForFunction(() => (window as any).__YUNOMI_UNRESOLVED_NAV__?.count === 1, undefined, { timeout: 5000 });
+    assert.equal(await page.locator("#conversation-unresolved:not([hidden])").textContent(), "1", "yellow count falls only after a thread is resolved");
 
     // A new round patches the page too instead of navigating.
     const go = await request(port, "POST", "/go");

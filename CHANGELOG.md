@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.6.1 - 2026-09-02
+
+### Added
+
+- Chat and pending inline comments render Markdown (bold, code, lists, fenced blocks) with copy buttons on images, Mermaid diagrams, and code.
+- The review chrome shows `yunomi` plus the package version in a footer that links to https://github.com/kazuph/yunomi.
+
+### Changed
+
+- Compose actions put the lighter `save` left of the filled `send now`, so the darkest control sits on the trailing edge.
+- Filled primary controls (Submit, send now, chat send, Request Changes) use white text on a dark enough accent fill.
+
+### Fixed
+
+- Deleting the last draft no longer parks the Drafts popover at the viewport origin; the panel closes and stays anchored to the header.
+- Drafts minimize uses the same minus control as the chat sidebar.
+- Posting in the bottom-right chat scrolls to the newest message instead of leaving it below the fold.
+
 ## v2.6.0 - 2026-08-28
 
 ### Added

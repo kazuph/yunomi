@@ -22,6 +22,10 @@ extern "js" fn query(selector : String) -> Element =
   #|(s) => document.querySelector(s)
 
 ///|
+extern "js" fn query_inline_comment_input() -> Element =
+  #|() => document.querySelector(".yunomi-inline-comment-editor #comment-input")
+
+///|
 extern "js" fn query_all(selector : String) -> Array[Element] =
   #|(s) => [...document.querySelectorAll(s)]
 
@@ -47,7 +51,7 @@ extern "js" fn get_text_content_without_comment_buttons(el : Element) -> String 
   #|(el) => {
   #|  if (!el) return "";
   #|  const clone = el.cloneNode(true);
-  #|  clone.querySelectorAll?.(".yunomi-comment-button").forEach((btn) => btn.remove());
+  #|  clone.querySelectorAll?.(".yunomi-comment-button,.yunomi-copy-button").forEach((btn) => btn.remove());
   #|  return clone.textContent || "";
   #|}
 
@@ -312,7 +316,7 @@ extern "js" fn apply_comment_reply_event(
   #|      container.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies"></ul>`);
   #|      replies = container.querySelector(":scope > .comment-inline-replies");
   #|    }
-  #|    replies?.insertAdjacentHTML("beforeend", `<li><strong>${esc(event.author || "agent")}</strong> R${esc(event.round || 1)}: ${esc(event.text || "")}</li>`);
+  #|    replies?.insertAdjacentHTML("beforeend", `<li><strong>${esc(event.author || "agent")}</strong> R${esc(event.round || 1)}: ${(window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(event.text || "")}</li>`);
   #|  }
   #|}
 
@@ -330,7 +334,7 @@ extern "js" fn render_comment_replies_for_file(filename : String) -> Unit =
   #|    container.querySelector(":scope > .comment-inline-replies")?.remove();
   #|    const replies = Array.isArray(store[id]) ? store[id] : [];
   #|    if (replies.length === 0) continue;
-  #|    const html = replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${esc(r.text)}</li>`).join("");
+  #|    const html = replies.map(r => `<li><strong>${esc(r.author)}</strong> R${esc(r.round)}: ${(window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(r.text)}</li>`).join("");
   #|    container.insertAdjacentHTML("beforeend", `<ul class="comment-inline-replies">${html}</ul>`);
   #|  }
   #|}
@@ -863,15 +867,75 @@ extern "js" fn focus_durable_review_comment(
   #|}
 
 ///|
+/// Chat markdown: unescape literal \\n and render a safe subset (** ` lists).
+extern "js" fn install_chat_markdown_helpers() -> Unit =
+  #|() => {
+  #|  if (window.__yunomiFormatChatMarkdown) return;
+  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const inline = (s) => {
+  #|    let out = esc(s);
+  #|    out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
+  #|    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  #|    out = out.replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  #|    out = out.replace(/(^|[^\*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  #|    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  #|    return out;
+  #|  };
+  #|  const renderMd = (chunk) => {
+  #|    const lines = String(chunk || "").replace(/^\n+|\n+$/g, "").split("\n");
+  #|    if (lines.length === 1 && lines[0] === "") return "";
+  #|    let html = "";
+  #|    let list = [];
+  #|    const flushList = () => {
+  #|      if (!list.length) return;
+  #|      html += "<ul>" + list.map((item) => "<li>" + inline(item) + "</li>").join("") + "</ul>";
+  #|      list = [];
+  #|    };
+  #|    for (const line of lines) {
+  #|      const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+  #|      if (bullet) { list.push(bullet[1]); continue; }
+  #|      flushList();
+  #|      if (/^\s*$/.test(line)) { html += "<br>"; continue; }
+  #|      const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+  #|      if (heading) { html += "<strong>" + inline(heading[2]) + "</strong><br>"; continue; }
+  #|      html += inline(line) + "<br>";
+  #|    }
+  #|    flushList();
+  #|    html = html.replace(/(<br>)+$/g, "");
+  #|    return html ? `<div class="review-loop-markdown">${html}</div>` : "";
+  #|  };
+  #|  window.__yunomiFormatChatMarkdown = (raw) => {
+  #|    let text = String(raw ?? "");
+  #|    if (!text) return "";
+  #|    text = text.replace(/\r\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+  #|    const blocks = [];
+  #|    const fenceRe = /```([^\n]*)\n?([\s\S]*?)```/g;
+  #|    let last = 0;
+  #|    let m;
+  #|    while ((m = fenceRe.exec(text))) {
+  #|      if (m.index > last) blocks.push({ type: "md", text: text.slice(last, m.index) });
+  #|      blocks.push({ type: "code", text: m[2].replace(/\n$/, "") });
+  #|      last = m.index + m[0].length;
+  #|    }
+  #|    if (last < text.length) blocks.push({ type: "md", text: text.slice(last) });
+  #|    if (blocks.length === 0) blocks.push({ type: "md", text });
+  #|    return blocks.map((b) => b.type === "code"
+  #|      ? `<pre class="review-loop-markdown-code"><code>${esc(b.text)}</code></pre>`
+  #|      : renderMd(b.text)).join("");
+  #|  };
+  #|}
+
+///|
 extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|(json) => {
   #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (!panel) return 0;
   #|  const captureScroll = (selector) => {
   #|    const element = panel.querySelector(selector);
+  #|    const nearLatestPx = 24;
   #|    return element ? {
   #|      top: element.scrollTop,
-  #|      followsLatest: element.scrollHeight - (element.scrollTop + element.clientHeight) <= 2,
+  #|      followsLatest: element.scrollHeight - (element.scrollTop + element.clientHeight) <= nearLatestPx,
   #|    } : { top: 0, followsLatest: true };
   #|  };
   #|  const previousScroll = {
@@ -929,7 +993,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    panel.innerHTML = "";
   #|  };
   #|  let state;
-  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; return 0; }
+  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_ROUND_IDS__ = new Set(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; window.__yunomiUnread?.syncUnresolved?.(); return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  // The latest round is the highest round number, never the last array
@@ -952,12 +1016,14 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const visibleActionableComments = actionableComments.filter(c => !c.unanchored);
   #|  const unresolved = visibleActionableComments.filter(c => c.status !== "resolved");
   #|  window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(unresolved.map(c => String(c.id || "")).filter(Boolean));
+  #|  window.__YUNOMI_UNRESOLVED_ROUND_IDS__ = new Set(roundThreads.filter(c => c.status !== "resolved").map(c => String(c.id || "")).filter(Boolean));
   #|  // Only anchored unresolved comments drive inline recovery; the fixed panel
   #|  // itself remains a conversation surface regardless of this list.
   #|  const gateUnresolved = Number(state.gate_unresolved_count || 0);
   #|  window.__YUNOMI_REVIEW_LOOP_STATUS__ = `Round ${currentRound} ・ ${unresolved.length > 0 ? `${unresolved.length} unresolved` : "All resolved"}`;
   #|  window.__YUNOMI_REVIEW_LOOP_GATE__ = gateUnresolved;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const chatMd = (text) => (window.__yunomiFormatChatMarkdown || ((s) => `<p>${esc(s)}</p>`))(text);
   #|  const t = {
   #|    header: "🍵",
   #|    resolved: "Resolved",
@@ -968,6 +1034,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    reply: "Reply",
   #|    replyPlaceholder: "Reply to this conversation",
   #|    messagePlaceholder: "Message",
+  #|    jumpLatest: "Jump to latest",
   #|    attachImage: "Attach image",
   #|    removeImage: "Remove image",
   #|    attachedImage: "Attached image",
@@ -1155,6 +1222,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const text = String(editor?.value || "").trim();
   #|        if (submitting || (!text && !image)) return;
   #|        submitting = true;
+  #|        if (globalChat) window.__YUNOMI_CHAT_STICK_UNTIL__ = Date.now() + 1500;
   #|        fetch(endpoint, {
   #|          method: "POST",
   #|          headers: { "Content-Type": "application/json" },
@@ -1206,7 +1274,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      const unread = !human && unreadKeys.has(key) ? " is-unread" : "";
   #|      const className = human ? "review-loop-thread-line is-human" : `review-loop-thread-line is-agent${unread}`;
   #|      const attachments = (Array.isArray(r.attachments) ? r.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<div class="${className}" data-message-key="${esc(key)}" data-message-author="${human ? "human" : "agent"}">${r.text ? `<p>${esc(r.text)}</p>` : ""}${attachments}</div>`;
+  #|      return `<div class="${className}" data-message-key="${esc(key)}" data-message-author="${human ? "human" : "agent"}">${r.text ? chatMd(r.text) : ""}${attachments}</div>`;
   #|    };
   #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] }, `${c.id}#root#h`)]
   #|      .concat(replies.map((r, index) => threadLine(r, messageKey(c.id, index, r)))).join("");
@@ -1356,7 +1424,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const human = message.author === "human";
   #|    const unread = !human && unreadKeys.has(message.key) ? " is-unread" : "";
   #|    const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}${unread}" data-message-key="${esc(message.key)}" data-message-author="${human ? "human" : "agent"}">${message.text ? `<p>${esc(message.text)}</p>` : ""}${attachments}</article>`;
+  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}${unread}" data-message-key="${esc(message.key)}" data-message-author="${human ? "human" : "agent"}">${message.text ? chatMd(message.text) : ""}${attachments}</article>`;
   #|  };
   #|  const timelineMessages = roundThreads.flatMap(thread => {
   #|    const replies = Array.isArray(thread.replies) ? thread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
@@ -1367,7 +1435,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const replyForm = activeRoundThread
   #|    ? conversationForm(activeRoundThread.id, "/reply-comment", t.messagePlaceholder, t.reply)
   #|    : conversationForm("", "/create-global-comment", t.messagePlaceholder, t.reply);
-  #|  const summaryHtml = `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread ? activeRoundThread.id : "")}"><div class="review-loop-conversation-stream">${timelineMessages.map(timelineMessage).join("")}</div>${replyForm}</section>`;
+  #|  const jumpIcon = `<svg class="lucide lucide-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>`;
+  #|  const summaryHtml = `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread ? activeRoundThread.id : "")}"><div class="review-loop-conversation-scroller"><div class="review-loop-conversation-stream">${timelineMessages.map(timelineMessage).join("")}</div><button type="button" class="review-loop-jump-latest" title="${esc(t.jumpLatest)}" aria-label="${esc(t.jumpLatest)}">${jumpIcon}</button></div>${replyForm}</section>`;
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
   #|  // The chat remains available even before the first review message. Only an
   #|  // explicit minimize action may reduce it to the message-circle button.
@@ -1384,7 +1453,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const activeEndpoint = activeRoundThread ? "/reply-comment" : "/create-global-comment";
   #|  const existingSection = panel.querySelector(".review-loop-details .review-loop-conversation");
   #|  const existingForm = existingSection?.querySelector(":scope > .review-loop-reply-form");
-  #|  const existingStream = existingSection?.querySelector(":scope > .review-loop-conversation-stream");
+  #|  const existingStream = existingSection?.querySelector(".review-loop-conversation-stream");
   #|  const canPatch = !!existingForm && !!existingStream
   #|    && (existingForm.getAttribute("data-review-comment-id") || "") === activeThreadId
   #|    && (existingForm.getAttribute("data-review-endpoint") || "") === activeEndpoint;
@@ -1412,12 +1481,65 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  for (const id of window.__YUNOMI_DURABLE_COMMENT_IDS__) {
   #|    document.querySelectorAll(`.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`).forEach(holder => holder.remove());
   #|  }
+  #|  const pinConversationToLatest = (element) => {
+  #|    const pin = () => { element.scrollTop = element.scrollHeight; };
+  #|    pin();
+  #|    requestAnimationFrame(() => { pin(); requestAnimationFrame(pin); });
+  #|    element.querySelectorAll("img").forEach((img) => {
+  #|      if (!img.complete) img.addEventListener("load", pin, { once: true });
+  #|    });
+  #|  };
   #|  const restoreScroll = (selector, previous) => {
   #|    const element = panel.querySelector(selector);
   #|    if (!element) return;
-  #|    element.scrollTop = previous.followsLatest ? element.scrollHeight : previous.top;
+  #|    const stickUntil = Number(window.__YUNOMI_CHAT_STICK_UNTIL__ || 0);
+  #|    const stick = previous.followsLatest || Date.now() < stickUntil;
+  #|    if (stick) pinConversationToLatest(element);
+  #|    else element.scrollTop = previous.top;
   #|  };
   #|  restoreScroll(".review-loop-conversation-stream", previousScroll.conversation);
+  #|  const bindJumpLatest = () => {
+  #|    const section = panel.querySelector(".review-loop-conversation");
+  #|    const stream = section?.querySelector(".review-loop-conversation-stream");
+  #|    if (!section || !stream) return;
+  #|    if (!stream.parentElement?.classList.contains("review-loop-conversation-scroller")) {
+  #|      const wrap = document.createElement("div");
+  #|      wrap.className = "review-loop-conversation-scroller";
+  #|      stream.replaceWith(wrap);
+  #|      wrap.appendChild(stream);
+  #|    }
+  #|    const scroller = stream.parentElement;
+  #|    let btn = scroller.querySelector(":scope > .review-loop-jump-latest");
+  #|    if (!btn) {
+  #|      btn = document.createElement("button");
+  #|      btn.type = "button";
+  #|      btn.className = "review-loop-jump-latest";
+  #|      btn.title = t.jumpLatest;
+  #|      btn.setAttribute("aria-label", t.jumpLatest);
+  #|      btn.innerHTML = jumpIcon;
+  #|      scroller.appendChild(btn);
+  #|    }
+  #|    btn.removeAttribute("hidden");
+  #|    const update = () => {
+  #|      const overflow = stream.scrollHeight - stream.clientHeight > 8;
+  #|      const away = stream.scrollHeight - (stream.scrollTop + stream.clientHeight) > 24;
+  #|      btn.classList.toggle("is-visible", overflow && away);
+  #|    };
+  #|    stream.__yunomiJumpUpdate = update;
+  #|    if (!stream.__yunomiJumpBound) {
+  #|      stream.__yunomiJumpBound = true;
+  #|      btn.addEventListener("click", (event) => {
+  #|        event.preventDefault();
+  #|        event.stopPropagation();
+  #|        stream.scrollTop = stream.scrollHeight;
+  #|        stream.__yunomiJumpUpdate?.();
+  #|      });
+  #|      stream.addEventListener("scroll", () => stream.__yunomiJumpUpdate?.(), { passive: true });
+  #|      if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => stream.__yunomiJumpUpdate?.()).observe(stream);
+  #|    }
+  #|    requestAnimationFrame(update);
+  #|  };
+  #|  bindJumpLatest();
   #|  const togglePanel = () => {
   #|    const button = panel.querySelector(".review-loop-sidebar-toggle");
   #|    const next = !panel.classList.contains("review-loop-sidebar-collapsed");
@@ -1462,7 +1584,8 @@ extern "js" fn render_inline_saved_comment(
   #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
   #|  const badge = pending ? `<span class="yunomi-inline-comment-pending">Pending</span>` : "";
-  #|  const body = `<button type="button" class="yunomi-inline-comment-view" title="Edit comment"><span class="yunomi-inline-comment-label">${esc(label)}${badge}</span><span class="yunomi-inline-comment-text">${esc(text)}</span>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</button>`;
+  #|  const md = (window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(text);
+  #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div><div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}</div></div>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div>`;
   #|  const insert = (target, surface) => {
   #|    if (!target || !target.parentElement) return;
   #|    let holder;
@@ -1523,8 +1646,9 @@ extern "js" fn show_inline_comment_editor(
   on_send : () -> Unit,
   on_cancel : () -> Unit,
   on_input : () -> Unit,
+  on_image : (String) -> Unit,
 ) -> Unit =
-  #|(target, key, row, col, text, context, reviewLabel, singleLabel, onSave, onSend, onCancel, onInput) => {
+  #|(target, key, row, col, text, context, reviewLabel, singleLabel, onSave, onSend, onCancel, onInput, onImage) => {
   #|  document.querySelectorAll(".yunomi-inline-comment-editor-mount").forEach(el => el.remove());
   #|  document.querySelectorAll(".yunomi-inline-comment-editor").forEach(el => el.remove());
   #|  if (!target) return;
@@ -1538,7 +1662,8 @@ extern "js" fn show_inline_comment_editor(
   #|  });
   #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
   #|  section.dataset.commentSurface = surface;
-  #|  section.innerHTML = `<div class="yunomi-inline-comment-editor-head"><span class="yunomi-inline-comment-label">${label}</span><span id="cell-preview" class="yunomi-inline-comment-context"></span></div><textarea id="comment-input" aria-label="Comment" placeholder="Comment"></textarea><div class="image-attach-area image-attach-small" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="yunomi-inline-comment-actions"><button type="button" class="comment-action send-now-btn" data-action="cancel">Cancel</button><button type="button" class="comment-action send-now-btn" id="send-now-comment">${singleLabel}</button><button type="button" class="comment-action primary" id="save-comment">${reviewLabel}</button></div>`;
+  #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
+  #|  section.innerHTML = `<div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${label}</strong></div><span id="cell-preview" class="yunomi-inline-comment-context"></span><div class="review-loop-reply-form"><textarea id="comment-input" rows="3" aria-label="Comment" placeholder="Write a comment"></textarea><div class="review-loop-reply-preview" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="review-loop-reply-actions"><div class="yunomi-inline-comment-action-start"><label class="review-loop-reply-attach" title="Attach image" aria-label="Attach image">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="Attach image" /></label><button type="button" data-action="cancel">Cancel</button></div><div class="yunomi-inline-comment-action-group"><button type="button" id="save-comment">${reviewLabel}</button><button type="button" id="send-now-comment">${singleLabel}</button></div></div></div>`;
   #|  const tableCell = target.closest?.("td,th");
   #|  const listItem = target.closest?.("li[data-source-line]");
   #|  let mount = section;
@@ -1565,6 +1690,9 @@ extern "js" fn show_inline_comment_editor(
   #|    if (headingContent) headingContent.insertAdjacentElement("afterbegin", section);
   #|    else target.insertAdjacentElement("afterend", section);
   #|  }
+  #|  section.addEventListener("click", (event) => event.stopPropagation());
+  #|  section.addEventListener("mouseup", (event) => event.stopPropagation());
+  #|  section.addEventListener("mousedown", (event) => event.stopPropagation());
   #|  const input = section.querySelector("#comment-input");
   #|  section.querySelector("#cell-preview").textContent = String(context || "");
   #|  input.value = String(text || "");
@@ -1576,6 +1704,14 @@ extern "js" fn show_inline_comment_editor(
   #|  section.querySelector('[data-action="cancel"]')?.addEventListener("click", () => onCancel());
   #|  section.querySelector("#save-comment")?.addEventListener("click", () => onSave());
   #|  section.querySelector("#send-now-comment")?.addEventListener("click", () => onSend());
+  #|  const picker = section.querySelector(".review-loop-reply-file");
+  #|  picker?.addEventListener("change", () => {
+  #|    const file = picker.files?.[0];
+  #|    if (!file || !String(file.type || "").startsWith("image/")) return;
+  #|    const reader = new FileReader();
+  #|    reader.onload = () => onImage(String(reader.result || ""));
+  #|    reader.readAsDataURL(file);
+  #|  });
   #|}
 
 ///|
@@ -1587,6 +1723,7 @@ extern "js" fn bind_inline_saved_comments(
   #|    const button = holder.querySelector(".yunomi-inline-comment-view");
   #|    if (!button) continue;
   #|    button.addEventListener("click", (event) => {
+  #|      if (event.target instanceof Element && event.target.closest("a")) return;
   #|      event.preventDefault();
   #|      event.stopPropagation();
   #|      const headingDetails = holder.parentElement?.matches?.(".toggle-content")
@@ -1602,6 +1739,11 @@ extern "js" fn bind_inline_saved_comments(
   #|        anchor = col > 0 ? cells[Math.max(0, col - 1)] || cells[0] : cells[0];
   #|      }
   #|      handler(String(holder.dataset.commentKey || ""), anchor, Number(holder.dataset.commentRow || 0), Number(holder.dataset.commentCol || 0));
+  #|    });
+  #|    button.addEventListener("keydown", (event) => {
+  #|      if (event.key !== "Enter" && event.key !== " ") return;
+  #|      event.preventDefault();
+  #|      button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
   #|    });
   #|  }
   #|}
@@ -2099,7 +2241,7 @@ extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|(el) => {
   #|  if (!el) return null;
   #|  if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) return null;
-  #|  if (el.classList?.contains("yunomi-comment-button")) {
+  #|  if (el.classList?.contains("yunomi-comment-button") || el.classList?.contains("yunomi-copy-button")) {
   #|    el = el.__yunomiCommentTarget || el.parentElement;
   #|  }
   #|  const timeline = el.closest?.(".timeline-thumb-wrapper");
@@ -2144,7 +2286,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|    if (el.matches?.("ul,ol")) continue;
   #|    if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
   #|    if (el.matches?.("img.timeline-thumb")) continue;
-  #|    if (el.closest?.(".yunomi-comment-button")) continue;
+  #|    if (el.closest?.(".yunomi-comment-button,.yunomi-copy-button")) continue;
   #|    if (el.closest?.(".video-timeline") && !el.classList?.contains("timeline-thumb-wrapper")) continue;
   #|    if (!visible(el)) continue;
   #|    if (!seen.has(el)) {
@@ -2198,6 +2340,139 @@ extern "js" fn install_preview_comment_buttons(
   #|    }
   #|    return target;
   #|  };
+  #|  const copyIcon = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+  #|  const showCopyToast = (message) => {
+  #|    let toast = document.querySelector(".copy-toast");
+  #|    if (!toast) {
+  #|      toast = document.createElement("div");
+  #|      toast.className = "copy-toast";
+  #|      document.body.appendChild(toast);
+  #|    }
+  #|    toast.textContent = message;
+  #|    toast.classList.add("visible");
+  #|    clearTimeout(toast.__hide);
+  #|    toast.__hide = setTimeout(() => toast.classList.remove("visible"), 1400);
+  #|  };
+  #|  const writeClipboard = async (item) => {
+  #|    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+  #|      await navigator.clipboard.write([item]);
+  #|      return;
+  #|    }
+  #|    throw new Error("clipboard write is unavailable");
+  #|  };
+  #|  const copyText = async (text) => {
+  #|    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+  #|    else {
+  #|      const ta = document.createElement("textarea");
+  #|      ta.value = text;
+  #|      document.body.appendChild(ta);
+  #|      ta.select();
+  #|      document.execCommand("copy");
+  #|      ta.remove();
+  #|    }
+  #|  };
+  #|  const svgToPngBlob = (svg) => new Promise((resolve, reject) => {
+  #|    const box = svg.getBoundingClientRect();
+  #|    let bbox = { x: 0, y: 0, width: 0, height: 0 };
+  #|    try { bbox = svg.getBBox(); } catch (_) {}
+  #|    const w = Math.max(1, Math.round(box.width || bbox.width || svg.viewBox?.baseVal?.width || 800));
+  #|    const h = Math.max(1, Math.round(box.height || bbox.height || svg.viewBox?.baseVal?.height || 600));
+  #|    const clone = svg.cloneNode(true);
+  #|    clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  #|    clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+  #|    clone.setAttribute("width", String(w));
+  #|    clone.setAttribute("height", String(h));
+  #|    if (!clone.getAttribute("viewBox") && bbox.width > 0 && bbox.height > 0) {
+  #|      clone.setAttribute("viewBox", `${bbox.x} ${bbox.y} ${bbox.width} ${bbox.height}`);
+  #|    }
+  #|    // Chrome taints a canvas that draws SVG containing <foreignObject>
+  #|    // (Mermaid flowchart labels). Replace those with SVG text so PNG export works.
+  #|    clone.querySelectorAll("foreignObject").forEach((fo) => {
+  #|      const text = String(fo.textContent || "").replace(/\s+/g, " ").trim();
+  #|      if (!text) { fo.remove(); return; }
+  #|      const x = Number.parseFloat(fo.getAttribute("x") || "0") || 0;
+  #|      const y = Number.parseFloat(fo.getAttribute("y") || "0") || 0;
+  #|      const fw = Number.parseFloat(fo.getAttribute("width") || "0") || 0;
+  #|      const fh = Number.parseFloat(fo.getAttribute("height") || "0") || 0;
+  #|      const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+  #|      el.setAttribute("x", String(x + fw / 2));
+  #|      el.setAttribute("y", String(y + fh / 2));
+  #|      el.setAttribute("text-anchor", "middle");
+  #|      el.setAttribute("dominant-baseline", "middle");
+  #|      el.setAttribute("font-size", "14");
+  #|      el.setAttribute("font-family", "ui-sans-serif, system-ui, sans-serif");
+  #|      el.setAttribute("fill", getComputedStyle(document.documentElement).getPropertyValue("--text").trim() || "#1f2328");
+  #|      el.textContent = text;
+  #|      fo.replaceWith(el);
+  #|    });
+  #|    const xml = new XMLSerializer().serializeToString(clone);
+  #|    const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+  #|    const img = new Image();
+  #|    img.onload = () => {
+  #|      const canvas = document.createElement("canvas");
+  #|      canvas.width = w * 2;
+  #|      canvas.height = h * 2;
+  #|      const ctx = canvas.getContext("2d");
+  #|      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--panel").trim() || "#ffffff";
+  #|      ctx.fillRect(0, 0, canvas.width, canvas.height);
+  #|      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  #|      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("png")), "image/png");
+  #|    };
+  #|    img.onerror = () => reject(new Error("svg"));
+  #|    img.src = url;
+  #|  });
+  #|  const copyFromHost = async (host) => {
+  #|    const img = host.matches?.("img") ? host : host.querySelector?.(":scope > img, img:not(.timeline-thumb)");
+  #|    const mermaid = host.classList?.contains("mermaid-container") ? host : host.closest?.(".mermaid-container");
+  #|    const pre = host.matches?.("pre") ? host : null;
+  #|    if (pre) {
+  #|      await copyText(pre.innerText || pre.textContent || "");
+  #|      showCopyToast("Copied code");
+  #|      return;
+  #|    }
+  #|    if (mermaid?.querySelector(".mermaid svg, svg")) {
+  #|      const svg = mermaid.querySelector(".mermaid svg") || mermaid.querySelector("svg");
+  #|      const blob = await svgToPngBlob(svg);
+  #|      await writeClipboard(new ClipboardItem({ "image/png": blob }));
+  #|      showCopyToast("Copied diagram");
+  #|      return;
+  #|    }
+  #|    if (img) {
+  #|      const res = await fetch(img.currentSrc || img.src, { mode: "cors" });
+  #|      let blob = await res.blob();
+  #|      if (!blob.type.startsWith("image/") || blob.type === "image/svg+xml") {
+  #|        blob = await new Promise((resolve, reject) => {
+  #|          const canvas = document.createElement("canvas");
+  #|          canvas.width = img.naturalWidth || img.width || 1;
+  #|          canvas.height = img.naturalHeight || img.height || 1;
+  #|          const ctx = canvas.getContext("2d");
+  #|          ctx.drawImage(img, 0, 0);
+  #|          canvas.toBlob((next) => next ? resolve(next) : reject(new Error("png")), "image/png");
+  #|        });
+  #|      }
+  #|      const type = blob.type.startsWith("image/") ? blob.type : "image/png";
+  #|      await writeClipboard(new ClipboardItem({ [type]: blob }));
+  #|      showCopyToast("Copied image");
+  #|      return;
+  #|    }
+  #|    throw new Error("nothing to copy");
+  #|  };
+  #|  const attachCopyButton = (host, kind) => {
+  #|    if (!host || host.querySelector?.(":scope > .yunomi-copy-button")) return;
+  #|    host.classList.add("yunomi-commentable");
+  #|    const btn = document.createElement("button");
+  #|    btn.type = "button";
+  #|    btn.className = "yunomi-copy-button";
+  #|    btn.innerHTML = copyIcon;
+  #|    btn.setAttribute("aria-label", kind === "code" ? "Copy code" : kind === "diagram" ? "Copy diagram as image" : "Copy image");
+  #|    btn.addEventListener("click", async (e) => {
+  #|      e.preventDefault();
+  #|      e.stopPropagation();
+  #|      try { await copyFromHost(host); }
+  #|      catch (_) { showCopyToast("Copy failed"); }
+  #|    });
+  #|    host.appendChild(btn);
+  #|  };
   #|  const decorate = () => {
   #|    const seen = new Set();
   #|    for (const raw of preview.querySelectorAll(selector)) {
@@ -2207,28 +2482,36 @@ extern "js" fn install_preview_comment_buttons(
   #|      if (seen.has(target)) continue;
   #|      seen.add(target);
   #|      const host = hostFor(target);
-  #|      if (!host || host.querySelector?.(":scope > .yunomi-comment-button")) continue;
-  #|      host.classList.add("yunomi-commentable");
-  #|      const btn = document.createElement("button");
-  #|      btn.type = "button";
-  #|      btn.className = "yunomi-comment-button";
-  #|      btn.textContent = "✎";
-  #|      const subject = target.matches?.("img:not(.timeline-thumb)")
-  #|        ? "image"
-  #|        : target.matches?.("video.video-preview")
-  #|          ? "video"
-  #|          : target.classList?.contains("mermaid-container")
-  #|            ? "diagram"
-  #|            : "video frame";
-  #|      const label = `Comment on ${subject}`;
-  #|      btn.setAttribute("aria-label", label);
-  #|      btn.__yunomiCommentTarget = target;
-  #|      btn.addEventListener("click", (e) => {
-  #|        e.preventDefault();
-  #|        e.stopPropagation();
-  #|        handler(target);
-  #|      });
-  #|      host.appendChild(btn);
+  #|      if (!host) continue;
+  #|      if (!host.querySelector?.(":scope > .yunomi-comment-button")) {
+  #|        host.classList.add("yunomi-commentable");
+  #|        const btn = document.createElement("button");
+  #|        btn.type = "button";
+  #|        btn.className = "yunomi-comment-button";
+  #|        btn.textContent = "✎";
+  #|        const subject = target.matches?.("img:not(.timeline-thumb)")
+  #|          ? "image"
+  #|          : target.matches?.("video.video-preview")
+  #|            ? "video"
+  #|            : target.classList?.contains("mermaid-container")
+  #|              ? "diagram"
+  #|              : "video frame";
+  #|        btn.setAttribute("aria-label", `Comment on ${subject}`);
+  #|        btn.__yunomiCommentTarget = target;
+  #|        btn.addEventListener("click", (e) => {
+  #|          e.preventDefault();
+  #|          e.stopPropagation();
+  #|          handler(target);
+  #|        });
+  #|        host.appendChild(btn);
+  #|      }
+  #|      if (target.matches?.("img:not(.timeline-thumb)")) attachCopyButton(host, "image");
+  #|      if (target.classList?.contains("mermaid-container")) attachCopyButton(host, "diagram");
+  #|    }
+  #|    for (const pre of preview.querySelectorAll("pre")) {
+  #|      if (pre.closest?.(".mermaid-container,#review-loop-panel,.yunomi-inline-comment,.review-loop-markdown-code")) continue;
+  #|      pre.classList.add("yunomi-copyable");
+  #|      attachCopyButton(pre, "code");
   #|    }
   #|  };
   #|  decorate();

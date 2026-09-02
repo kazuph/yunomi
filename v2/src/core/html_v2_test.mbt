@@ -198,3 +198,27 @@ test "html compat: data injection via script variable" {
     ),
   )
 }
+
+///|
+test "html compat: csv footer shows yunomi version" {
+  let data : CsvData = { headers: ["a", "b"], rows: [["1", "2"]] }
+  let html = build_csv_html(data, "test.csv", 4989, app_version="2.6.0")
+  debug_inspect(
+    html.contains("id=\"app-footer\""),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("class=\"app-footer-version\">2.6.0</span>"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("href=\"https://github.com/kazuph/yunomi\""),
+    content=(
+      #|true
+    ),
+  )
+}

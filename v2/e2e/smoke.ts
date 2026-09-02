@@ -212,6 +212,15 @@ lastTestResult = await runTest("Markdown Server", TEST_MD, "markdown", async (mo
   assert(html.body.includes("md-layout"), "Has markdown side-by-side layout");
   assert(html.body.includes("md-left"), "Has markdown left panel");
   assert(html.body.includes("md-right"), "Has markdown source panel");
+  assert(/<footer[^>]*id="app-footer"/.test(html.body), "HTML has an app footer");
+  assert(
+    /<span class="app-footer-version">\d+\.\d+\.\d+<\/span>/.test(html.body),
+    "Footer shows the yunomi package version",
+  );
+  assert(
+    html.body.includes('href="https://github.com/kazuph/yunomi"'),
+    "Footer version links to the kazuph/yunomi GitHub page",
+  );
   assert(!html.body.includes("recovery-modal"), "Markdown no longer ships a Restore/Discard modal (drafts restore silently)");
 
   const health = await httpGet(port, "/healthz");

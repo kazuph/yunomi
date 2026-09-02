@@ -121,6 +121,10 @@ try {
   assert(shellText.includes("<iframe"), "HTML preview shell renders an iframe");
   assert(shellText.includes("sandbox=\"allow-scripts allow-same-origin allow-popups\""), "iframe permits user-activated external tabs without relaxing its remaining sandbox");
   assert(shellText.includes("src=\"/__yunomi_html_target\""), "iframe points at the local HTML target");
+  assert(shellText.includes("data-theme=\"light\""), "HTML preview shell uses the markdown light theme token");
+  assert(shellText.includes("--bg:#ffffff") || shellText.includes("--bg: #ffffff"), "HTML preview shell uses Primer canvas tokens like markdown");
+  assert(!shellText.includes("#f6faf0"), "HTML preview shell no longer uses the old green tea chrome");
+  assert(shellText.includes("class=\"brand\""), "HTML preview shell reuses the markdown brand mark");
 
   const target = await httpGet("/__yunomi_html_target");
   const targetText = target.body.toString("utf8");

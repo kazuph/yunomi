@@ -178,13 +178,16 @@ fn build_page_start(
   buf.write_string("</span></h1>")
   buf.write_string("</div><div class=\"actions\">")
   buf.write_string(
-    "<span class=\"sse-dot sse-dot-connected\" id=\"sse-status\" role=\"status\" aria-live=\"polite\" title=\"Connected\"></span>",
+    "<span class=\"sse-dot sse-dot-connected\" id=\"sse-status\" role=\"status\" aria-live=\"polite\" tabindex=\"0\" data-sse-hint=\"Live connection to the review server. Green means comments and AI replies arrive without a refresh.\" aria-label=\"Live connection to the review server. Green means comments and AI replies arrive without a refresh.\"></span>",
   )
   buf.write_string(
-    "<button class=\"pill\" id=\"pill-comments\" title=\"Unsubmitted comment drafts\" style=\"display:none\">Drafts <strong id=\"comment-count\">0</strong></button>",
+    "<span class=\"comments-popover-anchor\"><button class=\"pill\" id=\"pill-comments\" title=\"Unsubmitted comment drafts\" style=\"display:none\">Drafts <strong id=\"comment-count\">0</strong></button></span>",
   )
   buf.write_string(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
+  )
+  buf.write_string(
+    "<button type=\"button\" class=\"conversation-unresolved\" id=\"conversation-unresolved\" title=\"Unresolved comments\" aria-label=\"Jump to next unresolved comment\" hidden>0</button>",
   )
   buf.write_string(
     "<button type=\"button\" class=\"conversation-unread\" id=\"conversation-unread\" title=\"Unread AI replies in the document\" aria-label=\"Unread AI replies\" hidden>0</button>",
@@ -311,7 +314,7 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
 fn build_comment_list_aside(buf : StringBuilder) -> Unit {
   buf.write_string("<aside class=\"comment-list collapsed\">")
   buf.write_string(
-    "<div class=\"comment-list-header\"><h3>Drafts</h3><button type=\"button\" class=\"comment-list-minimize\" id=\"comment-list-minimize\" title=\"Minimize drafts\" aria-label=\"Minimize drafts\">Minimize</button></div>",
+    "<div class=\"comment-list-header\"><h3>Drafts</h3><button type=\"button\" class=\"comment-list-minimize\" id=\"comment-list-minimize\" title=\"Minimize drafts\" aria-label=\"Minimize drafts\">−</button></div>",
   )
   buf.write_string("<ol id=\"comment-list\"></ol>")
   buf.write_string(
@@ -574,13 +577,30 @@ fn json_quote(s : String) -> String {
 }
 
 ///|
+fn build_app_footer(buf : StringBuilder, app_version : String) -> Unit {
+  buf.write_string("<footer class=\"app-footer\" id=\"app-footer\">")
+  buf.write_string(
+    "<a class=\"app-footer-link\" href=\"https://github.com/kazuph/yunomi\" target=\"_blank\" rel=\"noopener noreferrer\">",
+  )
+  buf.write_string("<span class=\"app-footer-brand\">yunomi</span>")
+  if app_version.length() > 0 {
+    buf.write_string(" <span class=\"app-footer-version\">")
+    buf.write_string(escape_html(app_version))
+    buf.write_string("</span>")
+  }
+  buf.write_string("</a></footer>")
+}
+
+///|
 fn build_script_footer(
   buf : StringBuilder,
   port : Int,
   mode : String,
   filename : String,
   server_instance_id? : String = "",
+  app_version? : String = "",
 ) -> Unit {
+  build_app_footer(buf, app_version)
   // Mermaid CDN for markdown mode
   if mode == "markdown" {
     buf.write_string(
@@ -696,6 +716,7 @@ pub fn build_csv_html(
   tab_title? : String = "",
   server_instance_id? : String = "",
   mode? : String = "csv",
+  app_version? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -742,7 +763,14 @@ pub fn build_csv_html(
   buf.write_string("<script>const DATA = ")
   buf.write_string(serialize_csv_data_json(data))
   buf.write_string(";</script>")
-  build_script_footer(buf, port, mode, filename, server_instance_id~)
+  build_script_footer(
+    buf,
+    port,
+    mode,
+    filename,
+    server_instance_id~,
+    app_version~,
+  )
   buf.to_string()
 }
 
@@ -754,6 +782,7 @@ pub fn build_diff_html(
   port : Int,
   tab_title? : String = "",
   server_instance_id? : String = "",
+  app_version? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -902,7 +931,14 @@ pub fn build_diff_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_script_footer(buf, port, "diff", filename, server_instance_id~)
+  build_script_footer(
+    buf,
+    port,
+    "diff",
+    filename,
+    server_instance_id~,
+    app_version~,
+  )
   buf.to_string()
 }
 
@@ -914,6 +950,7 @@ pub fn build_text_html(
   port : Int,
   tab_title? : String = "",
   server_instance_id? : String = "",
+  app_version? : String = "",
 ) -> String {
   let buf = StringBuilder::new()
   build_page_start(buf, filename, tab_title~)
@@ -933,6 +970,13 @@ pub fn build_text_html(
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)
-  build_script_footer(buf, port, "text", filename, server_instance_id~)
+  build_script_footer(
+    buf,
+    port,
+    "text",
+    filename,
+    server_instance_id~,
+    app_version~,
+  )
   buf.to_string()
 }

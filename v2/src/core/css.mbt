@@ -21,6 +21,8 @@ fn build_css() -> String {
     #|  --accent-soft: rgba(47, 129, 247, 0.16);
     #|  --text: #e6edf3;
     #|  --text-inverse: #0d1117;
+    #|  --on-accent: #ffffff;
+    #|  --accent-fill: color-mix(in srgb, var(--accent) 58%, #000000);
     #|  --muted: #8b949e;
     #|  --comment: #d29922;
     #|  --badge: #2f81f7;
@@ -63,6 +65,8 @@ fn build_css() -> String {
     #|  --accent-soft: rgba(9, 105, 218, 0.10);
     #|  --text: #24292f;
     #|  --text-inverse: #ffffff;
+    #|  --on-accent: #ffffff;
+    #|  --accent-fill: var(--accent);
     #|  --muted: #57606a;
     #|  --comment: #9a6700;
     #|  --badge: #0969da;
@@ -101,9 +105,7 @@ fn build_css() -> String {
     #|  z-index: 5;
     #|  flex-shrink: 0;
     #|  padding: 14px 20px;
-    #|  background: var(--panel-alpha);
-    #|  backdrop-filter: saturate(140%) blur(18px);
-    #|  -webkit-backdrop-filter: saturate(140%) blur(18px);
+    #|  background: var(--panel-solid);
     #|  border-bottom: 1px solid var(--border);
     #|  display: flex;
     #|  gap: 14px;
@@ -120,6 +122,23 @@ fn build_css() -> String {
     #|header h1 { min-width: 0; }
     #|header h1 .title-path { display: block; max-width: min(48vw, 560px); overflow: hidden; color: var(--muted); font-size: 10px; font-weight: 600; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; }
     #|header h1 .title-file { font-size: 16px; font-weight: 700; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(48vw, 560px); }
+    #|.app-footer {
+    #|  flex-shrink: 0;
+    #|  display: flex;
+    #|  align-items: baseline;
+    #|  gap: 8px;
+    #|  padding: 5px 16px;
+    #|  border-top: 1px solid var(--border);
+    #|  background: var(--panel-solid);
+    #|  color: var(--muted);
+    #|  font-size: 11px;
+    #|  font-weight: 600;
+    #|  line-height: 1.3;
+    #|  z-index: 4;
+    #|}
+    #|.app-footer-version { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+    #|.app-footer-link { color: inherit; text-decoration: none; display: inline-flex; align-items: baseline; gap: 8px; }
+    #|.app-footer-link:hover, .app-footer-link:focus-visible { color: var(--text); text-decoration: underline; }
     #|.review-file-switcher {
     #|  display: flex;
     #|  align-items: center;
@@ -194,8 +213,8 @@ fn build_css() -> String {
     #|header button:active { transform: translateY(0); background: var(--selected-bg); }
     #|/* Primary submit button */
     #|header button.submit-exit-btn {
-    #|  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-    #|  color: var(--text-inverse);
+    #|  background: linear-gradient(135deg, var(--accent-fill) 0%, color-mix(in srgb, var(--accent-2) 62%, #000000) 100%);
+    #|  color: var(--on-accent);
     #|  border: none;
     #|  padding: 6px 18px;
     #|  font-weight: 700;
@@ -203,7 +222,8 @@ fn build_css() -> String {
     #|  box-shadow: var(--shadow-soft);
     #|}
     #|header button.submit-exit-btn:hover {
-    #|  background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 100%);
+    #|  background: linear-gradient(135deg, color-mix(in srgb, var(--accent-fill) 86%, #000000) 0%, var(--accent-fill) 100%);
+    #|  color: var(--on-accent);
     #|  border: none;
     #|  transform: translateY(-1px);
     #|  box-shadow: var(--shadow-card);
@@ -314,7 +334,7 @@ fn build_css() -> String {
     #|  margin-right: 2px;
     #|  border-radius: var(--radius-pill);
     #|  position: relative;
-    #|  cursor: default;
+    #|  cursor: help;
     #|  flex-shrink: 0;
     #|}
     #|.sse-dot::before {
@@ -330,10 +350,36 @@ fn build_css() -> String {
     #|.sse-dot-connected::before { background: var(--success); box-shadow: 0 0 8px rgba(107, 191, 134, 0.45); }
     #|.sse-dot-reconnecting::before { background: var(--error); animation: sseBlink 1.1s ease-in-out infinite; }
     #|.sse-dot-sending::before { background: var(--warning); animation: sseBlink 0.9s ease-in-out infinite; }
+    #|.sse-dot::after {
+    #|  content: attr(data-sse-hint);
+    #|  position: absolute;
+    #|  top: calc(100% + 8px);
+    #|  left: 50%;
+    #|  transform: translateX(-50%);
+    #|  width: max-content;
+    #|  max-width: 260px;
+    #|  padding: 8px 10px;
+    #|  border: 1px solid var(--border);
+    #|  border-radius: var(--radius-sm);
+    #|  background: var(--panel-solid);
+    #|  color: var(--text);
+    #|  font-size: 12px;
+    #|  font-weight: 600;
+    #|  line-height: 1.4;
+    #|  letter-spacing: 0;
+    #|  text-align: left;
+    #|  white-space: normal;
+    #|  box-shadow: var(--shadow-card);
+    #|  opacity: 0;
+    #|  pointer-events: none;
+    #|  z-index: 40;
+    #|  transition: opacity 120ms ease;
+    #|}
+    #|.sse-dot:hover::after, .sse-dot:focus-visible::after { opacity: 1; }
     #|@keyframes sseBlink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
     #|
     #|.wrap {
-    #|  padding: 12px 16px 12px;
+    #|  padding: 0 16px 12px;
     #|  flex: 1;
     #|  min-height: 0;
     #|  display: flex;
@@ -503,10 +549,20 @@ fn build_css() -> String {
     #|td.has-comment { background: rgba(77, 157, 99, 0.12); box-shadow: inset 0 0 0 1px rgba(77, 157, 99, 0.32); }
     #|[data-theme="dark"] td.has-comment { background: rgba(107, 191, 134, 0.14); box-shadow: inset 0 0 0 1px rgba(107, 191, 134, 0.32); }
     #|td.selected, tbody th.selected { background: var(--selected-bg) !important; box-shadow: inset 0 0 0 1px var(--accent) !important; }
-    #|/* The old padding-left/margin-left pair kept the text still but dragged the
-    #|   whole box 8px left, so a list item's ::marker visibly jumped on select.
-    #|   A spread shadow paints the same breathing room without touching layout. */
-    #|.preview-highlight { background: var(--selected-bg) !important; outline: none; box-shadow: 0 0 0 6px var(--selected-bg); border-radius: 4px; transition: background 150ms ease; }
+    #|/* Breathing room via offset shadows, not layout padding: a uniform 6px
+    #|   spread hung left of the first glyph and missed the comment dialog's
+    #|   left edge. Skip the left side so the glyph, highlight, and dialog share
+    #|   one x. List ::marker still does not move. */
+    #|.preview-highlight {
+    #|  background: var(--selected-bg) !important;
+    #|  outline: none;
+    #|  box-shadow:
+    #|    0 -6px 0 0 var(--selected-bg),
+    #|    6px 0 0 0 var(--selected-bg),
+    #|    0 6px 0 0 var(--selected-bg);
+    #|  border-radius: 4px;
+    #|  transition: background 150ms ease;
+    #|}
     #|thead th.selected { background: var(--accent-soft) !important; color: var(--accent-strong); box-shadow: inset 0 0 0 1px var(--accent); }
     #|[data-theme="dark"] thead th.selected { background: var(--accent-soft) !important; color: var(--accent-strong); }
     #|body.dragging { user-select: none; cursor: crosshair; }
@@ -523,58 +579,50 @@ fn build_css() -> String {
     #|  box-shadow: 0 0 0 4px rgba(77, 157, 99, 0.18);
     #|}
     #|.yunomi-inline-comment {
-    #|  margin: 6px 0 12px;
+    #|  box-sizing: border-box;
+    #|  width: min(100%, calc(var(--review-loop-sidebar-width) * 1.5));
+    #|  min-width: min(100%, var(--review-loop-sidebar-width));
+    #|  max-width: 100%;
+    #|  margin: 8px 0 12px;
+    #|  padding: 10px 12px;
     #|  border: 1px solid var(--border);
-    #|  border-left: 3px solid var(--accent);
     #|  border-radius: var(--radius-sm);
     #|  background: var(--panel);
     #|  color: var(--text);
     #|  font-family: var(--font-ui);
-    #|  box-shadow: var(--shadow-soft);
     #|}
+    #|tr.yunomi-inline-comment { width: auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
     #|tr.yunomi-inline-comment > td { padding: 8px 12px; background: var(--panel); }
     #|.yunomi-inline-comment-view {
     #|  all: unset;
     #|  box-sizing: border-box;
     #|  display: grid;
-    #|  gap: 4px;
+    #|  gap: 8px;
     #|  width: 100%;
-    #|  padding: 9px 12px;
+    #|  min-width: 0;
     #|  cursor: pointer;
     #|}
-    #|.yunomi-inline-comment-view:hover { background: var(--hover-bg); }
+    #|.yunomi-inline-comment-view:hover .yunomi-inline-comment-text { filter: brightness(1.04); }
     #|.yunomi-inline-comment-view:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    #|.yunomi-inline-comment-label { color: var(--muted); font-size: 11px; font-weight: 700; }
-    #|.yunomi-inline-comment-pending { display: inline-flex; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); color: var(--accent-strong); font-size: 10px; }
-    #|.yunomi-inline-comment-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.45; }
+    #|.yunomi-inline-comment-label { color: var(--muted); font-size: 12px; font-weight: 800; }
+    #|.yunomi-inline-comment-pending { display: inline-flex; align-self: center; justify-self: start; margin: 0; padding: 1px 6px; border: 1px solid var(--border-strong); border-radius: var(--radius-pill); color: var(--accent-strong); font-size: 10px; font-weight: 700; }
+    #|.yunomi-inline-comment-text { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-soft); overflow-wrap: anywhere; font-size: 13px; line-height: 1.55; box-sizing: border-box; }
+    #|.yunomi-inline-comment-text > .review-loop-markdown { margin: 0; font-size: inherit; line-height: inherit; }
     #|.yunomi-inline-comment-image { display: block; max-width: 180px; max-height: 120px; object-fit: contain; border-radius: var(--radius-sm); }
-    #|.yunomi-inline-comment-editor { padding: 10px; }
-    #|/* Reserve the fixed chat's right edge while editing document content so
-    #|   the chat remains usable without covering Save/Cancel controls. */
-    #|.yunomi-inline-comment-editor { margin-right: calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset)); }
+    #|.yunomi-inline-comment-editor { display: grid; gap: 10px; }
     #|:is(td, th) .yunomi-inline-comment-editor { margin-right: 0; }
     #|tr.yunomi-inline-comment-editor-mount { padding: 0; }
     #|tr.yunomi-inline-comment-editor-mount > td { padding: 8px 12px; }
     #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
-    #|li.yunomi-inline-comment, li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
-    #|li.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0 calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset)) 0 0; }
-    #|.yunomi-inline-comment-editor-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
-    #|.yunomi-inline-comment-context { min-width: 0; max-width: 70%; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-    #|.yunomi-inline-comment-editor textarea {
-    #|  box-sizing: border-box;
-    #|  width: 100%;
-    #|  min-height: 82px;
-    #|  resize: vertical;
-    #|  border: 1px solid var(--border);
-    #|  border-radius: var(--radius-sm);
-    #|  background: var(--input-bg);
-    #|  color: var(--text);
-    #|  padding: 9px 10px;
-    #|}
-    #|.yunomi-inline-comment-editor textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-    #|.yunomi-inline-comment-actions { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
-    #|.yunomi-inline-comment-actions .primary { background: var(--accent); color: var(--text-inverse); border-color: var(--accent); }
-    #|.yunomi-inline-comment-actions .comment-action { min-height: 32px; padding: 6px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 700; cursor: pointer; }
+    #|li.yunomi-inline-comment { margin: 6px 0 12px; list-style: none; }
+    #|li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
+    #|.yunomi-inline-comment-context { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+    #|.yunomi-inline-comment-editor .review-loop-reply-form { padding-top: 0; border-top: 0; }
+    #|.yunomi-inline-comment-editor .review-loop-reply-preview:not(:has(.image-preview-item, img)) { display: none; }
+    #|.yunomi-inline-comment-editor .review-loop-reply-actions { flex-wrap: nowrap; gap: 8px; min-width: 0; }
+    #|.yunomi-inline-comment-action-start { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+    #|.yunomi-inline-comment-action-group { display: flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: 6px; min-width: 0; }
+    #|.yunomi-inline-comment-action-group button { white-space: nowrap; padding: 0 8px; }
     #|.send-now-btn {
     #|  border: 1px solid var(--border);
     #|  background: var(--button-bg);
@@ -597,12 +645,14 @@ fn build_css() -> String {
     #|  padding: 4px 8px;
     #|}
     #|.danger-text:hover { color: #dc2626 !important; text-decoration: underline; }
-    #|#pill-comments { anchor-name: --yunomi-comments-trigger; }
+    #|.comments-popover-anchor { display: inline-flex; align-items: center; anchor-name: --yunomi-comments-trigger; }
     #|.comment-list {
     #|  position: fixed;
     #|  position-anchor: --yunomi-comments-trigger;
-    #|  top: calc(anchor(bottom) + 8px);
-    #|  right: anchor(right);
+    #|  top: 56px;
+    #|  right: 16px;
+    #|  top: calc(anchor(bottom, 48px) + 8px);
+    #|  right: anchor(right, 16px);
     #|  bottom: auto;
     #|  width: min(320px, calc(100vw - 24px));
     #|  max-height: 60vh;
@@ -618,7 +668,7 @@ fn build_css() -> String {
     #|}
     #|.comment-list-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
     #|.comment-list h3 { margin: 0; font-size: 13px; color: var(--muted); }
-    #|.comment-list-minimize { border: 0; border-radius: 4px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; padding: 3px 5px; }
+    #|.comment-list-minimize { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--muted); font-size: 16px; font-weight: 600; line-height: 1; cursor: pointer; }
     #|.comment-list-minimize:hover, .comment-list-minimize:focus-visible { background: var(--hover-bg); color: var(--text); }
     #|.comment-list ol {
     #|  margin: 0;
@@ -651,13 +701,42 @@ fn build_css() -> String {
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
     #|.review-loop-header-badge { display: none; align-items: center; max-width: 220px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #|.review-loop-header-badge.ready { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
-    #|/* Unread AI replies inside the document (inline threads). Red because it
-    #|   is the only header element that asks for attention; hidden at zero. */
-    #|/* A round dot: the header row stretches its children, so pin the height
-    #|   and center it instead of letting the button fill the row. */
-    #|header button.conversation-unread { display: inline-flex; flex: 0 0 auto; align-self: center; align-items: center; justify-content: center; box-sizing: border-box; min-width: 20px; min-height: 0; height: 20px; padding: 0 6px; margin: 0; border: 0; border-radius: 999px; background: #e5484d; color: #fff; font-size: 11px; font-weight: 700; line-height: 20px; cursor: pointer; box-shadow: 0 0 0 2px var(--panel); }
-    #|header button.conversation-unread[hidden] { display: none; }
-    #|header button.conversation-unread:hover { filter: brightness(1.08); background: #e5484d; border-color: transparent; }
+    #|/* Unresolved comments sit immediately left of the unread (red) counter.
+    #|   ID selectors beat `header button { min-height: 34px }`, which otherwise
+    #|   stretched these into vertical ovals. */
+    #|#conversation-unresolved,
+    #|#conversation-unread {
+    #|  display: inline-grid;
+    #|  place-items: center;
+    #|  box-sizing: border-box;
+    #|  flex: 0 0 auto;
+    #|  align-self: center;
+    #|  width: 22px;
+    #|  height: 22px;
+    #|  min-width: 22px;
+    #|  min-height: 22px;
+    #|  max-width: none;
+    #|  max-height: 22px;
+    #|  padding: 0;
+    #|  border: 0;
+    #|  border-radius: 50%;
+    #|  font-size: 11px;
+    #|  font-weight: 700;
+    #|  line-height: 1;
+    #|  cursor: pointer;
+    #|  box-shadow: none;
+    #|  -webkit-font-smoothing: antialiased;
+    #|}
+    #|#conversation-unresolved { margin: 0 6px 0 0; background: #f5c518; color: #3b2300; }
+    #|#conversation-unresolved[hidden] { display: none; }
+    #|#conversation-unresolved:hover { filter: none; background: #e8b80f; }
+    #|.review-loop-inline.is-unresolved-flash,
+    #|.review-loop-comment.is-unresolved-flash,
+    #|.review-loop-conversation.is-unresolved-flash { animation: unresolved-comment-flash 1.5s ease-out 1; }
+    #|@keyframes unresolved-comment-flash { 0% { box-shadow: 0 0 0 3px rgba(245, 197, 24, 0.9); } 100% { box-shadow: none; } }
+    #|#conversation-unread { margin: 0; background: #e5484d; color: #fff; }
+    #|#conversation-unread[hidden] { display: none; }
+    #|#conversation-unread:hover { filter: brightness(1.08); background: #e5484d; border-color: transparent; }
     #|.conversation-unread.is-pulse { animation: conversation-unread-pulse 600ms ease-out 1; }
     #|@keyframes conversation-unread-pulse { 0% { transform: scale(1); } 40% { transform: scale(1.25); } 100% { transform: scale(1); } }
     #|/* Unread messages carry no per-message decoration (no side bar); the
@@ -713,6 +792,7 @@ fn build_css() -> String {
     #|#review-loop-panel.review-loop-sidebar .review-loop-reply-form,
     #|#review-loop-panel.review-loop-sidebar .review-loop-sidebar-toggle { pointer-events: auto; }
     #|#review-loop-panel.review-loop-sidebar .review-loop-conversation-stream:has(.review-loop-conversation-message) { pointer-events: auto; }
+    #|#review-loop-panel.review-loop-sidebar .review-loop-jump-latest.is-visible { pointer-events: auto; }
     #|#review-loop-panel.review-loop-sidebar.review-loop-sidebar-collapsed {
     #|  flex-basis: 40px;
     #|  width: 40px;
@@ -760,8 +840,18 @@ fn build_css() -> String {
     #|.review-loop-actions { display: flex; justify-content: flex-end; margin-left: auto; }
     #|.review-loop-resolved { color: var(--muted); font-size: 12px; }
     #|.review-loop-thread-actions { display: flex; justify-content: flex-end; padding-top: 6px; }
-    #|.review-loop-resolve, .review-loop-reply-form button[type="submit"] { height: 28px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
-    #|.review-loop-resolve:hover, .review-loop-reply-form button[type="submit"]:hover { background: var(--hover-bg); border-color: var(--border-strong); color: var(--text); }
+    #|.review-loop-resolve { height: 28px; padding: 0 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--button-bg); color: var(--text); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+    #|.review-loop-resolve:hover { background: var(--hover-bg); border-color: var(--border-strong); color: var(--text); }
+    #|.review-loop-reply-form button[type="submit"] { height: 28px; padding: 0 12px; border: 1px solid var(--accent-fill); border-radius: var(--radius-sm); background: var(--accent-fill); color: var(--on-accent); font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+    #|.review-loop-reply-form button[type="submit"]:hover { background: color-mix(in srgb, var(--accent-fill) 86%, #000000); border-color: color-mix(in srgb, var(--accent-fill) 86%, #000000); color: var(--on-accent); }
+    #|.yunomi-inline-comment-action-group button, .yunomi-inline-comment-action-start button { height: 28px; padding: 0 8px; border: 1px solid transparent; border-radius: var(--radius-sm); font-family: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background 160ms ease, border-color 160ms ease, color 160ms ease; }
+    #|.yunomi-inline-comment-action-start button[data-action="cancel"] { background: transparent; color: var(--muted); }
+    #|.yunomi-inline-comment-action-start button[data-action="cancel"]:hover { background: var(--hover-bg); color: var(--text); }
+    #|.yunomi-inline-comment-editor .review-loop-reply-attach { background: var(--input-bg); }
+    #|#send-now-comment { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); }
+    #|#send-now-comment:hover { background: color-mix(in srgb, var(--accent-fill) 86%, #000000); border-color: color-mix(in srgb, var(--accent-fill) 86%, #000000); color: var(--on-accent); }
+    #|#save-comment { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+    #|#save-comment:hover { background: var(--hover-bg); border-color: var(--accent-strong); color: var(--accent-strong); }
     #|/* 15px = status dot (8px) + its gap (7px), so the quote and the thread
     #|   line up with the file name instead of stepping left or right. */
     #|.review-loop-snippet { border: 0; display: grid; gap: 4px; padding: 0 0 0 15px; background: transparent; }
@@ -775,18 +865,32 @@ fn build_css() -> String {
     #|.review-loop-change { color: var(--muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
     #|.review-loop-thread { display: grid; gap: 8px; padding-left: 15px; }
     #|.review-loop-thread-line { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); overflow-wrap: anywhere; }
-    #|.review-loop-thread-line.is-human { margin-left: 16px; background: var(--accent-soft); }
+    #|.review-loop-thread-line.is-human { margin-left: 16px; width: calc(100% - 16px); max-width: calc(100% - 16px); box-sizing: border-box; background: var(--accent-soft); }
     #|.review-loop-thread-line.is-agent { margin-right: 16px; }
-    #|.review-loop-thread-line > p { margin: 0; font-size: inherit; line-height: 1.55; }
+    #|.review-loop-thread-line > p,
+    #|.review-loop-thread-line > .review-loop-markdown,
+    #|.review-loop-thread-line > .review-loop-markdown-code { margin: 0; font-size: inherit; line-height: 1.55; }
     #|.review-loop-conversation { display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden; color: var(--text); font-size: 12px; }
     #|.review-loop-conversation[hidden] { display: none; }
     #|.review-loop-conversation-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; padding-bottom: 5px; }
     #|.review-loop-conversation-head > strong { font-size: 12px; font-weight: 800; }
+    #|.review-loop-conversation-scroller { position: relative; display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
     #|.review-loop-conversation-stream { display: grid; flex: 1 1 auto; align-content: start; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; }
+    #|.review-loop-jump-latest { position: absolute; right: 8px; bottom: 8px; z-index: 2; display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel-solid); color: var(--accent-strong); box-shadow: var(--shadow-soft); cursor: pointer; opacity: 0; pointer-events: none; transform: translateY(6px); transition: opacity 120ms ease, transform 120ms ease; }
+    #|.review-loop-jump-latest.is-visible { opacity: 1; pointer-events: auto; transform: none; }
+    #|.review-loop-jump-latest:hover { background: var(--hover-bg); color: var(--text); }
+    #|.review-loop-jump-latest svg { display: block; width: 16px; height: 16px; }
     #|.review-loop-conversation-message { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); }
     #|.review-loop-conversation-message.is-human { margin-left: 16px; background: var(--accent-soft); }
     #|.review-loop-conversation-message.is-agent { margin-right: 16px; }
-    #|.review-loop-conversation-message > p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+    #|.review-loop-conversation-message > p,
+    #|.review-loop-conversation-message > .review-loop-markdown { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+    #|.review-loop-markdown strong { font-weight: 700; }
+    #|.review-loop-markdown em { font-style: italic; }
+    #|.review-loop-markdown code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.92em; background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+    #|.review-loop-markdown ul { margin: 4px 0 0; padding-left: 1.2em; }
+    #|.review-loop-markdown a { color: var(--accent); }
+    #|.review-loop-markdown-code { margin: 4px 0 0; padding: 8px; max-height: 160px; overflow: auto; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; white-space: pre-wrap; }
     #|.review-loop-conversation-image { display: block; width: auto; max-width: 100%; max-height: 180px; margin-top: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
     #|.review-loop-resolved-list, .review-loop-fallback-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
     #|.review-loop-resolved-list { margin-top: 8px; }
@@ -832,7 +936,7 @@ fn build_css() -> String {
     #|#md-preview :is(.yunomi-inline-comment, .review-loop-inline) {
     #|  margin-right: calc(var(--review-loop-sidebar-width) * 1.5 + var(--review-loop-sidebar-offset));
     #|}
-    #|#md-preview :is(td, th) .yunomi-inline-comment { margin-right: 0; }
+    #|#md-preview :is(td, th) .yunomi-inline-comment { margin-right: 0; width: 100%; min-width: 0; }
     #|.review-loop-inline-highlight { animation: review-loop-inline-highlight 1.2s ease-out; }
     #|@keyframes review-loop-inline-highlight { from { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent); } to { box-shadow: none; border-color: var(--border); } }
     #|.comment-list.collapsed {
@@ -858,7 +962,7 @@ fn build_css() -> String {
     #|  display: flex;
     #|  gap: 16px;
     #|  align-items: stretch;
-    #|  margin-top: 8px;
+    #|  margin-top: 0;
     #|  flex: 1;
     #|  min-height: 0;
     #|}
@@ -875,6 +979,7 @@ fn build_css() -> String {
     #|}
     #|.md-left .md-preview {
     #|  max-height: none;
+    #|  margin-top: 12px;
     #|}
     #|.md-right {
     #|  flex: 1;
@@ -2067,8 +2172,6 @@ fn build_css() -> String {
     #|  .md-left { max-width: 100%; flex: 1 1 0; min-height: 0; }
     #|  .md-right { display: none; }
     #|  #md-preview :is(.yunomi-inline-comment, .review-loop-inline) { margin-right: 0; }
-    #|  #md-preview .yunomi-inline-comment-editor { margin-right: 0; }
-    #|  .yunomi-inline-comment-editor { margin-right: 0; }
     #|  #review-loop-panel.review-loop-sidebar {
     #|    inset: auto 12px 12px auto;
     #|    width: calc(100% - 24px);
@@ -2179,7 +2282,7 @@ fn build_css() -> String {
     #|  transition: background 160ms ease, border-color 160ms ease, transform 120ms ease;
     #|}
     #|.modal-actions button:hover { background: var(--hover-bg); border-color: var(--border-strong); }
-    #|.modal-actions button.primary { background: var(--accent); color: var(--text-inverse); border-color: var(--accent); }
+    #|.modal-actions button.primary { background: var(--accent-fill); color: var(--on-accent); border-color: var(--accent-fill); }
     #|.image-attach-area { margin: 12px 0; }
     #|.image-attach-area label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
     #|.image-attach-area.image-attach-small { margin: 8px 0; }
@@ -2189,7 +2292,7 @@ fn build_css() -> String {
     #|.image-preview-item img { max-width: 80px; max-height: 60px; border-radius: 4px; border: 1px solid var(--border); object-fit: cover; }
     #|.image-preview-item .remove-image { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; background: var(--error, #ef4444); color: #fff; border: none; cursor: pointer; font-size: 12px; line-height: 1; display: flex; align-items: center; justify-content: center; }
     #|.image-preview-item .remove-image:hover { background: #dc2626; }
-    #|.modal-actions button.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
+    #|.modal-actions button.primary:hover { background: color-mix(in srgb, var(--accent-fill) 86%, #000000); border-color: color-mix(in srgb, var(--accent-fill) 86%, #000000); color: var(--on-accent); }
     #|.modal-actions-decision { justify-content: space-between; align-items: center; }
     #|.modal-actions-decision button { box-sizing: border-box; min-height: 36px; white-space: nowrap; }
     #|.kbd-hint { display: inline-block; flex: 0 0 auto; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(255,255,255,0.15); margin-left: 6px; font-family: system-ui; opacity: 0.8; white-space: nowrap; }
@@ -2199,8 +2302,8 @@ fn build_css() -> String {
     #|.decision-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-soft); }
     #|.decision-approve { background: rgba(107, 191, 134, 0.14); color: var(--success); border-color: rgba(107, 191, 134, 0.42); }
     #|.decision-approve:hover { background: rgba(107, 191, 134, 0.22); border-color: var(--success); }
-    #|.decision-request-changes { background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%); color: var(--text-inverse); border-color: transparent; }
-    #|.decision-request-changes:hover { background: linear-gradient(135deg, var(--accent-strong) 0%, var(--accent) 100%); }
+    #|.decision-request-changes { background: linear-gradient(135deg, var(--accent-fill) 0%, color-mix(in srgb, var(--accent-2) 62%, #000000) 100%); color: var(--on-accent); border-color: transparent; }
+    #|.decision-request-changes:hover { background: linear-gradient(135deg, color-mix(in srgb, var(--accent-fill) 86%, #000000) 0%, var(--accent-fill) 100%); color: var(--on-accent); }
     #|[data-theme="light"] .decision-approve { background: rgba(77, 157, 99, 0.14); color: var(--success); border-color: rgba(77, 157, 99, 0.38); }
     #|[data-theme="light"] .decision-approve:hover { background: rgba(77, 157, 99, 0.22); }
     #|.decision-btn:disabled, .decision-btn:disabled:hover { opacity: 0.55; cursor: not-allowed; transform: none; box-shadow: none; background: var(--panel); color: var(--muted); border-color: var(--border); }
@@ -2482,6 +2585,8 @@ fn build_css() -> String {
     #|}
     #|@media (max-width: 420px), (max-device-width: 420px) {
     #|  header .actions button { min-width: 32px; height: 32px; padding: 4px 6px; }
+    #|  #conversation-unresolved,
+    #|  #conversation-unread { min-width: 22px; width: 22px; min-height: 22px; max-height: 22px; height: 22px; padding: 0; }
     #|  header .actions #pill-comments { min-width: 34px; font-size: 0; }
     #|  header .actions #pill-comments strong { font-size: 12px; }
     #|  header .actions #send-and-exit { min-width: 0; padding: 4px 10px; font-size: 12px; }
@@ -2980,13 +3085,17 @@ fn build_css() -> String {
     #|  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
     #|}
     #|.yunomi-commentable:hover > .yunomi-comment-button,
-    #|.yunomi-comment-button:focus {
+    #|.yunomi-commentable:hover > .yunomi-copy-button,
+    #|.yunomi-comment-button:focus,
+    #|.yunomi-copy-button:focus {
     #|  opacity: 1;
     #|  transform: translateY(-1px);
     #|  background: #fff;
     #|}
     #|.yunomi-media-comment-host:hover > .yunomi-comment-button,
-    #|.yunomi-media-comment-host > .yunomi-comment-button:focus { transform: none; }
+    #|.yunomi-media-comment-host:hover > .yunomi-copy-button,
+    #|.yunomi-media-comment-host > .yunomi-comment-button:focus,
+    #|.yunomi-media-comment-host > .yunomi-copy-button:focus { transform: none; }
     #|.md-preview .video-timeline .timeline-thumb-wrapper.yunomi-commentable {
     #|  position: relative;
     #|}
@@ -3002,6 +3111,39 @@ fn build_css() -> String {
     #|  top: 8px;
     #|  right: 8px;
     #|  z-index: 3;
+    #|}
+    #|.yunomi-copy-button {
+    #|  position: absolute;
+    #|  top: 6px;
+    #|  right: 34px;
+    #|  width: 24px;
+    #|  height: 24px;
+    #|  border: 1px solid rgba(0, 0, 0, 0.18);
+    #|  border-radius: 6px;
+    #|  background: rgba(255, 255, 255, 0.92);
+    #|  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
+    #|  cursor: pointer;
+    #|  z-index: 4;
+    #|  opacity: 0;
+    #|  color: var(--accent);
+    #|  line-height: 1;
+    #|  display: inline-flex;
+    #|  align-items: center;
+    #|  justify-content: center;
+    #|  padding: 0;
+    #|  transition: opacity 0.12s ease, transform 0.12s ease, background 0.12s ease;
+    #|}
+    #|.mermaid-container > .yunomi-copy-button {
+    #|  top: 8px;
+    #|  right: 36px;
+    #|  z-index: 3;
+    #|}
+    #|.md-preview pre.yunomi-copyable {
+    #|  position: relative;
+    #|}
+    #|.md-preview pre.yunomi-copyable > .yunomi-copy-button {
+    #|  top: 8px;
+    #|  right: 8px;
     #|}
     #|/* Fullscreen overlay */
     #|.fullscreen-overlay {
@@ -3095,6 +3237,8 @@ fn build_css() -> String {
     #|  .modal-overlay,
     #|  .fullscreen-overlay,
     #|  .yunomi-comment-button,
+    #|  .yunomi-copy-button,
+    #|  .review-loop-jump-latest,
     #|  .yunomi-inline-comment,
     #|  .review-loop-inline,
     #|  .heading-toggle-icon,

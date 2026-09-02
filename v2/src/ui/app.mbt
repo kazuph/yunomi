@@ -200,16 +200,16 @@ fn open_inline_comment_editor(
     } else {
       resolve_comment_target_preview(target)
     },
-    if pending_comment_count() == 0 {
-      "Start a review"
-    } else {
-      "Add review comment"
-    },
-    "Add single comment",
+    "save",
+    "send now",
     fn() { save_comment() },
     fn() { send_now_comment() },
     fn() { cancel_inline_comment_edit() },
     fn() { sync_active_comment_draft() },
+    fn(data) {
+      current_comment_image.val = data
+      render_comment_image_preview()
+    },
   )
   render_comment_image_preview()
 }
@@ -586,6 +586,7 @@ pub fn init_app() -> Unit {
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
   install_conversation_unread(get_yunomi_storage_scope())
+  install_chat_markdown_helpers()
   install_typing_tracker()
   // Setup SSE for live reload
   setup_sse(port)
@@ -729,17 +730,6 @@ fn load_review_loop_state() -> Unit {
 
 ///|
 let review_loop_state_dirty : Ref[Bool] = Ref(false)
-
-///|
-fn pending_comment_count() -> Int {
-  let count = Ref(0)
-  comments.each(fn(_key, comment) {
-    if comment_has_content(comment) && comment.pending {
-      count.val = count.val + 1
-    }
-  })
-  count.val
-}
 
 ///|
 fn setup_task_decision_checkboxes() -> Unit {
@@ -1234,7 +1224,7 @@ fn hide_comment_list_panel() -> Unit {
 
 ///|
 fn send_now_comment() -> Unit {
-  let textarea = query("#comment-input")
+  let textarea = query_inline_comment_input()
   if is_null(textarea) {
     return
   }
@@ -1272,7 +1262,7 @@ fn send_now_comment() -> Unit {
 
 ///|
 fn save_comment() -> Unit {
-  let textarea = query("#comment-input")
+  let textarea = query_inline_comment_input()
   if is_null(textarea) {
     return
   }
@@ -1439,6 +1429,9 @@ fn update_comment_indicators() -> Unit {
         "none"
       },
     )
+  }
+  if draft_count == 0 {
+    hide_comment_list_panel()
   }
   bind_inline_saved_comments(fn(key, target, row, col) {
     if !is_null(target) {
@@ -1607,7 +1600,7 @@ fn sync_active_comment_draft() -> Unit {
   if key.length() == 0 {
     return
   }
-  let textarea = query("#comment-input")
+  let textarea = query_inline_comment_input()
   if is_null(textarea) {
     return
   }
@@ -1890,7 +1883,8 @@ fn set_sse_status(state : String, label : String) -> Unit {
   } else if state == "sending" {
     add_class(status_el, "sse-dot-sending")
   }
-  set_attribute(status_el, "title", label)
+  set_attribute(status_el, "data-sse-hint", label)
+  set_attribute(status_el, "aria-label", label)
 }
 
 ///|
@@ -2016,7 +2010,11 @@ fn setup_sse(_port : Int) -> Unit {
   // SSE connection status tracking
   sse_on_open(es, fn() {
     let reconnected = sse_was_connected.val
-    let label = if reconnected { "Reconnected" } else { "Connected" }
+    let label = if reconnected {
+      "Live connection to the review server. Reconnected; comments and AI replies arrive without a refresh."
+    } else {
+      "Live connection to the review server. Green means comments and AI replies arrive without a refresh."
+    }
     set_sse_status("connected", label)
     sse_was_connected.val = true
     set_send_buttons_enabled(true)
@@ -2025,7 +2023,7 @@ fn setup_sse(_port : Int) -> Unit {
     }
   })
   sse_on_error_status(es, fn() {
-    set_sse_status("reconnecting", "Reconnecting...")
+    set_sse_status("reconnecting", "Live connection to the review server. Reconnecting — live updates may pause until the dot is green.")
     set_send_buttons_enabled(false)
   })
 }
@@ -3736,7 +3734,7 @@ fn setup_preview_comment_buttons() -> Unit {
   }
   install_preview_comment_buttons(fn(target) {
     if open_or_select_preview_comment_target(target, true) {
-      let input = query("#comment-input")
+      let input = query_inline_comment_input()
       if !is_null(input) {
         focus_element(input)
       }
@@ -3864,7 +3862,15 @@ fn setup_preview_mouseup() -> Unit {
   if is_null(preview) {
     return
   }
-  on(preview, "mouseup", fn(_e) {
+  on(preview, "mouseup", fn(e) {
+    let mouse_target = event_target(e)
+    if !is_null(
+        closest(
+          mouse_target, ".yunomi-inline-comment-editor,.review-loop-reply-form,#review-loop-panel",
+        ),
+      ) {
+      return
+    }
     ignore(
       set_timeout(
         fn() {
@@ -3875,6 +3881,13 @@ fn setup_preview_mouseup() -> Unit {
           // Get container element
           let container = selection_get_range_container(sel)
           if is_null(container) {
+            return
+          }
+          if !is_null(
+              closest(
+                container, ".yunomi-inline-comment-editor,.review-loop-reply-form,#review-loop-panel,textarea,input",
+              ),
+            ) {
             return
           }
           let selection_block = resolve_preview_click_block(container)
@@ -4539,7 +4552,7 @@ fn setup_mermaid_fullscreen_moonbit() -> Unit {
   // Click handler: open mermaid fullscreen (click anywhere on the diagram, like images)
   on_doc("click", fn(e) {
     let target = event_target(e)
-    if !is_null(closest(target, ".yunomi-comment-button")) {
+    if !is_null(closest(target, ".yunomi-comment-button,.yunomi-copy-button")) {
       return
     }
     // Only the diagram itself opens fullscreen. Conversation threads and

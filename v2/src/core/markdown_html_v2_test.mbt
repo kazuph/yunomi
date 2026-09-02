@@ -461,3 +461,32 @@ test "markdown html: media-sidebar-thumb CSS classes exist" {
     ),
   )
 }
+
+///|
+test "markdown html: footer shows yunomi version" {
+  let md : MarkdownData = {
+    source: "text",
+    html: "<p>text</p>",
+    frontmatter: {},
+    questions: [],
+  }
+  let html = build_markdown_html(md, "test.md", 4989, app_version="2.6.0")
+  debug_inspect(
+    html.contains("id=\"app-footer\""),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("class=\"app-footer-version\">2.6.0</span>"),
+    content=(
+      #|true
+    ),
+  )
+  debug_inspect(
+    html.contains("href=\"https://github.com/kazuph/yunomi\""),
+    content=(
+      #|true
+    ),
+  )
+}
