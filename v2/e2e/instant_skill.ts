@@ -11,7 +11,15 @@
  *
  * Run: node --experimental-strip-types v2/e2e/instant_skill.ts
  */
-import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import {
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,20 +46,27 @@ interface RunResult {
   stderr: string;
 }
 
-function run(cmd: string, args: string[], stdin: "ignore" | "pipe"): Promise<RunResult> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { stdio: [stdin, "pipe", "pipe"] });
-    let stdout = "";
-    let stderr = "";
-    proc.stdout.on("data", (d: Buffer) => { stdout += String(d); });
-    proc.stderr.on("data", (d: Buffer) => { stderr += String(d); });
-    if (stdin === "pipe") proc.stdin!.end();
-    const killer = setTimeout(() => proc.kill("SIGKILL"), 15000);
-    proc.on("exit", (code: number | null) => {
-      clearTimeout(killer);
-      resolve({ code, stdout, stderr });
+function run(cmd: string, args: string[], stdin: "ignore" | "pipe"): RunResult {
+  const outputDir = mkdtempSync(join(tmpdir(), "yunomi-skill-e2e-"));
+  const outputPath = join(outputDir, "stdout.txt");
+  const outputFd = openSync(outputPath, "w");
+  try {
+    const result = spawnSync(cmd, args, {
+      encoding: "utf8",
+      input: stdin === "pipe" ? "" : undefined,
+      stdio: [stdin, outputFd, "pipe"],
+      timeout: 15000,
     });
-  });
+    closeSync(outputFd);
+    return {
+      code: result.status,
+      stdout: readFileSync(outputPath, "utf8"),
+      stderr: result.stderr || "",
+    };
+  } finally {
+    try { closeSync(outputFd); } catch {}
+    rmSync(outputDir, { recursive: true, force: true });
+  }
 }
 
 // --- yunomi --skill: skill document, exit 0 ---

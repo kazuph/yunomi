@@ -645,7 +645,9 @@ fn main {
   // server or browser tab exists so a missing contract fails closed here.
   if resolve_notify_room().length() > 0 {
     if resolve_notify_pane().length() == 0 {
-      console_error("[yunomi] --notify-room requires --notify-pane (or HERDR_PANE_ID)")
+      console_error(
+        "[yunomi] --notify-room requires --notify-pane (or HERDR_PANE_ID)",
+      )
       exit_process("notify-room without herdr pane", 1)
     }
     let contract = resolve_herdr_notify_contract(true)
@@ -1337,7 +1339,9 @@ fn post_comment_to_running_servers(
     last_error = if detail.length() > 0 {
       "POST http://127.0.0.1:\{port}" + comment_path + " failed: " + detail
     } else {
-      "POST http://127.0.0.1:\{port}" + comment_path + " failed with exit " +
+      "POST http://127.0.0.1:\{port}" +
+      comment_path +
+      " failed with exit " +
       result.0.to_string()
     }
   }
@@ -2191,7 +2195,7 @@ fn mux_thread_is_owned(ctx : ServerContext, id : String) -> Bool {
   }
   let review_json = read_file_safe(review_json_path_for_file(ctx.file_path))
   review_comment_is_round(review_json, id) ||
-    review_comment_mux_index(review_json, id) == context_index(ctx)
+  review_comment_mux_index(review_json, id) == context_index(ctx)
 }
 
 ///|
@@ -2547,7 +2551,9 @@ fn handle_go_command(port : Int, no_open : Bool) -> Unit {
   if files.length() > 1 {
     bind_review_mux_session(files)
     if !advance_review_mux_round(file_path, current_review_round(file_path)) {
-      console_error("yunomi go: latest round is not a completed request-changes round")
+      console_error(
+        "yunomi go: latest round is not a completed request-changes round",
+      )
       exit_process("go unavailable", 1)
     }
     start_review_mux_server(files, port, no_open)
@@ -2584,9 +2590,7 @@ fn handle_reply_command(id : String, text : String) -> Unit {
   let review_dir = resolve_cwd_review_dir(id)
   let review_path = path_join(review_dir, "review.json")
   if !exists_sync(review_path) {
-    console_error(
-      "yunomi reply: no review.json found for this review session",
-    )
+    console_error("yunomi reply: no review.json found for this review session")
     exit_process("reply missing review", 1)
   }
   if !review_comment_is_replyable(read_file_safe(review_path), id) {
@@ -2634,7 +2638,10 @@ fn handle_go_signal(ctx : ServerContext) -> Unit {
     return
   }
   if review_mux_mode.val {
-    if !advance_review_mux_round(ctx.file_path, current_review_round(ctx.file_path)) {
+    if !advance_review_mux_round(
+        ctx.file_path,
+        current_review_round(ctx.file_path),
+      ) {
       return
     }
     all_results.clear()
@@ -2642,7 +2649,11 @@ fn handle_go_signal(ctx : ServerContext) -> Unit {
     for mux_ctx in active_servers {
       mux_ctx.finished = false
       for client in mux_ctx.sse_clients {
-        sse_send(client, "round", review_state_response(mux_ctx.file_path, true))
+        sse_send(
+          client,
+          "round",
+          review_state_response(mux_ctx.file_path, true),
+        )
       }
     }
     return
@@ -2787,7 +2798,11 @@ fn selected_context(ctx : ServerContext, url : String) -> ServerContext {
     return active_servers[@core.parse_int_safe(target[0])]
   }
   let idx = mux_context_index(url, active_servers.length())
-  if idx >= 0 { active_servers[idx] } else { ctx }
+  if idx >= 0 {
+    active_servers[idx]
+  } else {
+    ctx
+  }
 }
 
 ///|
@@ -2866,7 +2881,11 @@ fn try_listen(
     ignore(
       set_interval(
         fn() {
-          let audiences = if review_mux_mode.val { active_servers } else { [ctx] }
+          let audiences = if review_mux_mode.val {
+            active_servers
+          } else {
+            [ctx]
+          }
           for audience in audiences {
             for client in audience.sse_clients {
               sse_send(client, "ping", "")
@@ -2926,7 +2945,8 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       res_end(res, "Invalid mux context")
       return
     }
-    if !is_global && !is_mux_static &&
+    if !is_global &&
+      !is_mux_static &&
       mux_context_index(url, active_servers.length()) < 0 {
       res_write_head(res, 400, "text/plain")
       res_end(res, "Invalid mux context")
@@ -3039,7 +3059,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         for mux_ctx in active_servers {
           mux_ctx.finished = false
           for client in mux_ctx.sse_clients {
-            sse_send(client, "round", review_state_response(mux_ctx.file_path, true))
+            sse_send(
+              client,
+              "round",
+              review_state_response(mux_ctx.file_path, true),
+            )
           }
         }
       } else if ctx.file_path != "<stdin>" {
@@ -3097,7 +3121,8 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       }
       let is_round_thread = if ctx.file_path != "<stdin>" {
         review_comment_is_round(
-          read_file_safe(review_json_path_for_file(ctx.file_path)), id,
+          read_file_safe(review_json_path_for_file(ctx.file_path)),
+          id,
         )
       } else {
         false
@@ -3721,11 +3746,16 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   append_live_log(buf.to_string())
   if text.length() > 0 && event_type == "send-now" && ctx.file_path != "<stdin>" {
     let id = if key.length() > 0 { key } else { "draft" }
-    update_review_on_send_now(ctx.file_path, id, line, text, target)
+    update_review_on_send_now(
+      ctx.file_path,
+      id,
+      line,
+      json_parse_int_field("col", body),
+      text,
+      target,
+    )
   }
-  if text.length() > 0 &&
-    event_type == "comment" &&
-    ctx.file_path != "<stdin>" {
+  if text.length() > 0 && event_type == "comment" && ctx.file_path != "<stdin>" {
     let line = json_parse_int_field("row", body)
     let writer = if author.length() > 0 { author } else { "agent" }
     update_review_on_cli_comment(ctx.file_path, key, line, text, writer)
@@ -4012,7 +4042,11 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       body, comment_image_paths, comment_attachment_refs,
     )
     let status = review_mux_submit(
-      ctx.file_path, body, persisted_body, mux_review_files(), source_lines,
+      ctx.file_path,
+      body,
+      persisted_body,
+      mux_review_files(),
+      source_lines,
     )
     last_mux_submit_status.val = status
     if status == "stale" || status == "retry" {
@@ -4025,7 +4059,11 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     notify_reviewer(
       ctx,
       verdict_notify_message(
-        ctx, decision_str, action_str, comments.length(), summary,
+        ctx,
+        decision_str,
+        action_str,
+        comments.length(),
+        summary,
       ),
     )
     if status == "complete_changes" {
@@ -4093,7 +4131,11 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   notify_reviewer(
     ctx,
     verdict_notify_message(
-      ctx, decision_str, action_str, comments.length(), summary,
+      ctx,
+      decision_str,
+      action_str,
+      comments.length(),
+      summary,
     ),
   )
   let loop_waiting = ctx.is_loop && decision_str == "request_changes"

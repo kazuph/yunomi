@@ -479,7 +479,33 @@ async function main(): Promise<void> {
     assert.ok((resizedWidths?.after.inline || 0) > (resizedWidths?.before.inline || 0), "inline conversation accepts a wider user-resized width within its parent");
     assert.equal(inlineLayout?.resolve?.height, 28, "Resolve conversation uses the same full-height control as reply actions");
     assert.equal(inlineLayout?.resolve?.label, "Resolve conversation", "Resolve conversation uses GitHub's full action label");
-    assert.deepEqual(inlineLayout?.resolve?.replyStyle, inlineLayout?.resolve?.style, "Reply and Resolve conversation use the same size, padding, border, colors, radius, and font");
+    const {
+      backgroundColor: replyBackground,
+      borderTopColor: _replyBorder,
+      color: replyColor,
+      ...replyGeometry
+    } = inlineLayout!.resolve!.replyStyle;
+    const {
+      backgroundColor: resolveBackground,
+      borderTopColor: _resolveBorder,
+      color: resolveColor,
+      ...resolveGeometry
+    } = inlineLayout!.resolve!.style;
+    assert.deepEqual(
+      replyGeometry,
+      resolveGeometry,
+      "Reply and Resolve conversation use the same size, padding, border width, radius, and font",
+    );
+    assert.notEqual(
+      replyBackground,
+      resolveBackground,
+      "Reply remains the filled primary action while Resolve remains secondary",
+    );
+    assert.notEqual(
+      replyColor,
+      resolveColor,
+      "Reply keeps primary-action text contrast instead of inheriting Resolve styling",
+    );
     assert.equal(inlineLayout?.resolve?.inHeader, false, "Resolve conversation is not squeezed into the file header");
     assert.ok(
       (inlineLayout?.resolve?.threadIndex ?? -1) < (inlineLayout?.resolve?.actionsIndex ?? -1)

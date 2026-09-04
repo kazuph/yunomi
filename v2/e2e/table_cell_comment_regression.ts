@@ -8,10 +8,12 @@
 //   4. Two different cells in the SAME source row get independent
 //      `.has-comment` indicators anchored to their own <td>, not to a
 //      single shared row-level element (the bug this phase fixes).
+//   5. Image comment buttons inside two cells of the same Markdown row keep
+//      independent drafts and display the selected row/column location.
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { chromium, type Browser, type Page } from "playwright";
 
 const BASE_PORT = 5368;
@@ -327,6 +329,11 @@ async function main(): Promise<void> {
         rows: marked.map((el) => el.getAttribute("data-row")),
         cols: marked.map((el) => el.getAttribute("data-col")),
         texts: marked.map((el) => (el.textContent || "").trim()),
+        quotes: marked.map((el) =>
+          Array.from(el.querySelectorAll<HTMLElement>(".yunomi-inline-comment-context")).map(
+            (quote) => (quote.textContent || "").trim(),
+          ),
+        ),
       };
     });
     assert(
@@ -336,6 +343,14 @@ async function main(): Promise<void> {
         indicatorState.texts.some(text => text.includes("login.e2e.ts")) &&
         indicatorState.texts.some(text => text.includes("15")),
       "同じ行の別セル2つが、それぞれ独立した.has-commentとしてハイライトされる（行全体ではない）",
+      indicatorState,
+    );
+    assert(
+      indicatorState.texts.some((text) => text.includes("Markdown 29行目・1列目")) &&
+        indicatorState.texts.some((text) => text.includes("Markdown 29行目・2列目")) &&
+        indicatorState.quotes.some((quotes) => quotes.includes("login.e2e.ts")) &&
+        indicatorState.quotes.some((quotes) => quotes.includes("15")),
+      "画像以外の表コメントは自然な位置名と元の文字引用を分けて表示する",
       indicatorState,
     );
     const savedCommentParents = await page.evaluate(() =>
@@ -352,6 +367,149 @@ async function main(): Promise<void> {
       savedCommentParents,
     );
 
+    const imageCells = page.locator(
+      '#md-preview table:not(.frontmatter-table):has(img[alt="Before"]):has(img[alt="After"]) td:has(img)',
+    );
+    assert(
+      (await imageCells.count()) === 2,
+      "同一Markdown行に画像セルが2つある（回帰テストの前提）",
+      { count: await imageCells.count() },
+    );
+
+    const imageComments = [
+      "left image cell comment",
+      "right image cell comment",
+    ];
+    for (let index = 0; index < 2; index++) {
+      const cell = imageCells.nth(index);
+      await cell.scrollIntoViewIfNeeded();
+      await cell.locator(":scope .yunomi-comment-button").click();
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      const editorValue = await page.locator("#comment-input").inputValue();
+      const cellLocation = await cell.evaluate((element) => ({
+        row: Number(element.getAttribute("data-row")) + 1,
+        col: Number(element.getAttribute("data-col")),
+      }));
+      const editorLocation =
+        (await page.locator(".yunomi-inline-comment-editor .yunomi-inline-comment-label").textContent()) || "";
+      const editorHeadLayout = await page
+        .locator(".yunomi-inline-comment-editor .review-loop-comment-head")
+        .evaluate((head) => {
+          const dot = head.querySelector<HTMLElement>(".review-loop-status-dot")?.getBoundingClientRect();
+          const label = head.querySelector<HTMLElement>(".yunomi-inline-comment-label")?.getBoundingClientRect();
+          return {
+            dotWidth: dot?.width || 0,
+            labelWidth: label?.width || 0,
+            ordered: !!dot && !!label && dot.right <= label.left,
+          };
+        });
+      assert(
+        editorValue === "",
+        `画像セル${index + 1}は別セルの既存コメントを引き継がない`,
+        { editorValue },
+      );
+      assert(
+        editorLocation ===
+            `表の画像「${index === 0 ? "Before" : "After"}」（Markdown ${cellLocation.row}行目・${cellLocation.col}列目）` &&
+          editorHeadLayout.dotWidth > 0 &&
+          editorHeadLayout.labelWidth > 0 &&
+          editorHeadLayout.ordered,
+        `画像セル${index + 1}の青い状態点の隣に行・列ロケーションが表示される`,
+        { editorLocation, cellLocation, editorHeadLayout },
+      );
+      await page.locator("#comment-input").fill(imageComments[index]);
+      if (index === 0) {
+        await page.locator("#save-comment").click();
+        const pending = cell.locator(":scope .yunomi-inline-comment-view");
+        await pending.waitFor({ state: "visible" });
+        const pendingHeadLayout = await pending.locator(".review-loop-comment-head").evaluate((head) => {
+          const dot = head.querySelector<HTMLElement>(".review-loop-status-dot")?.getBoundingClientRect();
+          const label = head.querySelector<HTMLElement>(".yunomi-inline-comment-label")?.getBoundingClientRect();
+          const badge = head.querySelector<HTMLElement>(".yunomi-inline-comment-pending")?.getBoundingClientRect();
+          return {
+            text: head.textContent?.trim() || "",
+            widths: [dot?.width || 0, label?.width || 0, badge?.width || 0],
+            ordered: !!dot && !!label && !!badge && dot.right <= label.left && label.right <= badge.left,
+            contained:
+              !!badge && badge.top >= head.getBoundingClientRect().top && badge.bottom <= head.getBoundingClientRect().bottom,
+          };
+        });
+        assert(
+          pendingHeadLayout.text.includes("表の画像「Before」（Markdown") &&
+            pendingHeadLayout.text.endsWith("Pending") &&
+            pendingHeadLayout.widths.every((width) => width > 0) &&
+            pendingHeadLayout.ordered &&
+            pendingHeadLayout.contained,
+          "save後も青い状態点・画像ロケーション・Pendingが重ならず横並びで表示される",
+          pendingHeadLayout,
+        );
+        await pending.click();
+        await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
+      }
+      if (index === 1) {
+        await page.locator("#comment-input").press(
+          process.platform === "darwin" ? "Meta+Enter" : "Control+Enter",
+        );
+      } else {
+        await page.locator("#send-now-comment").click();
+      }
+      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
+      await page.waitForFunction(
+        ({ row, col }) =>
+          !!document.querySelector(
+            `#md-preview [data-row="${row}"][data-col="${col}"] .review-loop-inline`,
+          ),
+        { row: cellLocation.row - 1, col: cellLocation.col },
+        { timeout: 5000 },
+      );
+    }
+
+    const imageCommentState = await imageCells.evaluateAll((cells) =>
+      cells.map((cell) => ({
+        row: cell.getAttribute("data-row"),
+        col: cell.getAttribute("data-col"),
+        comments: Array.from(
+          cell.querySelectorAll<HTMLElement>(":scope .review-loop-inline"),
+        ).map((comment) => comment.textContent || ""),
+      })),
+    );
+    assert(
+      imageCommentState.length === 2 &&
+        imageCommentState[0].row === imageCommentState[1].row &&
+        imageCommentState[0].col !== imageCommentState[1].col &&
+        imageCommentState[0].comments.some((text) =>
+          text.includes("表の画像「Before」（Markdown 53行目・1列目）"),
+        ) &&
+        imageCommentState[1].comments.some((text) =>
+          text.includes("表の画像「After」（Markdown 53行目・2列目）"),
+        ) &&
+        imageCommentState[0].comments.some((text) => text.includes(imageComments[0])) &&
+        imageCommentState[1].comments.some((text) => text.includes(imageComments[1])),
+      "send nowボタンとCmd/Ctrl+Enterの両方で画像名・Markdown行・列を表示して各セルへ独立して残る",
+      imageCommentState,
+    );
+    const durableReview = JSON.parse(
+      readFileSync(join(REVIEW_DIR, "review.json"), "utf8"),
+    );
+    const durableImageComments = durableReview.comments
+      .filter((comment: { text?: string }) => imageComments.includes(comment.text || ""))
+      .map((comment: { row?: number; col?: number; text?: string; target?: string }) => ({
+        row: comment.row,
+        col: comment.col,
+        text: comment.text,
+        target: comment.target,
+      }));
+    assert(
+      durableImageComments.length === 2 &&
+        durableImageComments[0].row === durableImageComments[1].row &&
+        durableImageComments[0].col === 1 &&
+        durableImageComments[1].col === 2 &&
+        durableImageComments[0].target?.includes('image (alt="Before"') &&
+        durableImageComments[1].target?.includes('image (alt="After"'),
+      "send now後も画像名・行・列がAI向け構造化情報としてreview.jsonへ独立して永続化される",
+      durableImageComments,
+    );
+
     await closeCard(page);
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 3000 });
@@ -361,8 +519,9 @@ async function main(): Promise<void> {
     assert(exitCode === 0, "Submit後にサーバーが正常終了する", { exitCode });
     assert(
       serverOutput.includes("cell1 comment: file name") &&
-        serverOutput.includes("cell2 comment: line number"),
-      "提出YAMLに2つのセルコメントが両方とも欠落なく出力される",
+        serverOutput.includes("cell2 comment: line number") &&
+        serverOutput.includes("comments=2"),
+      "提出YAMLには未提出の文字セルコメント2件だけが出力される",
       serverOutput,
     );
   } finally {

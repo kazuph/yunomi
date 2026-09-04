@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.6.2 - 2026-09-04
+
+### Changed
+
+- Cmd/Ctrl+Enter in an inline comment now performs `send now`; the save button remains the explicit way to keep a Pending draft.
+
+### Fixed
+
+- Images in the same Markdown table row keep distinct row-and-column identities through editing, `send now`, persistence, reload, and inline rendering.
+- Table image comments show a readable image name, Markdown line, and column beside the status dot instead of an internal `R/C` coordinate.
+- Saved inline comments keep their source text or image identity as a visible quote, while the status dot, location, and Pending badge remain aligned without overlap.
+- Quiet preview refreshes retain already-mounted inline comment anchors, and split diff comments remain within their review column.
+
 ## v2.6.1 - 2026-09-02
 
 ### Added

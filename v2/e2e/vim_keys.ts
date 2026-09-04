@@ -189,19 +189,17 @@ try {
         "IME変換中のCtrl+Enterはコメントを保存せず入力を維持する",
         composingComment,
       );
-      await page.keyboard.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
+      await page.locator("#save-comment").click();
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
-      assert(await page.locator("#comment-list li[data-key$='|0:0']").count() === 1, "Cmd/Ctrl+Enter saves an open keyboard comment with a path-scoped key");
+      assert(await page.locator("#comment-list li[data-key$='|0:0']").count() === 1, "save button keeps an open keyboard comment as a path-scoped Pending draft");
 
-      await page.keyboard.press("Escape");
-      await page.waitForSelector(".yunomi-inline-comment-editor", { state: "detached" });
       await page.locator("#send-and-exit").focus();
       await page.keyboard.press("n");
       await page.waitForSelector(".yunomi-inline-comment-editor", { state: "visible" });
       const jumpedText = await page.locator("#comment-input").inputValue();
       const jumpedTitle = await page.locator(".yunomi-inline-comment-label").first().textContent().catch(() => "");
       const commentPanelText = await page.locator(".comment-list").textContent().catch(() => "");
-      assert(jumpedText === "keyboard comment", "n jumps to the next saved comment", { jumpedText, jumpedTitle, commentPanelText });
+      assert(jumpedText === "keyboard comment", "n jumps to the next saved Pending comment", { jumpedText, jumpedTitle, commentPanelText });
       await page.keyboard.press("Escape");
 
       await page.locator("#send-and-exit").focus();

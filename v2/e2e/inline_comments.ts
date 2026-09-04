@@ -409,7 +409,7 @@ try {
   );
   assert(
     paragraphEditorAlign !== null &&
-      paragraphEditorAlign.quoteVisible === false &&
+      paragraphEditorAlign.quoteVisible === true &&
       paragraphEditorAlign.hasStatusDot === true &&
       paragraphEditorAlign.hasAttach === true &&
       paragraphEditorAlign.usesReplyForm === true &&
@@ -422,7 +422,7 @@ try {
       Math.abs(paragraphEditorAlign.editorWidth - paragraphEditorAlign.cardMax) <= 2 &&
       paragraphEditorAlign.buttonTops.length === 3 &&
       paragraphEditorAlign.buttonTops.every((top) => top === paragraphEditorAlign.buttonTops[0]),
-    "compose dialog uses the conversation card width, reply chrome, and filled send now / save actions",
+    "compose dialog shows the source quote with conversation width, reply chrome, and filled send now / save actions",
     paragraphEditorAlign,
   );
   await page.locator(".yunomi-inline-comment-editor #comment-input").fill("**testtest**");

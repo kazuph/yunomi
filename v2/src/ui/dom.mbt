@@ -1099,6 +1099,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  const inlineTargetFor = (c) => {
   #|    if (c.unanchored) return null;
+  #|    const mounted = document.querySelector(`.review-loop-inline[data-review-comment-id="${CSS.escape(String(c.id || ""))}"]`);
+  #|    if (mounted?.__yunomiAnchor?.isConnected) return mounted.__yunomiAnchor;
   #|    const file = String(c.file || "");
   #|    const snippet = norm(quoteFor(c));
   #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
@@ -1113,7 +1115,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    };
   #|    const row = Number(c.row ?? ((Number(c.line || 1) || 1) - 1));
   #|    const col = Number(c.col || 0);
-  #|    const isTableComment = col > 0 && /^Markdown table cell\b/.test(String(c.value || c.element_text || ""));
+  #|    const isTableComment = col > 0 && (
+  #|      /^Markdown table cell\b/.test(String(c.value || c.element_text || ""))
+  #|      || /^image \(/.test(String(c.target || ""))
+  #|    );
   #|    if (row >= 0) {
   #|      if (isTableComment) {
   #|        return mostSpecific(document.querySelectorAll(`#md-preview [data-row="${row}"][data-col="${col}"]`));
@@ -1284,7 +1289,12 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const state = c.status === "resolved" ? `<span class="review-loop-status-check" aria-label="${esc(t.resolved)}">✓</span>` : `<span class="review-loop-status-dot" aria-hidden="true"></span>`;
   #|    const snippet = includeSnippet ? snippetHtml(c) : "";
   #|    const number = options.number ? `<span class="review-loop-card-number" aria-label="${esc(String(options.number))}">${esc(String(options.number))}</span>` : state;
-  #|    const file = options.fileLabel || `${baseName(c.file)}:${c.line}`;
+  #|    const imageAlt = String(c.target || "").match(/^image \(alt="([^"]*)"/)?.[1] || "";
+  #|    const file = options.fileLabel || (Number(c.col || 0) > 0
+  #|      ? (imageAlt
+  #|        ? `表の画像「${imageAlt}」（Markdown ${Number(c.line || 1)}行目・${Number(c.col)}列目）`
+  #|        : `表のセル（Markdown ${Number(c.line || 1)}行目・${Number(c.col)}列目）`)
+  #|      : `${baseName(c.file)}:${c.line}`);
   #|    const title = `${c.file || ""}:${c.line || ""}`;
   #|    const classes = `review-loop-comment${options.sidebar ? " review-loop-sidebar-card" : ""}${c.status === "resolved" ? " is-resolved" : ""}`;
   #|    return `<li class="${classes}" data-review-comment-id="${esc(c.id)}"><div class="review-loop-comment-head">${number}<strong title="${esc(title)}">${esc(file)}</strong></div>${snippet}<div class="review-loop-thread">${thread}</div>${resolveAction}${replyForm}</li>`;
@@ -1582,10 +1592,14 @@ extern "js" fn render_inline_saved_comment(
   #|  if (document.querySelector(`.yunomi-inline-comment-editor[data-comment-key="${CSS.escape(String(key || ""))}"]`)) return;
   #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
   #|  const videoTime = String(value || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
-  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
+  #|  const imageAlt = String(value || "").match(/(?:image\s+"|Image alt=")([^"]*)"/i)?.[1] || "";
+  #|  const tableText = String(value || "").match(/^Markdown table cell: source line \d+, column \d+: ([\s\S]*?)(?: \| source:|$)/)?.[1]?.trim() || "";
+  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? (imageAlt ? `表の画像「${imageAlt}」（Markdown ${row + 1}行目・${col}列目）` : `Markdown ${row + 1}行目・${col}列目`) : `Line ${row + 1}`);
   #|  const badge = pending ? `<span class="yunomi-inline-comment-pending">Pending</span>` : "";
   #|  const md = (window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(text);
-  #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div><div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}</div></div>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div>`;
+  #|  const quoteText = imageAlt ? `画像「${imageAlt}」` : (tableText || String(value || "").split(" | source:")[0].trim());
+  #|  const quote = quoteText ? `<div class="review-loop-quote yunomi-inline-comment-context">${esc(quoteText)}</div>` : "";
+  #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div>${quote}<div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}</div></div>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div>`;
   #|  const insert = (target, surface) => {
   #|    if (!target || !target.parentElement) return;
   #|    let holder;
@@ -1653,7 +1667,9 @@ extern "js" fn show_inline_comment_editor(
   #|  document.querySelectorAll(".yunomi-inline-comment-editor").forEach(el => el.remove());
   #|  if (!target) return;
   #|  const videoTime = String(context || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
-  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? `R${row + 1} C${col}` : `Line ${row + 1}`);
+  #|  const imageAlt = String(context || "").match(/(?:image\s+"|Image alt=")([^"]*)"/i)?.[1] || "";
+  #|  const tableText = String(context || "").trim();
+  #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? (imageAlt ? `表の画像「${imageAlt}」（Markdown ${row + 1}行目・${col}列目）` : `Markdown ${row + 1}行目・${col}列目`) : `Line ${row + 1}`);
   #|  const section = document.createElement("section");
   #|  section.className = "yunomi-inline-comment yunomi-inline-comment-editor is-editing";
   #|  section.dataset.commentKey = String(key || "");
@@ -1663,7 +1679,7 @@ extern "js" fn show_inline_comment_editor(
   #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
   #|  section.dataset.commentSurface = surface;
   #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
-  #|  section.innerHTML = `<div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${label}</strong></div><span id="cell-preview" class="yunomi-inline-comment-context"></span><div class="review-loop-reply-form"><textarea id="comment-input" rows="3" aria-label="Comment" placeholder="Write a comment"></textarea><div class="review-loop-reply-preview" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="review-loop-reply-actions"><div class="yunomi-inline-comment-action-start"><label class="review-loop-reply-attach" title="Attach image" aria-label="Attach image">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="Attach image" /></label><button type="button" data-action="cancel">Cancel</button></div><div class="yunomi-inline-comment-action-group"><button type="button" id="save-comment">${reviewLabel}</button><button type="button" id="send-now-comment">${singleLabel}</button></div></div></div>`;
+  #|  section.innerHTML = `<div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${label}</strong></div><div id="cell-preview" class="yunomi-inline-comment-context review-loop-quote"></div><div class="review-loop-reply-form"><textarea id="comment-input" rows="3" aria-label="Comment" placeholder="Write a comment"></textarea><div class="review-loop-reply-preview" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="review-loop-reply-actions"><div class="yunomi-inline-comment-action-start"><label class="review-loop-reply-attach" title="Attach image" aria-label="Attach image">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="Attach image" /></label><button type="button" data-action="cancel">Cancel</button></div><div class="yunomi-inline-comment-action-group"><button type="button" id="save-comment">${reviewLabel}</button><button type="button" id="send-now-comment">${singleLabel}</button></div></div></div>`;
   #|  const tableCell = target.closest?.("td,th");
   #|  const listItem = target.closest?.("li[data-source-line]");
   #|  let mount = section;
@@ -1694,11 +1710,13 @@ extern "js" fn show_inline_comment_editor(
   #|  section.addEventListener("mouseup", (event) => event.stopPropagation());
   #|  section.addEventListener("mousedown", (event) => event.stopPropagation());
   #|  const input = section.querySelector("#comment-input");
-  #|  section.querySelector("#cell-preview").textContent = String(context || "");
+  #|  const contextPreview = section.querySelector("#cell-preview");
+  #|  contextPreview.textContent = imageAlt ? `画像「${imageAlt}」` : String(context || "");
+  #|  contextPreview.hidden = !contextPreview.textContent.trim();
   #|  input.value = String(text || "");
   #|  input.addEventListener("input", () => onInput());
   #|  input.addEventListener("keydown", event => {
-  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); onSave(); }
+  #|    if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.isComposing && event.keyCode !== 229) { event.preventDefault(); event.stopPropagation(); onSend(); }
   #|    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onCancel(); }
   #|  });
   #|  section.querySelector('[data-action="cancel"]')?.addEventListener("click", () => onCancel());

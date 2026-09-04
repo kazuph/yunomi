@@ -1572,7 +1572,11 @@ extern "js" fn js_resolve_cwd_review_dir(
   #|}
 
 ///|
-fn review_session_dir(file_path : String, mode : String, files : Array[String]) -> String {
+fn review_session_dir(
+  file_path : String,
+  mode : String,
+  files : Array[String],
+) -> String {
   let override_dir = get_env_var("YUNOMI_REVIEW_DIR")
   if override_dir.length() > 0 {
     return override_dir
@@ -1658,7 +1662,9 @@ fn resolve_cwd_review_dir(comment_id : String) -> String {
     return ""
   }
   if error == "missing_thread" {
-    console_error("yunomi reply: thread is resolved or does not exist: " + comment_id)
+    console_error(
+      "yunomi reply: thread is resolved or does not exist: " + comment_id,
+    )
     exit_process("reply unavailable", 1)
     return ""
   }
@@ -1870,7 +1876,8 @@ fn register_review_mux_files(file_path : String, files : Array[String]) -> Unit 
   )
 }
 
-///| Returns accepted, retry, replaced, complete_approve, complete_changes, or stale.
+///|
+/// Returns accepted, retry, replaced, complete_approve, complete_changes, or stale.
 extern "js" fn js_review_mux_submit(
   json : String,
   request_body : String,
@@ -1935,22 +1942,27 @@ fn review_mux_submit(
   let review_path = review_json_path_for_file(file_path)
   let current = read_file_safe(review_path)
   let response = js_review_mux_submit(
-    current, request_body, body, review_display_file(file_path), files,
+    current,
+    request_body,
+    body,
+    review_display_file(file_path),
+    files,
     source_lines,
   )
   let status = if response.length() > 0 { response[0] } else { "stale" }
   let updated = if response.length() > 1 { response[1] } else { current }
   if status != "stale" && status != "retry" {
-    write_file_secure(
-      review_path,
-      updated,
-    )
+    write_file_secure(review_path, updated)
   }
   status
 }
 
 ///|
-extern "js" fn js_review_mux_preflight(json : String, body : String, file : String) -> String =
+extern "js" fn js_review_mux_preflight(
+  json : String,
+  body : String,
+  file : String,
+) -> String =
   #|(json, body, file) => {
   #|  try {
   #|    const review = JSON.parse(json || "{}");
@@ -2199,6 +2211,7 @@ extern "js" fn js_review_send_now_update(
   file : String,
   id : String,
   line : Int,
+  col : Int,
   text : String,
   snippet : String,
   quote : String,
@@ -2207,7 +2220,7 @@ extern "js" fn js_review_send_now_update(
   round : Int,
   target : String,
 ) -> String =
-  #|(json, file, id, line, text, snippet, quote, before, after, round, target) => {
+  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -2221,9 +2234,9 @@ extern "js" fn js_review_send_now_update(
   #|  const structured = {
   #|    file,
   #|    row: Math.max(0, Number(line || 1) - 1),
-  #|    col: 0,
+  #|    col: Math.max(0, Number(col || 0)),
   #|    end_row: Math.max(0, Number(line || 1) - 1),
-  #|    end_col: 0,
+  #|    end_col: Math.max(0, Number(col || 0)),
   #|    snippet: String(snippet || ""),
   #|    quote: String(quote || ""),
   #|    context_before: String(before || ""),
@@ -2270,6 +2283,7 @@ fn update_review_on_send_now(
   file_path : String,
   id : String,
   line : Int,
+  col : Int,
   text : String,
   target : String,
 ) -> Unit {
@@ -2288,6 +2302,7 @@ fn update_review_on_send_now(
       review_display_file(file_path),
       id,
       line,
+      col,
       text,
       snippet,
       quote,
@@ -3629,7 +3644,8 @@ fn resolve_herdr_notify_contract(want_room : Bool) -> String {
   } else if want_room {
     let help = spawn_sync_result_args(herdr, ["send", "--help"])
     let contract = help.1 + "\n" + help.2
-    if contract.contains("herdr send <to> <text>") && contract.contains("--room") {
+    if contract.contains("herdr send <to> <text>") &&
+      contract.contains("--room") {
       "send-room"
     } else {
       "unsupported:installed herdr does not expose `herdr send <to> <text> --room`; drop --notify-room or install a Herdr with the durable mailbox"

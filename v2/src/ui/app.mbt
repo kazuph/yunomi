@@ -195,7 +195,8 @@ fn open_inline_comment_editor(
     col,
     editor_text.val,
     if comment_value.has_prefix("Video ") ||
-      comment_value.has_prefix("Image alt=") {
+      comment_value.has_prefix("Image alt=") ||
+      comment_value.contains(": Image alt=") {
       comment_value
     } else {
       resolve_comment_target_preview(target)
@@ -334,16 +335,23 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
   if !is_null(image) {
     let alt = get_attr(image, "alt")
     let src = get_attr(image, "src")
-    return "Image alt=\"" +
+    let image_value = "Image alt=\"" +
       alt +
       "\" src=\"" +
       src +
       "\" | source: " +
       source_line
+    if col > 0 {
+      return "Markdown table cell: source line \{row + 1}, column \{col}, image \"" +
+        alt +
+        "\": " +
+        image_value
+    }
+    return image_value
   }
   if col > 0 {
     let cell_text = resolve_comment_target_preview(target)
-    return "Markdown table cell R\{row + 1} C\{col}: " +
+    return "Markdown table cell: source line \{row + 1}, column \{col}: " +
       cell_text +
       " | source: " +
       source_line
@@ -676,7 +684,10 @@ fn perform_quiet_refresh() -> Unit {
       match comments.get(saved_key) {
         Some(comment) => {
           let target = resolve_restored_comment_target(
-            saved_key, saved_row, saved_col, comment.surface,
+            saved_key,
+            saved_row,
+            saved_col,
+            comment.surface,
           )
           if !is_null(target) {
             open_inline_comment_editor(target, saved_key, saved_row, saved_col)
@@ -2023,7 +2034,9 @@ fn setup_sse(_port : Int) -> Unit {
     }
   })
   sse_on_error_status(es, fn() {
-    set_sse_status("reconnecting", "Live connection to the review server. Reconnecting — live updates may pause until the dot is green.")
+    set_sse_status(
+      "reconnecting", "Live connection to the review server. Reconnecting — live updates may pause until the dot is green.",
+    )
     set_send_buttons_enabled(false)
   })
 }
@@ -3549,9 +3562,9 @@ fn open_or_select_preview_comment_target(
       start_line
     }
     if start_line > 0 {
-      let tag = get_tag_name(target)
-      let cell_col = if tag == "TD" || tag == "TH" {
-        get_cell_index(target) + 1
+      let table_cell = closest(target, "td,th")
+      let cell_col = if !is_null(table_cell) {
+        get_cell_index(table_cell) + 1
       } else {
         0
       }
@@ -4101,12 +4114,7 @@ fn setup_questions_ui() -> Unit {
   // path; every unresolved question must be seen up front, prefilled or not.
   if has_unresolved_questions() {
     // Auto-open after short delay
-    ignore(
-      set_timeout(
-        fn() { open_questions_modal() },
-        500,
-      ),
-    )
+    ignore(set_timeout(fn() { open_questions_modal() }, 500))
   }
 }
 

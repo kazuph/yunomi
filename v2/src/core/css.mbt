@@ -591,6 +591,7 @@ fn build_css() -> String {
     #|  color: var(--text);
     #|  font-family: var(--font-ui);
     #|}
+    #|.diff-review-shell .yunomi-inline-comment { width: 100%; min-width: 0; }
     #|tr.yunomi-inline-comment { width: auto; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; }
     #|tr.yunomi-inline-comment > td { padding: 8px 12px; background: var(--panel); }
     #|.yunomi-inline-comment-view {
@@ -610,13 +611,17 @@ fn build_css() -> String {
     #|.yunomi-inline-comment-text > .review-loop-markdown { margin: 0; font-size: inherit; line-height: inherit; }
     #|.yunomi-inline-comment-image { display: block; max-width: 180px; max-height: 120px; object-fit: contain; border-radius: var(--radius-sm); }
     #|.yunomi-inline-comment-editor { display: grid; gap: 10px; }
+    #|.yunomi-inline-comment .review-loop-comment-head { display: flex; align-items: center; gap: 7px; }
+    #|.yunomi-inline-comment .yunomi-inline-comment-label { flex: 1 1 auto; min-width: 0; }
+    #|.yunomi-inline-comment .yunomi-inline-comment-pending { flex: 0 0 auto; }
     #|:is(td, th) .yunomi-inline-comment-editor { margin-right: 0; }
     #|tr.yunomi-inline-comment-editor-mount { padding: 0; }
     #|tr.yunomi-inline-comment-editor-mount > td { padding: 8px 12px; }
     #|tr.yunomi-inline-comment-editor-mount .yunomi-inline-comment-editor { margin: 0; border: 0; box-shadow: none; padding: 0; }
     #|li.yunomi-inline-comment { margin: 6px 0 12px; list-style: none; }
     #|li.yunomi-inline-comment-editor-mount { margin: 6px 0 12px; padding: 0; list-style: none; }
-    #|.yunomi-inline-comment-context { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+    #|.yunomi-inline-comment-context { margin: 0 0 0 15px; }
+    #|.yunomi-inline-comment-context[hidden] { display: none; }
     #|.yunomi-inline-comment-editor .review-loop-reply-form { padding-top: 0; border-top: 0; }
     #|.yunomi-inline-comment-editor .review-loop-reply-preview:not(:has(.image-preview-item, img)) { display: none; }
     #|.yunomi-inline-comment-editor .review-loop-reply-actions { flex-wrap: nowrap; gap: 8px; min-width: 0; }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import http, { type IncomingMessage } from "node:http";
 import net from "node:net";
-import { mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -92,10 +92,10 @@ async function findAvailablePort(startPort: number, attempts = 200): Promise<num
   throw new Error(`failed to find an available port from ${startPort}`);
 }
 
-function startServer(port: number): ChildProcess {
+function startServer(port: number, fixture = FIXTURE_MD): ChildProcess {
   return spawn(
     "node",
-    [SERVER_JS, "--no-open", "--port", String(port), FIXTURE_MD],
+    [SERVER_JS, "--no-open", "--port", String(port), fixture],
     {
       cwd: ROOT,
       stdio: ["ignore", "ignore", "inherit"],
@@ -554,10 +554,16 @@ async function main(): Promise<void> {
       }
     });
 
-    await runScenario("Cmd/Ctrl+Enter in comment input saves the comment without opening submit modal", async () => {
+    await runScenario("Cmd/Ctrl+Enter in comment input sends now without opening submit modal", async () => {
+      const isolatedPort = await findAvailablePort(port + 100);
+      const isolatedDir = mkdtempSync(join(tmpdir(), "yunomi-cmd-enter-"));
+      const isolatedFixture = join(isolatedDir, "preview-regression-cmd-enter.md");
+      copyFileSync(FIXTURE_MD, isolatedFixture);
+      const isolatedServer = startServer(isolatedPort, isolatedFixture);
       const { context, page } = await createPage(browser!);
       try {
-        await gotoFixture(page, port);
+        await waitForServer(isolatedPort);
+        await gotoFixture(page, isolatedPort);
         await page.waitForSelector(".md-preview");
 
         const paragraph = page.locator(".md-preview p").first();
@@ -565,6 +571,9 @@ async function main(): Promise<void> {
         await waitForCommentCard(page);
 
         const textarea = page.locator("#comment-input");
+        const quote = page.locator("#cell-preview");
+        assert.equal(await quote.isVisible(), true, "text comment editor should show its source text as a visible quote");
+        assert.ok((await quote.textContent())?.trim(), "text comment quote should retain the selected source text");
         await textarea.fill("saved via shortcut");
         await textarea.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
         await page.waitForTimeout(250);
@@ -581,10 +590,15 @@ async function main(): Promise<void> {
         });
 
         assert.equal(state.submitVisible, false, "comment-input shortcut must not open submit modal");
-        assert.equal(state.cardVisible, false, "comment-input shortcut should save and close the comment card");
-        assert.ok(state.stored && state.stored.includes("saved via shortcut"), "comment-input shortcut should persist the comment draft");
+        assert.equal(state.cardVisible, false, "comment-input shortcut should send and close the comment card");
+        assert.ok(
+          state.stored && state.stored.includes("saved via shortcut") && state.stored.includes('"sent":true'),
+          "comment-input shortcut should persist the sent-now state",
+        );
       } finally {
         await context.close();
+        isolatedServer.kill("SIGKILL");
+        rmSync(isolatedDir, { recursive: true, force: true });
       }
     });
 

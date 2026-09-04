@@ -216,8 +216,8 @@ async function main(): Promise<void> {
     });
     const imageCard = await cardState(page);
     assert(
-      imageCard.visible && imageCard.preview.includes('Image alt="Before" src="./assets/screenshot-before.png"'),
-      "画像右上のコメントカードは画像種別・alt・URLを示す",
+      imageCard.visible && imageCard.preview === '画像「Before」',
+      "画像右上のコメントカードは技術的なURLではなく画像名を引用表示する",
       imageCard,
     );
     const imageEditor = page.locator(".yunomi-inline-comment-editor:visible");
