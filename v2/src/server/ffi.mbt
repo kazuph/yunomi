@@ -1014,6 +1014,7 @@ extern "js" fn json_parse_comments(json_str : String) -> Array[Array[String]] =
   #|      c.selector || "",
   #|      c.bounds ? JSON.stringify(c.bounds) : "",
   #|      c.element_text || c.value || "",
+  #|      c.quote || "",
   #|    ]);
   #|  } catch(e) { return []; }
   #|}
@@ -1916,7 +1917,7 @@ extern "js" fn js_review_mux_submit(
   #|      ...raw, id, file, row, col: Number(raw?.col || 0), line: row + 1, round,
   #|      text: String(raw?.text || ""), author: "human", status: "unresolved", replies: [],
   #|      attachments: Array.isArray(raw?.attachments) ? raw.attachments.map(String) : [],
-  #|      quote: source, snippet: source, context_before: "", context_after: "",
+  #|      quote: String(raw?.quote || source), snippet: source, context_before: "", context_after: "",
   #|      anchor: { snippet: source, context_before: "", context_after: "" }
   #|    });
   #|  }
@@ -2151,7 +2152,7 @@ extern "js" fn js_review_submit_update(
   #|    const imagePath = String(c.imagePath || "");
   #|    const attachments = Array.isArray(c.attachments) ? c.attachments.map(String) : [];
   #|    const elementText = String(c.element_text || c.value || "");
-  #|    const quote = oneLineQuote(c.value, c.element_text, sourceLines[row] || "");
+  #|    const quote = String(c.quote || oneLineQuote(c.value, c.element_text, sourceLines[row] || ""));
   #|    const bounds = c.bounds == null ? "" : (typeof c.bounds === "string" ? c.bounds : JSON.stringify(c.bounds));
   #|    review.comments.push({
   #|      id: `c-${roundNo}-${seq++}`,
@@ -2219,8 +2220,9 @@ extern "js" fn js_review_send_now_update(
   context_after : String,
   round : Int,
   target : String,
+  value : String,
 ) -> String =
-  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target) => {
+  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target, value) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -2243,7 +2245,8 @@ extern "js" fn js_review_send_now_update(
   #|    context_after: String(after || ""),
   #|    selector: "",
   #|    bounds: "",
-  #|    element_text: String(snippet || ""),
+  #|    element_text: String(value || snippet || ""),
+  #|    value: String(value || ""),
   #|    target: String(target || ""),
   #|    attachments: []
   #|  };
@@ -2286,12 +2289,18 @@ fn update_review_on_send_now(
   col : Int,
   text : String,
   target : String,
+  selected_quote? : String = "",
+  value? : String = "",
 ) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
   let source_lines = @core.split_to_lines(read_file_safe(file_path))
   let idx = line - 1
-  let quote = @core.quote_source_line(source_lines, idx)
+  let quote = if selected_quote.length() > 0 {
+    selected_quote
+  } else {
+    @core.quote_source_line(source_lines, idx)
+  }
   let snippet = comment_snippet(source_lines, idx)
   let before = comment_context_before(source_lines, idx)
   let after = comment_context_after(source_lines, idx)
@@ -2310,6 +2319,7 @@ fn update_review_on_send_now(
       after,
       current_review_round(file_path),
       target,
+      value,
     ),
   )
 }

@@ -3571,6 +3571,20 @@ fn notification_quote(text : String) -> String {
 }
 
 ///|
+fn format_notification_quote(text : String) -> String {
+  let quote = notification_quote(text)
+  if quote.length() == 0 {
+    return ""
+  }
+  let buf = StringBuilder::new()
+  for line in quote.split("\n") {
+    buf.write_string("\n> ")
+    buf.write_string(line.to_owned())
+  }
+  buf.to_string()
+}
+
+///|
 fn comment_quote_for_row(ctx : ServerContext, line : Int) -> String {
   let source = if ctx.file_path == "<stdin>" {
     ctx.source_text
@@ -3728,7 +3742,10 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   let has_image = json_parse_string("hasImage", body)
   let target = json_parse_string("target", body)
   let source_quote = comment_quote_for_row(ctx, line)
-  let quote = if source_quote.length() > 0 {
+  let selected_quote = json_parse_string("quote", body)
+  let quote = if selected_quote.length() > 0 {
+    selected_quote
+  } else if source_quote.length() > 0 {
     source_quote
   } else {
     notification_quote(target)
@@ -3753,6 +3770,8 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       json_parse_int_field("col", body),
       text,
       target,
+      selected_quote=json_parse_string("quote", body),
+      value=json_parse_string("value", body),
     )
   }
   if text.length() > 0 && event_type == "comment" && ctx.file_path != "<stdin>" {
@@ -3773,7 +3792,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     } else {
       ""
     }
-    let quote_line = if quote.length() > 0 { "\n> " + quote } else { "" }
+    let quote_line = format_notification_quote(quote)
     notify_reviewer(
       ctx,
       "[yunomi] " +
@@ -3973,11 +3992,15 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       // The quote must name the exact line the human pointed at. Falling back
       // to comment_snippet here would quote three lines above the target,
       // since that helper returns a row-3..row+3 window.
-      let quote = js_quote_from_candidates(
-        sent_value,
-        element_text,
-        @core.quote_source_line(source_lines, row),
-      )
+      let quote = if c.length() > 10 && c[10].length() > 0 {
+        c[10]
+      } else {
+        js_quote_from_candidates(
+          sent_value,
+          element_text,
+          @core.quote_source_line(source_lines, row),
+        )
+      }
       let attachment_ref = if i < comment_attachment_refs.length() {
         comment_attachment_refs[i]
       } else {

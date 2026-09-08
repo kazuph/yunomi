@@ -633,7 +633,8 @@ fn render_markdown_lines(
     let para_start_line = i + 1 + line_offset
     while i < len && trim(lines[i]).length() > 0 && !is_block_start(lines[i]) {
       if !para_first {
-        para_buf.write_string(" ")
+        // Preserve source line boundaries in the DOM; HTML still collapses soft breaks.
+        para_buf.write_string("\n")
       }
       para_first = false
       para_buf.write_string(lines[i])

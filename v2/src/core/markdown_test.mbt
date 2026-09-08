@@ -1121,3 +1121,9 @@ test "atx hash without space: no hang, CommonMark heading rules" {
     ),
   )
 }
+
+///|
+test "paragraph soft breaks preserve source lines for text selections" {
+  let md = parse_markdown("First line\nSecond **bold** line")
+  debug_inspect(md.html.contains("First line\nSecond <strong>bold</strong> line"), content="true")
+}

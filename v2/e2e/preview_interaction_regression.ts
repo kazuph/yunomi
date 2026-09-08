@@ -377,7 +377,7 @@ async function main(): Promise<void> {
       }
     });
 
-    await runScenario("preview text selection remains available after comment targeting", async () => {
+    await runScenario("preview text selection becomes the focused inline comment quote", async () => {
       const { context, page } = await createPage(browser!);
       try {
         await gotoFixture(page, port);
@@ -408,16 +408,18 @@ async function main(): Promise<void> {
         await page.mouse.move(selectionTarget!.start.x, selectionTarget!.start.y);
         await page.mouse.down();
         await page.mouse.move(selectionTarget!.end.x, selectionTarget!.end.y, { steps: 5 });
+        const selectedText = await page.evaluate(() => window.getSelection()?.toString() || "");
+        assert.ok(selectedText.length > 0, "the drag selects preview text");
         await page.mouse.up();
         await waitForCommentCard(page);
         await page.waitForTimeout(100);
 
-        const selection = await page.evaluate(() => {
-          const current = window.getSelection();
-          return { text: current?.toString() || "", collapsed: current?.isCollapsed ?? true };
-        });
-        assert.ok(selection.text.trim().length > 0, "selected preview text should remain available for copying");
-        assert.equal(selection.collapsed, false, "comment targeting must not collapse the native text selection");
+        const selection = await page.evaluate(() => ({
+          text: document.querySelector("#cell-preview")?.textContent || "",
+          focused: document.activeElement?.id === "comment-input",
+        }));
+        assert.equal(selection.text, selectedText, "the entire native selection is retained as the inline quote");
+        assert.equal(selection.focused, true, "selection opens the editor ready to type a comment");
       } finally {
         await context.close();
       }
