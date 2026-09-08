@@ -469,27 +469,6 @@ extern "js" fn preserve_fragment_navigation_context() -> Unit =
   #|})
 
 ///|
-extern "js" fn retire_if_stale_review_session(current : String) -> Bool =
-  #|(current) => {
-  #|  if (!current) return false;
-  #|  const tabKey = "yunomi:tab-id";
-  #|  const serverKey = "yunomi:server-instance";
-  #|  try {
-  #|    const tabId = sessionStorage.getItem(tabKey) || "";
-  #|    const previous = sessionStorage.getItem(serverKey) || "";
-  #|    const navigated = performance.getEntriesByType("navigation")[0]?.type === "navigate";
-  #|    if (tabId && previous !== current && !navigated) {
-  #|      sessionStorage.setItem(serverKey, current);
-  #|      return true;
-  #|    }
-  #|    sessionStorage.setItem(serverKey, current);
-  #|    return false;
-  #|  } catch (_) {
-  #|    return false;
-  #|  }
-  #|}
-
-///|
 extern "js" fn get_or_create_tab_id() -> String =
   #|() => {
   #|  const key = "yunomi:tab-id";

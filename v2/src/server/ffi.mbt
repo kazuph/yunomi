@@ -312,21 +312,6 @@ extern "js" fn _child_exec(cmd : String) -> Unit = "exec"
 ///| Safe exec using spawn (no shell expansion, no inline require)
 
 ///|
-/// Uses dynamic import() which works in ESM context
-extern "js" fn child_spawn_detached(cmd : String, args : Array[String]) -> Unit =
-  #|(cmd, args) => {
-  #|  import("node:child_process").then(m => {
-  #|    const c = m.spawn(cmd, Array.from(args), { detached: true, stdio: 'ignore' });
-  #|    if (c.unref) c.unref();
-  #|  });
-  #|}
-
-///|
-fn child_exec_file(cmd : String, args : Array[String]) -> Unit {
-  child_spawn_detached(cmd, args)
-}
-
-///|
 extern "js" fn open_browser(url : String) -> Unit =
   #|(url) => {
   #|  import("node:child_process").then(({execFile}) => {
@@ -338,29 +323,36 @@ extern "js" fn open_browser(url : String) -> Unit =
   #|    const targetURL = new URL(url);
   #|    targetURL.hash = "";
   #|    const target = targetURL.href;
-  #|    const script = `on run argv
-  #|      set targetURL to item 1 of argv
-  #|      tell application "Google Chrome"
-  #|        repeat with w in windows
-  #|          set tabIndex to 0
-  #|          repeat with t in tabs of w
-  #|            set tabIndex to tabIndex + 1
-  #|            set currentURL to URL of t
-  #|            if currentURL is targetURL or currentURL starts with (targetURL & "#") then
-  #|              set URL of t to currentURL
-  #|              set active tab index of w to tabIndex
-  #|              set index of w to 1
-  #|              activate
-  #|              return "found"
-  #|            end if
-  #|          end repeat
-  #|        end repeat
-  #|      end tell
-  #|      return "missing"
-  #|    end run`;
-  #|    execFile("osascript", ["-e", script, target], (error, stdout) => {
+  #|    const script = `function run(argv) {
+  #|      const target = argv[0];
+  #|      for (const pid of argv.slice(1)) {
+  #|        const chrome = Application(Number(pid));
+  #|        for (const win of chrome.windows()) {
+  #|          const tabs = win.tabs();
+  #|          for (let i = 0; i < tabs.length; i++) {
+  #|            const current = tabs[i].url();
+  #|            const base = current.split("#")[0];
+  #|            if (base !== target && !(target.indexOf("?") === -1 && base.split("?")[0] === target)) continue;
+  #|            tabs[i].url = current;
+  #|            win.activeTabIndex = i + 1;
+  #|            win.index = 1;
+  #|            chrome.activate();
+  #|            return "found";
+  #|          }
+  #|        }
+  #|      }
+  #|      return "missing";
+  #|    }`;
+  #|    execFile("ps", ["-axo", "pid=,comm="], (error, processes) => {
   #|      reportError(error);
-  #|      if (stdout.trim() !== "found") execFile("open", ["-a", "Google Chrome", target], reportError);
+  #|      const pids = processes.split("\n").flatMap(line => {
+  #|        const match = line.trim().match(/^(\d+)\s+.*\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome$/);
+  #|        return match ? [match[1]] : [];
+  #|      });
+  #|      execFile("osascript", ["-l", "JavaScript", "-e", script, target, ...pids], (error, stdout) => {
+  #|        reportError(error);
+  #|        if (stdout.trim() !== "found") execFile("open", [url], reportError);
+  #|      });
   #|    });
   #|  });
   #|}
