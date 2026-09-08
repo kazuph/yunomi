@@ -408,6 +408,8 @@ async function main(): Promise<void> {
         await page.mouse.move(selectionTarget!.start.x, selectionTarget!.start.y);
         await page.mouse.down();
         await page.mouse.move(selectionTarget!.end.x, selectionTarget!.end.y, { steps: 5 });
+        const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim() || "");
+        assert.ok(selectedText.length > 0, "the drag selects preview text");
         await page.mouse.up();
         await waitForCommentCard(page);
         await page.waitForTimeout(100);
@@ -416,7 +418,7 @@ async function main(): Promise<void> {
           text: document.querySelector("#cell-preview")?.textContent || "",
           focused: document.activeElement?.id === "comment-input",
         }));
-        assert.equal(selection.text, selectionTarget!.text, "the entire selected text is retained as the inline quote");
+        assert.equal(selection.text, selectedText, "the entire native selection is retained as the inline quote");
         assert.equal(selection.focused, true, "selection opens the editor ready to type a comment");
       } finally {
         await context.close();

@@ -64,6 +64,7 @@ try {
   await page.locator('#md-preview p[data-source-start-line="3"]').click({ clickCount: 3 });
   await editor.waitFor();
   assert.equal((await quote.textContent())!.trim(), 'First repeated word.');
+  assert.equal(await editor.getAttribute('data-comment-key').then(key => key!.split('|').at(-1)), '2:0');
   await input.press('Escape');
   await dragText(page, '#md-preview p[data-source-start-line="5"]', 'word', true);
   await editor.waitFor({ state: 'visible' });
