@@ -210,6 +210,7 @@ fn open_inline_comment_editor(
     } else {
       resolve_comment_target_preview(target)
     },
+    comment_quote.length() > 0,
     "save",
     "send now",
     fn() { save_comment() },
@@ -1359,11 +1360,14 @@ fn send_comment_to_server(
   buf.write_string(",\"key\":")
   buf.write_string(json_encode_string(key))
   match comments.get(key) {
-    Some(comment) =>
+    Some(comment) => {
+      buf.write_string(",\"value\":")
+      buf.write_string(json_encode_string(comment.value))
       if comment.quote.length() > 0 {
         buf.write_string(",\"quote\":")
         buf.write_string(json_encode_string(comment.quote))
       }
+    }
     None => ()
   }
   let target = comment_target_description(selected_comment_el.val)
@@ -3946,8 +3950,8 @@ fn setup_preview_mouseup() -> Unit {
             first, "td,th,pre,summary,li,blockquote,p,h1,h2,h3,h4,h5,h6",
           )
           let anchor = if is_null(block) { first } else { block }
-          let start_line = preview_endpoint_source_line(first, false)
-          let end_line = preview_endpoint_source_line(last, true)
+          let start_line = preview_endpoint_source_line(sel, false)
+          let end_line = preview_endpoint_source_line(sel, true)
           if start_line <= 0 || end_line <= 0 {
             return
           }

@@ -3757,6 +3757,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       text,
       target,
       selected_quote=json_parse_string("quote", body),
+      value=json_parse_string("value", body),
     )
   }
   if text.length() > 0 && event_type == "comment" && ctx.file_path != "<stdin>" {

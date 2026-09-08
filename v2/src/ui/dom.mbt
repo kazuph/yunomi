@@ -626,7 +626,8 @@ extern "js" fn resolve_restored_comment_target(
   #|      || candidates.map((element) => element.querySelector?.(anchorTag)).find(visible)
   #|    : candidates[candidates.length - 1];
   #|  if (preview) return preview;
-  #|  return null;
+  #|  return Array.from(document.querySelectorAll("#md-preview [data-source-start-line][data-source-end-line]"))
+  #|    .filter(el => visible(el) && Number(el.dataset.sourceStartLine) <= row + 1 && Number(el.dataset.sourceEndLine) >= row + 1).at(-1) || null;
   #|}
 
 ///|
@@ -1655,6 +1656,7 @@ extern "js" fn show_inline_comment_editor(
   col : Int,
   text : String,
   context : String,
+  selected_quote : Bool,
   review_label : String,
   single_label : String,
   on_save : () -> Unit,
@@ -1663,12 +1665,12 @@ extern "js" fn show_inline_comment_editor(
   on_input : () -> Unit,
   on_image : (String) -> Unit,
 ) -> Unit =
-  #|(target, key, row, col, text, context, reviewLabel, singleLabel, onSave, onSend, onCancel, onInput, onImage) => {
+  #|(target, key, row, col, text, context, selectedQuote, reviewLabel, singleLabel, onSave, onSend, onCancel, onInput, onImage) => {
   #|  document.querySelectorAll(".yunomi-inline-comment-editor-mount").forEach(el => el.remove());
   #|  document.querySelectorAll(".yunomi-inline-comment-editor").forEach(el => el.remove());
   #|  if (!target) return;
-  #|  const videoTime = String(context || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
-  #|  const imageAlt = String(context || "").match(/(?:image\s+"|Image alt=")([^"]*)"/i)?.[1] || "";
+  #|  const videoTime = !selectedQuote && String(context || "").match(/^Video(?: thumbnail)?\s+(\d+:\d{2})\b/);
+  #|  const imageAlt = !selectedQuote && String(context || "").match(/(?:image\s+"|Image alt=")([^"]*)"/i)?.[1] || "";
   #|  const tableText = String(context || "").trim();
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? (imageAlt ? `表の画像「${imageAlt}」（Markdown ${row + 1}行目・${col}列目）` : `Markdown ${row + 1}行目・${col}列目`) : `Line ${row + 1}`);
   #|  const section = document.createElement("section");
@@ -1971,10 +1973,24 @@ extern "js" fn selection_is_in_preview(
   #|}
 
 ///|
-extern "js" fn preview_endpoint_source_line(node : Element, end : Bool) -> Int =
-  #|(node, end) => {
-  #|  const anchor = node?.closest?.("[data-source-line],[data-source-start-line]");
-  #|  return Number((end && anchor?.dataset.sourceEndLine) || anchor?.dataset.sourceLine || anchor?.dataset.sourceStartLine || 0);
+extern "js" fn preview_endpoint_source_line(sel : Element, end : Bool) -> Int =
+  #|(sel, end) => {
+  #|  const range = sel.getRangeAt(0);
+  #|  const node = end ? range.endContainer : range.startContainer;
+  #|  const offset = end ? range.endOffset : range.startOffset;
+  #|  const element = node.nodeType === 3 ? node.parentElement : node;
+  #|  const anchor = element?.closest?.("[data-source-line],[data-source-start-line]");
+  #|  if (!anchor) return 0;
+  #|  const start = Number(anchor.dataset.sourceLine || anchor.dataset.sourceStartLine || 0);
+  #|  if (!anchor.matches("p,pre")) return start;
+  #|  const content = anchor.matches("pre") ? anchor.querySelector("code") : anchor;
+  #|  const prefix = document.createRange();
+  #|  prefix.selectNodeContents(content);
+  #|  prefix.setEnd(node, offset);
+  #|  const text = prefix.toString();
+  #|  // An end boundary directly after a newline still belongs to the preceding line.
+  #|  const preceding = end && text.endsWith("\n") ? text.slice(0, -1) : text;
+  #|  return start + (anchor.matches("pre") ? 1 : 0) + (preceding.match(/\n/g) || []).length;
   #|}
 
 ///|

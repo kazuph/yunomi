@@ -2220,8 +2220,9 @@ extern "js" fn js_review_send_now_update(
   context_after : String,
   round : Int,
   target : String,
+  value : String,
 ) -> String =
-  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target) => {
+  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target, value) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -2244,7 +2245,8 @@ extern "js" fn js_review_send_now_update(
   #|    context_after: String(after || ""),
   #|    selector: "",
   #|    bounds: "",
-  #|    element_text: String(snippet || ""),
+  #|    element_text: String(value || snippet || ""),
+  #|    value: String(value || ""),
   #|    target: String(target || ""),
   #|    attachments: []
   #|  };
@@ -2288,6 +2290,7 @@ fn update_review_on_send_now(
   text : String,
   target : String,
   selected_quote? : String = "",
+  value? : String = "",
 ) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
@@ -2316,6 +2319,7 @@ fn update_review_on_send_now(
       after,
       current_review_round(file_path),
       target,
+      value,
     ),
   )
 }

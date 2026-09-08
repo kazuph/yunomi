@@ -8,7 +8,7 @@ import { chromium, type Page } from 'playwright';
 const dir = mkdtempSync(join(tmpdir(), 'yunomi-selection-'));
 const fixture = join(dir, 'selection.md');
 const reviewDir = join(dir, 'reviews');
-writeFileSync(fixture, '# Selection comments\n\nFirst repeated word.\n\nSecond repeated word with **bold text** and 日本語。\n\nParagraph alpha.\n\nParagraph beta.\n\n| Left | Right |\n| --- | --- |\n| repeated | repeated |\n');
+writeFileSync(fixture, '# Selection comments\n\nFirst repeated word.\n\nSecond repeated word with **bold text** and 日本語。\n\nParagraph alpha.\n\nParagraph beta.\n\n| Left | Right |\n| --- | --- |\n| repeated | repeated |\n\nFirst soft line\nSecond **bold** line\n\n```text\nfirst code line\nsecond code line\n```\n\nLiteral Image alt="cat" is text.\n');
 const server = spawn(process.execPath, [new URL('../_build/js/release/build/server/server.js', import.meta.url).pathname, fixture, '--no-open', '--port', '0'], {
   env: { ...process.env, HERDR_PANE_ID: '', TMUX_PANE: '', YUNOMI_NOTIFY_CMD: '', YUNOMI_LOCK_DIR: join(dir, 'locks'), YUNOMI_REVIEW_DIR: reviewDir },
   stdio: ['ignore', 'pipe', 'pipe'],
@@ -92,6 +92,35 @@ try {
   await page.waitForFunction(() => Array.from(document.querySelectorAll('.review-loop-thread-line')).some(el => el.textContent?.includes('Right cell only')));
   assert.equal(requests.filter(r => r.text === 'Right cell only').length, 1);
   console.log('PASS: formatted text selection, cancel, identical table text retains column, Ctrl+Enter sends once');
+
+  await page.locator('#md-preview tbody tr td:nth-child(1)').click();
+  await editor.waitFor();
+  await input.fill('Left cell only'); await input.press('Meta+Enter');
+  const leftThread = page.locator('.review-loop-inline').filter({ hasText: 'Left cell only' });
+  await leftThread.waitFor();
+  assert.equal(await leftThread.locator('.review-loop-comment-head strong').textContent(), '表のセル（Markdown 13行目・1列目）');
+  assert.equal(await leftThread.evaluate(el => el.closest('td')?.getAttribute('data-col')), '1');
+  await page.reload();
+  await leftThread.waitFor();
+  assert.equal(await leftThread.evaluate(el => el.closest('td')?.getAttribute('data-col')), '1');
+  console.log('PASS: Send now retains the left table cell and column label after reload');
+
+  await dragText(page, '#md-preview p[data-source-start-line="15"] strong', 'bold');
+  await editor.waitFor(); assert.equal(await quote.textContent(), 'bold');
+  assert.match((await editor.getAttribute('data-comment-key'))!, /\|15:0$/);
+  await input.fill('Second source line'); await page.locator('#save-comment').click();
+  await page.reload();
+  const softSaved = page.locator('.yunomi-inline-comment-view').filter({ hasText: 'Second source line' });
+  await softSaved.waitFor(); await softSaved.click();
+  assert.equal(await quote.textContent(), 'bold'); await input.press('Escape');
+  await dragText(page, '#md-preview pre code', 'second code line');
+  await editor.waitFor(); assert.equal(await quote.textContent(), 'second code line');
+  assert.match((await editor.getAttribute('data-comment-key'))!, /\|19:0$/);
+  await input.press('Escape');
+  await dragText(page, '#md-preview p[data-source-start-line="23"]', 'Image alt="cat"');
+  await editor.waitFor(); assert.equal(await quote.textContent(), 'Image alt="cat"');
+  await input.press('Escape');
+  console.log('PASS: soft-wrapped paragraph and code selections retain exact source lines, restore in place, and literal media-like text stays literal');
 
   await page.locator('#md-preview p[data-source-start-line="7"]').scrollIntoViewIfNeeded();
   const a = await page.locator('#md-preview p[data-source-start-line="7"]').boundingBox();
