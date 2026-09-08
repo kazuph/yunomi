@@ -312,31 +312,50 @@ extern "js" fn _child_exec(cmd : String) -> Unit = "exec"
 ///| Safe exec using spawn (no shell expansion, no inline require)
 
 ///|
-/// Uses dynamic import() which works in ESM context
-extern "js" fn child_spawn_detached(cmd : String, args : Array[String]) -> Unit =
-  #|(cmd, args) => {
-  #|  import("node:child_process").then(m => {
-  #|    const c = m.spawn(cmd, Array.from(args), { detached: true, stdio: 'ignore' });
-  #|    if (c.unref) c.unref();
+extern "js" fn open_browser(url : String) -> Unit =
+  #|(url) => {
+  #|  import("node:child_process").then(({execFile}) => {
+  #|    const reportError = error => { if (error) console.error("yunomi: could not open browser: " + error.message); };
+  #|    if (process.platform !== "darwin") {
+  #|      execFile(process.platform === "win32" ? "cmd" : "xdg-open", process.platform === "win32" ? ["/c", "start", url] : [url], reportError);
+  #|      return;
+  #|    }
+  #|    const targetURL = new URL(url);
+  #|    targetURL.hash = "";
+  #|    const target = targetURL.href;
+  #|    const script = `function run(argv) {
+  #|      const target = argv[0];
+  #|      for (const pid of argv.slice(1)) {
+  #|        const chrome = Application(Number(pid));
+  #|        for (const win of chrome.windows()) {
+  #|          const tabs = win.tabs();
+  #|          for (let i = 0; i < tabs.length; i++) {
+  #|            const current = tabs[i].url();
+  #|            const base = current.split("#")[0];
+  #|            if (base !== target && !(target.indexOf("?") === -1 && base.split("?")[0] === target)) continue;
+  #|            tabs[i].url = current;
+  #|            win.activeTabIndex = i + 1;
+  #|            win.index = 1;
+  #|            chrome.activate();
+  #|            return "found";
+  #|          }
+  #|        }
+  #|      }
+  #|      return "missing";
+  #|    }`;
+  #|    execFile("ps", ["-axo", "pid=,comm="], (error, processes) => {
+  #|      reportError(error);
+  #|      const pids = processes.split("\n").flatMap(line => {
+  #|        const match = line.trim().match(/^(\d+)\s+.*\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome$/);
+  #|        return match ? [match[1]] : [];
+  #|      });
+  #|      execFile("osascript", ["-l", "JavaScript", "-e", script, target, ...pids], (error, stdout) => {
+  #|        reportError(error);
+  #|        if (stdout.trim() !== "found") execFile("open", [url], reportError);
+  #|      });
+  #|    });
   #|  });
   #|}
-
-///|
-fn child_exec_file(cmd : String, args : Array[String]) -> Unit {
-  child_spawn_detached(cmd, args)
-}
-
-///|
-fn open_browser(url : String) -> Unit {
-  let platform = get_platform()
-  if platform == "darwin" {
-    child_exec_file("open", [url])
-  } else if platform == "win32" {
-    child_exec_file("cmd", ["/c", "start", url])
-  } else {
-    child_exec_file("xdg-open", [url])
-  }
-}
 
 ///|
 /// Start a localhost-only live review reverse proxy. The implementation stays
@@ -348,9 +367,10 @@ extern "js" fn start_live_proxy(
   host : String,
   no_open : Bool,
   instance_id : String,
+  open_url : (String) -> Unit,
   persist_review : (String) -> Unit,
 ) -> Unit =
-  #|(targetUrl, port, host, noOpen, instanceId, persistReview) => {
+  #|(targetUrl, port, host, noOpen, instanceId, openUrl, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -405,7 +425,7 @@ extern "js" fn start_live_proxy(
   #|    process.exit(1);
   #|    return;
   #|  }
-  #|  Promise.all([import("node:http"), import("node:net"), import("node:child_process")]).then(([http, net, childProcess]) => {
+  #|  Promise.all([import("node:http"), import("node:net")]).then(([http, net]) => {
   #|    const overlayScript = `(() => {
   #|      if (window.__yunomiLiveInstalled) return;
   #|      window.__yunomiLiveInstalled = true;
@@ -582,11 +602,7 @@ extern "js" fn start_live_proxy(
   #|      const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
   #|      const url = `http://${displayHost}:${port}`;
   #|      console.log(`yunomi live proxying ${targetUrl} at ${url}`);
-  #|      if (!noOpen) {
-  #|        if (process.platform === "darwin") childProcess.spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-  #|        else if (process.platform === "win32") childProcess.spawn("cmd", ["/c", "start", url], { detached: true, stdio: "ignore" }).unref();
-  #|        else childProcess.spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-  #|      }
+  #|      if (!noOpen) openUrl(url);
   #|    });
   #|    server.on("error", err => {
   #|      console.error("yunomi live: " + err.message);
@@ -610,11 +626,12 @@ extern "js" fn start_html_preview_server(
   no_open : Bool,
   instance_id : String,
   max_port_attempts : Int,
+  open_url : (String) -> Unit,
   on_listening : (Int) -> Unit,
   on_finished : (Int) -> Unit,
   persist_review : (String) -> Unit,
 ) -> Unit =
-  #|(filePath, port, host, noOpen, instanceId, maxPortAttempts, onListening, onFinished, persistReview) => {
+  #|(filePath, port, host, noOpen, instanceId, maxPortAttempts, openUrl, onListening, onFinished, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -659,9 +676,8 @@ extern "js" fn start_html_preview_server(
   #|  Promise.all([
   #|    import("node:http"),
   #|    import("node:fs"),
-  #|    import("node:path"),
-  #|    import("node:child_process")
-  #|  ]).then(([http, fs, path, childProcess]) => {
+  #|    import("node:path")
+  #|  ]).then(([http, fs, path]) => {
   #|    const resolvedFile = path.resolve(filePath);
   #|    const baseDir = path.dirname(resolvedFile);
   #|    const filename = path.basename(resolvedFile);
@@ -897,11 +913,7 @@ extern "js" fn start_html_preview_server(
   #|      const displayHost = host === "0.0.0.0" ? "127.0.0.1" : host;
   #|      const url = `http://${displayHost}:${boundPort}`;
   #|      console.log(`yunomi html previewing ${resolvedFile} at ${url}`);
-  #|      if (!noOpen) {
-  #|        if (process.platform === "darwin") childProcess.spawn("open", [url], { detached: true, stdio: "ignore" }).unref();
-  #|        else if (process.platform === "win32") childProcess.spawn("cmd", ["/c", "start", url], { detached: true, stdio: "ignore" }).unref();
-  #|        else childProcess.spawn("xdg-open", [url], { detached: true, stdio: "ignore" }).unref();
-  #|      }
+  #|      if (!noOpen) openUrl(url);
   #|    });
   #|    server.on("error", err => {
   #|      if (err?.code === "EADDRINUSE" && candidatePort !== 0) {

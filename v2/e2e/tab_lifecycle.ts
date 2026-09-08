@@ -99,6 +99,9 @@ try {
   await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
   const titleA = await page.evaluate(() => document.body.innerText.includes("Session Alpha"));
   assert(titleA, "セッションAの内容が表示される");
+  const navigatedTab = await browser.newPage();
+  await navigatedTab.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await navigatedTab.goto("about:blank");
   await stop(a);
   await page.waitForTimeout(500);
 
@@ -118,6 +121,10 @@ try {
     url: closedAfterRestart ? "(closed)" : page.url(),
   });
   assert(!showsBeta, "残骸タブは新セッションの内容を表示しない", { showsBeta });
+  await navigatedTab.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await navigatedTab.locator("#md-preview").waitFor();
+  assert((await navigatedTab.locator("#md-preview").innerText()).includes("Session Beta"), "同じタブでURLを明示的に開き直すと新セッションを表示できる");
+  await navigatedTab.close();
 
   // --- 2. submit parks the tab on about:blank when close is refused ---
   const fresh = await browser.newPage();
@@ -201,11 +208,45 @@ try {
     "リロード・再ナビゲーションでは tab closed 通知を送らない（猶予窓内の再登録で取り消す）",
     { afterReloads },
   );
+  const remaining = await browser.newPage();
+  await remaining.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await remaining.waitForTimeout(300);
   await reloader.goto("about:blank");
+  await remaining.waitForTimeout(2500);
+  assert(!/tab closed/.test(readFileSync(NOTIFY_LOG, "utf8")), "別タブが残っている間は閉じた通知を送らない");
+  await remaining.goto("about:blank");
   const closedForReal = await waitForNotification(/\[yunomi\] tab closed b\.md tab=.* active=0/);
   const realCloseCount = (closedForReal.match(/\[yunomi\] tab closed b\.md/g) || []).length;
   assert(realCloseCount === 1, "本当にタブを閉じた時だけ tab closed 通知を1回送る", { closedForReal });
+  writeFileSync(NOTIFY_LOG, "");
+  const earlyClose = await reloadServerPage();
+  const reconnecting = await reloadServerPage();
+  await earlyClose.goto("about:blank");
+  await reconnecting.waitForTimeout(1000);
+  await reconnecting.goto("about:blank");
+  await reconnecting.waitForTimeout(1000);
+  assert(!/tab closed/.test(readFileSync(NOTIFY_LOG, "utf8")), "別タブの閉じ猶予中は先に閉じたタブの期限で通知しない");
+  await reconnecting.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+  await reconnecting.waitForTimeout(2500);
+  assert(!/tab closed/.test(readFileSync(NOTIFY_LOG, "utf8")), "最後のタブが猶予内に戻ったら通知を取り消す");
+  await reconnecting.goto("about:blank");
+  await waitForNotification(/tab closed/);
+  writeFileSync(NOTIFY_LOG, "");
+  const first = await reloadServerPage();
+  const second = await reloadServerPage();
+  await Promise.all([first.goto("about:blank"), second.goto("about:blank")]);
+  await waitForNotification(/tab closed b\.md.*active=0/);
+  await new Promise(resolve => setTimeout(resolve, 2500));
+  const simultaneous = readFileSync(NOTIFY_LOG, "utf8");
+  assert((simultaneous.match(/tab closed/g) || []).length === 1, "複数タブを同時に閉じても最後の通知は1回だけ");
   await stop(reloadServer);
+
+  async function reloadServerPage() {
+    const tab = await browser.newPage();
+    await tab.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: "domcontentloaded" });
+    await tab.waitForTimeout(300);
+    return tab;
+  }
 } finally {
   await browser.close();
   rmSync(WORK_DIR, { recursive: true, force: true });

@@ -595,11 +595,6 @@ pub fn init_app() -> Unit {
   setup_paste_handler()
   // Check for saved comments and show recovery modal if present
   check_recovery()
-  if retire_if_stale_review_session(get_yunomi_server_instance()) {
-    window_close()
-    ignore(set_timeout(fn() { location_replace("about:blank") }, 400))
-    return
-  }
   // Register the tab so the server can tell reload from close.
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
