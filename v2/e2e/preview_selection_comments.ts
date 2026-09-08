@@ -80,7 +80,19 @@ try {
   await saved.click();
   assert.equal(await quote.textContent(), 'word');
   await input.press('Meta+Enter');
-  await page.locator('.review-loop-inline').filter({ hasText: 'Keep the short quote' }).waitFor();
+  const sentThread = page.locator('.review-loop-inline').filter({ hasText: 'Keep the short quote' });
+  await sentThread.waitFor();
+  assert.equal(await sentThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'word');
+  await page.reload();
+  await sentThread.waitFor();
+  assert.equal(await sentThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'word');
+  await sentThread.locator('textarea').fill('Reply with the quote still visible');
+  const replyResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/reply-comment');
+  await sentThread.getByRole('button', { name: 'Reply', exact: true }).click();
+  assert.equal((await replyResponse).status(), 200);
+  await sentThread.getByText('Reply with the quote still visible', { exact: true }).waitFor();
+  assert.equal(await sentThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'word');
+
   const sent = requests.filter(r => r.text === 'Keep the short quote');
   assert.equal(sent.length, 1); assert.equal(sent[0].type, 'send-now'); assert.equal(sent[0].quote, 'word');
   const stored = JSON.parse(readFileSync(join(reviewDir, 'review.json'), 'utf8')).comments.find((c: { text: string }) => c.text === 'Keep the short quote');
@@ -89,7 +101,11 @@ try {
 
   await dragText(page, '#md-preview p[data-source-start-line="5"] strong', 'bold text');
   await editor.waitFor(); assert.equal(await quote.textContent(), 'bold text');
-  await input.press('Escape');
+  await input.fill('Another quote on the same row'); await input.press('Meta+Enter');
+  const otherThread = page.locator('.review-loop-inline').filter({ hasText: 'Another quote on the same row' });
+  await otherThread.waitFor();
+  assert.equal(await otherThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'bold text');
+  assert.equal(await sentThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'word');
   await dragText(page, '#md-preview tbody tr td:nth-child(2)', 'repeated');
   await editor.waitFor(); assert.equal(await quote.textContent(), 'repeated');
   assert.match((await editor.getAttribute('data-comment-key'))!, /\|12:2$/);
@@ -120,7 +136,12 @@ try {
   assert.equal(await quote.textContent(), 'bold'); await input.fill(''); await page.locator('#save-comment').click();
   await dragText(page, '#md-preview pre code', 'first code line\nsecond code line');
   await editor.waitFor(); assert.equal(await quote.textContent(), 'first code line\nsecond code line');
-  await input.press('Escape');
+  await input.fill('Keep the multiline quote visible'); await input.press('Meta+Enter');
+  const codeThread = page.locator('.review-loop-inline').filter({ hasText: 'Keep the multiline quote visible' });
+  await codeThread.waitFor();
+  assert.equal(await codeThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'first code line\nsecond code line');
+  await page.reload(); await codeThread.waitFor();
+  assert.equal(await codeThread.locator('.review-loop-comment > .review-loop-quote').textContent(), 'first code line\nsecond code line');
   await dragText(page, '#md-preview pre code', 'second code line');
   await editor.waitFor(); assert.equal(await quote.textContent(), 'second code line');
   assert.match((await editor.getAttribute('data-comment-key'))!, /\|19:0$/);

@@ -1268,7 +1268,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const resolveAction = `<div class="review-loop-thread-actions">${resolve}</div>`;
   #|    const replyForm = c.status === "resolved" ? "" : conversationForm(c.id, "/reply-comment", t.replyPlaceholder, t.reply);
   #|    const state = c.status === "resolved" ? `<span class="review-loop-status-check" aria-label="${esc(t.resolved)}">✓</span>` : `<span class="review-loop-status-dot" aria-hidden="true"></span>`;
-  #|    const snippet = includeSnippet ? snippetHtml(c) : "";
+  #|    const snippet = includeSnippet ? snippetHtml(c) : (c.quote ? `<blockquote class="review-loop-quote">${esc(c.quote)}</blockquote>` : "");
   #|    const number = options.number ? `<span class="review-loop-card-number" aria-label="${esc(String(options.number))}">${esc(String(options.number))}</span>` : state;
   #|    const imageAlt = String(c.target || "").match(/^image \(alt="([^"]*)"/)?.[1] || "";
   #|    const file = options.fileLabel || (Number(c.col || 0) > 0
@@ -1302,6 +1302,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      }
   #|    };
   #|    swap(".review-loop-comment-head");
+  #|    swap(".review-loop-quote");
   #|    swap(".review-loop-thread");
   #|    swap(".review-loop-thread-actions");
   #|    const currentForm = card.querySelector(":scope > .review-loop-reply-form");

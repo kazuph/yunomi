@@ -512,7 +512,7 @@ async function main(): Promise<void> {
         && (inlineLayout?.resolve?.actionsIndex ?? -1) < (inlineLayout?.resolve?.replyIndex ?? -1),
       "Resolve conversation appears after the thread and before the reply editor",
     );
-    assert.equal(await page.locator(".review-loop-inline .review-loop-quote").count(), 0, "inline threads omit redundant source quotes");
+    assert.equal(await page.locator(".review-loop-inline[data-review-comment-id='c-1-1'] .review-loop-comment > .review-loop-quote").textContent(), "Before line", "submitted threads retain their quoted target after the document changes");
     const firstInline = page.locator(".review-loop-inline[data-review-comment-id='c-1-1']");
     assert.match(await firstInline.textContent() || "", /Please update this line/, "human message is visible next to its target");
     assert.match(await firstInline.textContent() || "", /I will revise it/, "agent reply remains in the same inline thread");
@@ -717,7 +717,7 @@ async function main(): Promise<void> {
       headingLayout && headingLayout.headingWidth >= headingLayout.detailsWidth * 0.8,
       `heading keeps its full row width beside an inline thread (${headingLayout?.headingWidth}/${headingLayout?.detailsWidth})`,
     );
-    assert.doesNotMatch(await imageInline.textContent() || "", /!\[Review image\]\(review-image\.png\)/, "image inline thread never repeats raw Markdown as a quote");
+    assert.equal(await imageInline.locator(".review-loop-comment > .review-loop-quote").textContent(), "![Review image](review-image.png)", "submitted image comments retain their quoted target");
     assert.equal(await page.locator("#md-preview :is(ul,ol) > div.review-loop-inline").count(), 0, "a list never receives a raw div as a direct child");
     const listInline = page.locator(".review-loop-inline[data-review-comment-id='c-1-3']");
     assert.equal(await listInline.evaluate((inline) => inline.parentElement?.tagName), "LI", "list comments use an li wrapper around the inline card");
