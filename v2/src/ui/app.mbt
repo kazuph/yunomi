@@ -7,6 +7,7 @@ struct AppComment {
   mut text : String
   mut image : String
   mut value : String
+  quote : String
   mut pending : Bool
   mut sent : Bool
 }
@@ -144,6 +145,7 @@ fn open_inline_comment_editor(
   key : String,
   row : Int,
   col : Int,
+  quote? : String = "",
 ) -> Unit {
   if focus_durable_review_comment(key, false) {
     return
@@ -160,6 +162,10 @@ fn open_inline_comment_editor(
   let insertion_target = inline_comment_insertion_target(target)
   selected_comment_el.val = insertion_target
   let editor_text = Ref("")
+  let comment_quote = match comments.get(key) {
+    Some(comment) => comment.quote
+    None => quote
+  }
   let comment_value = build_comment_value(target, row, col)
   match comments.get(key) {
     Some(comment) => {
@@ -183,6 +189,7 @@ fn open_inline_comment_editor(
         text: "",
         image: "",
         value: comment_value,
+        quote: comment_quote,
         pending: true,
         sent: false,
       })
@@ -194,7 +201,9 @@ fn open_inline_comment_editor(
     row,
     col,
     editor_text.val,
-    if comment_value.has_prefix("Video ") ||
+    if comment_quote.length() > 0 {
+      comment_quote
+    } else if comment_value.has_prefix("Video ") ||
       comment_value.has_prefix("Image alt=") ||
       comment_value.contains(": Image alt=") {
       comment_value
@@ -954,6 +963,11 @@ fn restore_comments() -> Unit {
             text,
             image: "",
             value,
+            quote: if entry.length() > 8 {
+              entry[8]
+            } else {
+              ""
+            },
             pending,
             sent,
           })
@@ -1344,6 +1358,14 @@ fn send_comment_to_server(
   buf.write_string(json_encode_string(text))
   buf.write_string(",\"key\":")
   buf.write_string(json_encode_string(key))
+  match comments.get(key) {
+    Some(comment) =>
+      if comment.quote.length() > 0 {
+        buf.write_string(",\"quote\":")
+        buf.write_string(json_encode_string(comment.quote))
+      }
+    None => ()
+  }
   let target = comment_target_description(selected_comment_el.val)
   if target.length() > 0 {
     buf.write_string(",\"target\":")
@@ -1418,6 +1440,7 @@ fn update_comment_indicators() -> Unit {
         comment.text,
         comment.image,
         comment.value,
+        comment.quote,
         comment.pending,
         el,
         comment.surface,
@@ -1649,6 +1672,10 @@ fn build_review_payload() -> String {
       buf.write_string(comment.col.to_string())
       buf.write_string(",\"text\":")
       buf.write_string(json_encode_string(comment.text))
+      if comment.quote.length() > 0 {
+        buf.write_string(",\"quote\":")
+        buf.write_string(json_encode_string(comment.quote))
+      }
       if comment.value.length() > 0 {
         buf.write_string(",\"value\":")
         buf.write_string(json_encode_string(comment.value))
@@ -1953,6 +1980,7 @@ fn apply_live_comment_event(data : String) -> Unit {
           text,
           image: existing.image,
           value: existing.value,
+          quote: existing.quote,
           pending: false,
           sent: true,
         })
@@ -1964,6 +1992,7 @@ fn apply_live_comment_event(data : String) -> Unit {
           text,
           image: "",
           value: "",
+          quote: json_extract_field(data, "quote"),
           pending: false,
           sent: true,
         })
@@ -2068,6 +2097,10 @@ fn persist_draft() -> Unit {
     buf.write_string(json_encode_string(comment.surface))
     buf.write_string(",\"text\":")
     buf.write_string(json_encode_string(comment.text))
+    if comment.quote.length() > 0 {
+      buf.write_string(",\"quote\":")
+      buf.write_string(json_encode_string(comment.quote))
+    }
     if comment.value.length() > 0 {
       buf.write_string(",\"value\":")
       buf.write_string(json_encode_string(comment.value))
@@ -3356,6 +3389,7 @@ fn select_source_range(
   end_row : Int,
   preview_el : Element,
   col? : Int = 0,
+  quote? : String = "",
 ) -> Unit {
   if fullscreen_overlay_visible() {
     return
@@ -3436,7 +3470,9 @@ fn select_source_range(
   } else {
     (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
   }
-  let key = new_comment_key(location_key)
+  let key = new_comment_key(
+    if quote.length() > 0 { new_selection_comment_id() + "|" + location_key } else { location_key },
+  )
   selected_comment_row.val = start_row - 1
   selected_comment_col.val = col
   selected_comment_el.val = preview_el
@@ -3448,7 +3484,10 @@ fn select_source_range(
     )
   }
   if !is_null(target) {
-    open_inline_comment_editor(target, key, start_row - 1, col)
+    open_inline_comment_editor(target, key, start_row - 1, col, quote~)
+    if quote.length() > 0 {
+      focus_element(query_inline_comment_input())
+    }
   }
   // Re-enable scroll sync after 500ms
   ignore(
@@ -3705,6 +3744,9 @@ fn setup_preview_click() -> Unit {
     if is_null(target) {
       return
     }
+    if !selection_is_collapsed(window_get_selection()) {
+      return
+    }
     let tag = get_tag_name(target)
     if !is_null(
         closest(
@@ -3891,72 +3933,32 @@ fn setup_preview_mouseup() -> Unit {
           if is_null(sel) || selection_is_collapsed(sel) {
             return
           }
-          // Get container element
-          let container = selection_get_range_container(sel)
-          if is_null(container) {
-            return
-          }
-          if !is_null(
-              closest(
-                container, ".yunomi-inline-comment-editor,.review-loop-reply-form,#review-loop-panel,textarea,input",
-              ),
-            ) {
-            return
-          }
-          let selection_block = resolve_preview_click_block(container)
-          let meaningful_container = if is_null(selection_block) {
-            container
-          } else {
-            selection_block
-          }
-          let mermaid_range = get_mermaid_source_range(container)
-          if mermaid_range.0 > 0 {
-            selection_remove_all_ranges(sel)
-            select_source_range(
-              mermaid_range.0,
-              mermaid_range.1,
-              closest(container, ".mermaid-container"),
-            )
+          let first = selection_get_range_endpoint(sel, false)
+          let last = selection_get_range_endpoint(sel, true)
+          if !selection_is_in_preview(sel, preview) {
             return
           }
           let text = selection_to_string(sel)
           if normalize_text(text).length() == 0 {
             return
           }
-          // Find heading context
-          let heading = find_closest_heading_above(meaningful_container)
-          let h_line = get_heading_source_line(heading)
-          // Split text into lines and find start/end
-          let lines_arr : Array[String] = []
-          for part in text.split("\n") {
-            let s = part.to_owned()
-            if s.length() > 0 {
-              lines_arr.push(s)
-            }
-          }
-          let first_line = if lines_arr.length() > 0 {
-            lines_arr[0]
-          } else {
-            ""
-          }
-          let last_line = if lines_arr.length() > 1 {
-            lines_arr[lines_arr.length() - 1]
-          } else {
-            first_line
-          }
-          let start_line = find_source_line(
-            first_line, meaningful_container, h_line,
+          let block = closest(
+            first, "td,th,pre,summary,li,blockquote,p,h1,h2,h3,h4,h5,h6",
           )
-          let end_line = if lines_arr.length() > 1 {
-            find_source_line(last_line, meaningful_container, h_line)
-          } else {
-            start_line
-          }
-          if start_line <= 0 {
+          let anchor = if is_null(block) { first } else { block }
+          let start_line = preview_endpoint_source_line(first, false)
+          let end_line = preview_endpoint_source_line(last, true)
+          if start_line <= 0 || end_line <= 0 {
             return
           }
-          let actual_end = if end_line > 0 { end_line } else { start_line }
-          select_source_range(start_line, actual_end, meaningful_container)
+          let cell = closest(first, "td,th")
+          let col = if !is_null(cell) && elem_eq(cell, closest(last, "td,th")) {
+            get_cell_index(cell) + 1
+          } else {
+            0
+          }
+          selection_remove_all_ranges(sel)
+          select_source_range(start_line, end_line, anchor, col~, quote=text)
         },
         10,
       ),

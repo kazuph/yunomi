@@ -533,7 +533,7 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|    const data = JSON.parse(json);
   #|    const comments = data.comments;
   #|    if (!comments || typeof comments !== "object") return [];
-  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false), String(v.surface || "preview")]);
+  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false), String(v.surface || "preview"), String(v.quote || "")]);
   #|  } catch(e) { return []; }
   #|}
 
@@ -1581,11 +1581,12 @@ extern "js" fn render_inline_saved_comment(
   text : String,
   image : String,
   value : String,
+  quote : String,
   pending : Bool,
   target : Element,
   surface : String,
 ) -> Unit =
-  #|(key, row, col, text, image, value, pending, target, surface) => {
+  #|(key, row, col, text, image, value, selectedQuote, pending, target, surface) => {
   #|  if (window.__YUNOMI_DURABLE_COMMENT_IDS__?.has(String(key || ""))) return;
   #|  // While this comment is being edited, the editor is its only inline
   #|  // representation; a second read-only holder would just push the page.
@@ -1597,7 +1598,7 @@ extern "js" fn render_inline_saved_comment(
   #|  const label = videoTime ? `Video ${videoTime[1]} · Line ${row + 1}` : (col > 0 ? (imageAlt ? `表の画像「${imageAlt}」（Markdown ${row + 1}行目・${col}列目）` : `Markdown ${row + 1}行目・${col}列目`) : `Line ${row + 1}`);
   #|  const badge = pending ? `<span class="yunomi-inline-comment-pending">Pending</span>` : "";
   #|  const md = (window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(text);
-  #|  const quoteText = imageAlt ? `画像「${imageAlt}」` : (tableText || String(value || "").split(" | source:")[0].trim());
+  #|  const quoteText = selectedQuote || (imageAlt ? `画像「${imageAlt}」` : (tableText || String(value || "").split(" | source:")[0].trim()));
   #|  const quote = quoteText ? `<div class="review-loop-quote yunomi-inline-comment-context">${esc(quoteText)}</div>` : "";
   #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div>${quote}<div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}</div></div>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div>`;
   #|  const insert = (target, surface) => {
@@ -1679,7 +1680,7 @@ extern "js" fn show_inline_comment_editor(
   #|  const surface = target.closest?.("#md-preview") ? "preview" : "source";
   #|  section.dataset.commentSurface = surface;
   #|  const attachIcon = document.querySelector("#media-sidebar-toggle svg")?.outerHTML || "";
-  #|  section.innerHTML = `<div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${label}</strong></div><div id="cell-preview" class="yunomi-inline-comment-context review-loop-quote"></div><div class="review-loop-reply-form"><textarea id="comment-input" rows="3" aria-label="Comment" placeholder="Write a comment"></textarea><div class="review-loop-reply-preview" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="review-loop-reply-actions"><div class="yunomi-inline-comment-action-start"><label class="review-loop-reply-attach" title="Attach image" aria-label="Attach image">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="Attach image" /></label><button type="button" data-action="cancel">Cancel</button></div><div class="yunomi-inline-comment-action-group"><button type="button" id="save-comment">${reviewLabel}</button><button type="button" id="send-now-comment">${singleLabel}</button></div></div></div>`;
+  #|  section.innerHTML = `<div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${label}</strong></div><div id="cell-preview" class="yunomi-inline-comment-context review-loop-quote"></div><div class="review-loop-reply-form"><textarea id="comment-input" rows="3" aria-label="Comment" placeholder="Write a comment"></textarea><div class="review-loop-reply-preview" id="comment-image-area"><div class="image-preview-list" id="comment-image-preview"></div></div><div class="review-loop-reply-actions"><div class="yunomi-inline-comment-action-start"><label class="review-loop-reply-attach" title="Attach image" aria-label="Attach image">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="Attach image" /></label><button type="button" data-action="cancel">Cancel</button></div><div class="yunomi-inline-comment-action-group"><button type="button" id="save-comment">${reviewLabel}</button><button type="button" id="send-now-comment" title="Send now (⌘Enter / Ctrl+Enter)" aria-keyshortcuts="Meta+Enter Control+Enter">${singleLabel}</button></div></div></div>`;
   #|  const tableCell = target.closest?.("td,th");
   #|  const listItem = target.closest?.("li[data-source-line]");
   #|  let mount = section;
@@ -1946,12 +1947,34 @@ extern "js" fn selection_remove_all_ranges(sel : Element) -> Unit =
   #|(sel) => { if (sel) sel.removeAllRanges(); }
 
 ///|
-extern "js" fn selection_get_range_container(sel : Element) -> Element =
-  #|(sel) => {
-  #|  if (!sel || sel.rangeCount === 0) return null;
+extern "js" fn selection_get_range_endpoint(
+  sel : Element,
+  end : Bool,
+) -> Element =
+  #|(sel, end) => {
+  #|  if (!sel || !sel.rangeCount) return null;
+  #|  const r = sel.getRangeAt(0);
+  #|  const node = end ? r.endContainer : r.startContainer;
+  #|  return node.nodeType === 3 ? node.parentElement : node;
+  #|}
+
+///|
+extern "js" fn selection_is_in_preview(
+  sel : Element,
+  preview : Element,
+) -> Bool =
+  #|(sel, preview) => {
+  #|  if (!sel || !sel.rangeCount) return false;
   #|  const range = sel.getRangeAt(0);
-  #|  const c = range.commonAncestorContainer;
-  #|  return c.nodeType === 3 ? c.parentElement : c;
+  #|  if (!preview.contains(range.startContainer) || !preview.contains(range.endContainer)) return false;
+  #|  return !Array.from(preview.querySelectorAll(".yunomi-inline-comment,.review-loop-inline,.review-loop-reply-form,input,textarea,button")).some(el => range.intersectsNode(el));
+  #|}
+
+///|
+extern "js" fn preview_endpoint_source_line(node : Element, end : Bool) -> Int =
+  #|(node, end) => {
+  #|  const anchor = node?.closest?.("[data-source-line],[data-source-start-line]");
+  #|  return Number((end && anchor?.dataset.sourceEndLine) || anchor?.dataset.sourceLine || anchor?.dataset.sourceStartLine || 0);
   #|}
 
 ///|
@@ -3165,3 +3188,7 @@ extern "js" fn stored_answer_count(answers_json : String) -> Int =
   #|    return Object.values(answers || {}).filter(v => v && (typeof v === "string" ? v.trim() : (v.text || v.option))).length;
   #|  } catch (_) { return 0; }
   #|}
+
+///|
+extern "js" fn new_selection_comment_id() -> String =
+  #|() => crypto.randomUUID()
