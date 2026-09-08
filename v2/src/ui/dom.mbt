@@ -3208,3 +3208,7 @@ extern "js" fn stored_answer_count(answers_json : String) -> Int =
 ///|
 extern "js" fn new_selection_comment_id() -> String =
   #|() => crypto.randomUUID()
+
+///|
+extern "js" fn parse_json_string_field(json : String, field : String) -> String =
+  #|(json, field) => { try { return String(JSON.parse(json)[field] || ""); } catch { return ""; } }

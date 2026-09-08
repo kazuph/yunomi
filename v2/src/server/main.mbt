@@ -3571,6 +3571,20 @@ fn notification_quote(text : String) -> String {
 }
 
 ///|
+fn format_notification_quote(text : String) -> String {
+  let quote = notification_quote(text)
+  if quote.length() == 0 {
+    return ""
+  }
+  let buf = StringBuilder::new()
+  for line in quote.split("\n") {
+    buf.write_string("\n> ")
+    buf.write_string(line.to_owned())
+  }
+  buf.to_string()
+}
+
+///|
 fn comment_quote_for_row(ctx : ServerContext, line : Int) -> String {
   let source = if ctx.file_path == "<stdin>" {
     ctx.source_text
@@ -3778,7 +3792,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     } else {
       ""
     }
-    let quote_line = if quote.length() > 0 { "\n> " + quote } else { "" }
+    let quote_line = format_notification_quote(quote)
     notify_reviewer(
       ctx,
       "[yunomi] " +

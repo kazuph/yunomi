@@ -1996,7 +1996,7 @@ fn apply_live_comment_event(data : String) -> Unit {
           text,
           image: "",
           value: "",
-          quote: json_extract_field(data, "quote"),
+          quote: parse_json_string_field(data, "quote"),
           pending: false,
           sent: true,
         })
@@ -3475,7 +3475,11 @@ fn select_source_range(
     (start_row - 1).to_string() + "-" + (actual_end - 1).to_string()
   }
   let key = new_comment_key(
-    if quote.length() > 0 { new_selection_comment_id() + "|" + location_key } else { location_key },
+    if quote.length() > 0 {
+      new_selection_comment_id() + "|" + location_key
+    } else {
+      location_key
+    },
   )
   selected_comment_row.val = start_row - 1
   selected_comment_col.val = col
@@ -3947,7 +3951,7 @@ fn setup_preview_mouseup() -> Unit {
             return
           }
           let block = closest(
-            first, "td,th,pre,summary,li,blockquote,p,h1,h2,h3,h4,h5,h6",
+            first, ".mermaid-container,td,th,pre,summary,li,blockquote,p,h1,h2,h3,h4,h5,h6",
           )
           let anchor = if is_null(block) { first } else { block }
           let start_line = preview_endpoint_source_line(sel, false)

@@ -9,7 +9,7 @@ const dir = mkdtempSync(join(tmpdir(), 'yunomi-selection-'));
 const fixture = join(dir, 'selection.md');
 const reviewDir = join(dir, 'reviews');
 writeFileSync(fixture, '# Selection comments\n\nFirst repeated word.\n\nSecond repeated word with **bold text** and 日本語。\n\nParagraph alpha.\n\nParagraph beta.\n\n| Left | Right |\n| --- | --- |\n| repeated | repeated |\n\nFirst soft line\nSecond **bold** line\n\n```text\nfirst code line\nsecond code line\n```\n\nLiteral Image alt="cat" is text.\n');
-const server = spawn(process.execPath, [new URL('../_build/js/release/build/server/server.js', import.meta.url).pathname, fixture, '--no-open', '--port', '0'], {
+const server = spawn(process.execPath, [new URL('../_build/js/release/build/server/server.js', import.meta.url).pathname, fixture, '--no-open', '--loop', '--port', '0'], {
   env: { ...process.env, HERDR_PANE_ID: '', TMUX_PANE: '', YUNOMI_NOTIFY_CMD: '', YUNOMI_LOCK_DIR: join(dir, 'locks'), YUNOMI_REVIEW_DIR: reviewDir },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -61,6 +61,10 @@ try {
   const editor = page.locator('.yunomi-inline-comment-editor');
   const input = page.locator('#comment-input');
   const quote = page.locator('#cell-preview');
+  await page.locator('#md-preview p[data-source-start-line="3"]').click({ clickCount: 3 });
+  await editor.waitFor();
+  assert.equal((await quote.textContent())!.trim(), 'First repeated word.');
+  await input.press('Escape');
   await dragText(page, '#md-preview p[data-source-start-line="5"]', 'word', true);
   await editor.waitFor({ state: 'visible' });
   assert.equal(await quote.textContent(), 'word');
@@ -112,7 +116,10 @@ try {
   await page.reload();
   const softSaved = page.locator('.yunomi-inline-comment-view').filter({ hasText: 'Second source line' });
   await softSaved.waitFor(); await softSaved.click();
-  assert.equal(await quote.textContent(), 'bold'); await input.press('Escape');
+  assert.equal(await quote.textContent(), 'bold'); await input.fill(''); await page.locator('#save-comment').click();
+  await dragText(page, '#md-preview pre code', 'first code line\nsecond code line');
+  await editor.waitFor(); assert.equal(await quote.textContent(), 'first code line\nsecond code line');
+  await input.press('Escape');
   await dragText(page, '#md-preview pre code', 'second code line');
   await editor.waitFor(); assert.equal(await quote.textContent(), 'second code line');
   assert.match((await editor.getAttribute('data-comment-key'))!, /\|19:0$/);
@@ -122,14 +129,24 @@ try {
   await input.press('Escape');
   console.log('PASS: soft-wrapped paragraph and code selections retain exact source lines, restore in place, and literal media-like text stays literal');
 
-  await page.locator('#md-preview p[data-source-start-line="7"]').scrollIntoViewIfNeeded();
-  const a = await page.locator('#md-preview p[data-source-start-line="7"]').boundingBox();
-  const b = await page.locator('#md-preview p[data-source-start-line="9"]').boundingBox();
+  writeFileSync(fixture, 'Inserted paragraph.\n\n' + readFileSync(fixture, 'utf8'));
+  assert.equal((await fetch(url + '/go', { method: 'POST' })).status, 200);
+  await page.waitForFunction(async () => { const state = await (await fetch('/review-state')).json(); return state.review?.comments?.some((c: { text: string; row: number }) => c.text === 'Keep the short quote' && c.row === 6); });
+  await page.locator('#md-preview p[data-source-start-line="7"]').filter({ hasText: 'Second repeated' }).waitFor();
+  await leftThread.waitFor();
+  const moved = JSON.parse(readFileSync(join(reviewDir, 'review.json'), 'utf8')).comments.find((c: { text: string }) => c.text === 'Keep the short quote');
+  assert.equal(moved.row, 6); assert.notEqual(moved.unanchored, true); assert.equal(moved.quote, 'word');
+  assert.equal(await leftThread.evaluate(el => el.closest('td')?.getAttribute('data-col')), '1');
+  console.log('PASS: selected quote and table cell remain anchored after inserting source lines');
+
+  await page.locator('#md-preview p[data-source-start-line="9"]').scrollIntoViewIfNeeded();
+  const a = await page.locator('#md-preview p[data-source-start-line="9"]').boundingBox();
+  const b = await page.locator('#md-preview p[data-source-start-line="11"]').boundingBox();
   await page.mouse.move(a!.x, a!.y + a!.height / 2); await page.mouse.down();
   await page.mouse.move(b!.x + b!.width, b!.y + b!.height / 2, { steps: 15 }); await page.mouse.up();
   await editor.waitFor();
   assert.equal((await quote.textContent())!.replace(/\s+/g, ' ').trim(), 'Paragraph alpha. Paragraph beta.');
-  assert.match((await editor.getAttribute('data-comment-key'))!, /\|6-8$/);
+  assert.match((await editor.getAttribute('data-comment-key'))!, /\|8-10$/);
   const geometry = await editor.evaluate(el => {
     const r = el.getBoundingClientRect();
     return { width: r.width, within: r.left >= 0 && r.right <= innerWidth, editors: document.querySelectorAll('.yunomi-inline-comment-editor').length };
