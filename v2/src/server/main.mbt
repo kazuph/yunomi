@@ -4227,6 +4227,7 @@ fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
 /// tab re-registers (reload / navigation) before the window elapses, the
 /// pending entry is dropped by handle_session_open and nothing is sent.
 fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
+  ctx.pending_close_notify.clear()
   ctx.close_notify_seq = ctx.close_notify_seq + 1
   let seq = ctx.close_notify_seq
   ctx.pending_close_notify.set(tab_id, seq)

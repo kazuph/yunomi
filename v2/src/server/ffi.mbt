@@ -335,7 +335,9 @@ extern "js" fn open_browser(url : String) -> Unit =
   #|      execFile(process.platform === "win32" ? "cmd" : "xdg-open", process.platform === "win32" ? ["/c", "start", url] : [url], reportError);
   #|      return;
   #|    }
-  #|    const target = new URL(url).href;
+  #|    const targetURL = new URL(url);
+  #|    targetURL.hash = "";
+  #|    const target = targetURL.href;
   #|    const script = `on run argv
   #|      set targetURL to item 1 of argv
   #|      tell application "Google Chrome"
@@ -343,8 +345,9 @@ extern "js" fn open_browser(url : String) -> Unit =
   #|          set tabIndex to 0
   #|          repeat with t in tabs of w
   #|            set tabIndex to tabIndex + 1
-  #|            if URL of t is targetURL then
-  #|              set URL of t to targetURL
+  #|            set currentURL to URL of t
+  #|            if currentURL is targetURL or currentURL starts with (targetURL & "#") then
+  #|              set URL of t to currentURL
   #|              set active tab index of w to tabIndex
   #|              set index of w to 1
   #|              activate
@@ -356,8 +359,8 @@ extern "js" fn open_browser(url : String) -> Unit =
   #|      return "missing"
   #|    end run`;
   #|    execFile("osascript", ["-e", script, target], (error, stdout) => {
-  #|      if (error) { reportError(error); return; }
-  #|      if (stdout.trim() === "missing") execFile("open", ["-a", "Google Chrome", target], reportError);
+  #|      reportError(error);
+  #|      if (stdout.trim() !== "found") execFile("open", ["-a", "Google Chrome", target], reportError);
   #|    });
   #|  });
   #|}
