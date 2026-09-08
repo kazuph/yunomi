@@ -477,7 +477,8 @@ extern "js" fn retire_if_stale_review_session(current : String) -> Bool =
   #|  try {
   #|    const tabId = sessionStorage.getItem(tabKey) || "";
   #|    const previous = sessionStorage.getItem(serverKey) || "";
-  #|    if (tabId && previous !== current) {
+  #|    const navigated = performance.getEntriesByType("navigation")[0]?.type === "navigate";
+  #|    if (tabId && previous !== current && !navigated) {
   #|      sessionStorage.setItem(serverKey, current);
   #|      return true;
   #|    }

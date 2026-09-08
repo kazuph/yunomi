@@ -511,6 +511,7 @@ fn main {
       bind_host.val,
       no_open,
       server_instance_id.val,
+      open_browser,
       fn(body) {
         persist_external_review(review_json_path_for_cwd(), args[1], body)
       },
@@ -2273,6 +2274,7 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
       no_open,
       server_instance_id.val,
       max_port_attempts,
+      open_browser,
       fn(bound_port) {
         ctx.port = bound_port
         write_lock(bound_port, ctx.file_path)
@@ -4234,12 +4236,13 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
         match ctx.pending_close_notify.get(tab_id) {
           Some(pending) if pending == seq => {
             ignore(ctx.pending_close_notify.remove(tab_id))
-            if ctx.finished || has_active_tab(ctx, tab_id) {
+            if ctx.finished || ctx.active_tabs.length() > 0 {
               log_session_event(
                 "close notify skipped file=\{ctx.filename} tab=\{tab_id} finished=\{ctx.finished}",
               )
               return
             }
+            ctx.pending_close_notify.clear()
             log_session_event(
               "close notify file=\{ctx.filename} tab=\{tab_id} active=\{ctx.active_tabs.length()}",
             )
