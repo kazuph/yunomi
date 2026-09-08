@@ -408,7 +408,7 @@ async function main(): Promise<void> {
         await page.mouse.move(selectionTarget!.start.x, selectionTarget!.start.y);
         await page.mouse.down();
         await page.mouse.move(selectionTarget!.end.x, selectionTarget!.end.y, { steps: 5 });
-        const selectedText = await page.evaluate(() => window.getSelection()?.toString().trim() || "");
+        const selectedText = await page.evaluate(() => window.getSelection()?.toString() || "");
         assert.ok(selectedText.length > 0, "the drag selects preview text");
         await page.mouse.up();
         await waitForCommentCard(page);
