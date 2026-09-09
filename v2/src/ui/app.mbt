@@ -220,6 +220,7 @@ fn open_inline_comment_editor(
     fn(data) {
       current_comment_image.val = data
       render_comment_image_preview()
+      sync_active_comment_draft()
     },
   )
   render_comment_image_preview()
@@ -302,7 +303,7 @@ fn source_line_for_row(row : Int) -> String {
 ///|
 fn build_comment_value(target : Element, row : Int, col : Int) -> String {
   let source_line = source_line_for_row(row)
-  if is_null(target) {
+  if is_null(target) || !is_null(closest(target, ".md-right")) {
     return source_line
   }
   let timeline = closest(target, ".timeline-thumb-wrapper")
@@ -340,7 +341,7 @@ fn build_comment_value(target : Element, row : Int, col : Int) -> String {
   let image = if tag == "IMG" {
     target
   } else {
-    query_in(target, "img:not(.timeline-thumb)")
+    query_in(target, "img:not(.timeline-thumb):not(.yunomi-inline-comment img):not(.review-loop-inline img)")
   }
   if !is_null(image) {
     let alt = get_attr(image, "alt")
@@ -948,7 +949,8 @@ fn restore_comments() -> Unit {
         let col = str_to_int(entry[2])
         let text = entry[3]
         let value = if entry.length() > 4 { entry[4] } else { "" }
-        if text.length() > 0 {
+        let image = if entry.length() > 9 { entry[9] } else { "" }
+        if text.length() > 0 || image.length() > 0 {
           let pending = entry.length() > 5 && entry[5] == "true"
           let sent = entry.length() <= 6 || entry[6] == "true"
           let surface = if entry.length() > 7 { entry[7] } else { "preview" }
@@ -957,7 +959,7 @@ fn restore_comments() -> Unit {
             col,
             surface,
             text,
-            image: "",
+            image,
             value,
             quote: if entry.length() > 8 {
               entry[8]
@@ -978,6 +980,8 @@ fn restore_comments() -> Unit {
         set_value(summary_el, summary)
       }
     }
+    for image in parse_summary_images(stored) { submit_images.push(image) }
+    render_submit_image_preview()
     let stored_answers = parse_stored_answers(stored)
     apply_yunomi_draft_answers(stored_answers)
     // Resume the stepper at whatever question the human was on when the
@@ -1187,7 +1191,13 @@ fn render_comment_list() -> Unit {
       } else {
         buf.write_string("[image only]")
       }
-      buf.write_string("</div></button></li>")
+      buf.write_string("</div>")
+      if comment.image.length() > 0 {
+        buf.write_string("<img class=\"yunomi-inline-comment-image\" alt=\"Attached comment image\" src=\"")
+        buf.write_string(@core.escape_html(comment.image))
+        buf.write_string("\" />")
+      }
+      buf.write_string("</button></li>")
     }
   })
   if count == 0 {
@@ -1372,6 +1382,8 @@ fn send_comment_to_server(
   }
   if has_image {
     buf.write_string(",\"hasImage\":true")
+    buf.write_string(",\"image\":")
+    buf.write_string(json_encode_string(current_comment_image.val))
   }
   buf.write_string("}")
   fetch_post(url, buf.to_string(), fn(response) {
@@ -1487,11 +1499,16 @@ fn show_submit_modal() -> Unit {
   }
   let buf = StringBuilder::new()
   comments.each(fn(key, comment) {
-    if comment.text.length() > 0 && comment.pending {
+    if comment_has_content(comment) && comment.pending {
       buf.write_string("<li><span class=\"location\">")
       buf.write_string(@core.escape_html(key))
       buf.write_string("</span>: ")
       buf.write_string(@core.escape_html(comment.text))
+      if comment.image.length() > 0 {
+        buf.write_string("<img class=\"review-loop-conversation-image\" alt=\"Attached image\" src=\"")
+        buf.write_string(@core.escape_html(comment.image))
+        buf.write_string("\" />")
+      }
       buf.write_string("</li>")
     }
   })
@@ -1661,7 +1678,7 @@ fn build_review_payload() -> String {
   buf.write_string(",\"comments\":[")
   let first = Ref(true)
   comments.each(fn(_key, comment) {
-    if comment.text.length() > 0 && comment.pending {
+    if comment_has_content(comment) && comment.pending {
       if !first.val {
         buf.write_char(',')
       }
@@ -2096,6 +2113,8 @@ fn persist_draft() -> Unit {
     buf.write_string(json_encode_string(comment.surface))
     buf.write_string(",\"text\":")
     buf.write_string(json_encode_string(comment.text))
+    buf.write_string(",\"image\":")
+    buf.write_string(json_encode_string(comment.image))
     if comment.quote.length() > 0 {
       buf.write_string(",\"quote\":")
       buf.write_string(json_encode_string(comment.quote))
@@ -2115,6 +2134,12 @@ fn persist_draft() -> Unit {
   let summary_el = query("#global-comment")
   let summary = if is_null(summary_el) { "" } else { get_value(summary_el) }
   buf.write_string(json_encode_string(summary))
+  buf.write_string(",\"summaryImages\":[")
+  for i, image in submit_images {
+    if i > 0 { buf.write_char(',') }
+    buf.write_string(json_encode_string(image))
+  }
+  buf.write_string("]")
   buf.write_string(",\"answers\":")
   buf.write_string(collect_yunomi_draft_answers())
   buf.write_string(",\"step\":")
@@ -2226,6 +2251,7 @@ fn render_history_entries(json : String) -> String {
       buf.write_string(@core.escape_html(summary))
       buf.write_string("</div>")
     }
+    buf.write_string(history_attachment_html(entry))
     if count.length() > 0 {
       buf.write_string("<div style=\"font-size:12px;color:var(--accent)\">")
       buf.write_string(@core.escape_html(count))
@@ -2344,11 +2370,13 @@ fn setup_paste_handler() -> Unit {
       if submit_images.length() < submit_image_limit {
         submit_images.push(base64)
         render_submit_image_preview()
+        persist_draft()
       }
     } else if comment_visible {
       if current_comment_image.val.length() == 0 {
         current_comment_image.val = base64
         render_comment_image_preview()
+        sync_active_comment_draft()
       }
     }
   })
@@ -2397,6 +2425,7 @@ fn render_submit_image_preview() -> Unit {
       if idx >= 0 && idx < submit_images.length() {
         ignore(submit_images.remove(idx))
         render_submit_image_preview()
+        persist_draft()
       }
     })
   }
@@ -2427,6 +2456,7 @@ fn render_comment_image_preview() -> Unit {
     on(remove_btn, "click", fn(_e) {
       current_comment_image.val = ""
       render_comment_image_preview()
+      sync_active_comment_draft()
     })
   }
 }

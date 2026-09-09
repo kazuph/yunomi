@@ -757,6 +757,7 @@ pub fn build_csv_html(
     buf.write_string("</tr>")
   }
   buf.write_string("</tbody></table></div>")
+  build_review_loop_mount(buf)
   build_comment_list_aside(buf)
   build_submit_modal(buf)
   build_history_panel(buf)

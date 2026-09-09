@@ -367,10 +367,11 @@ extern "js" fn start_live_proxy(
   host : String,
   no_open : Bool,
   instance_id : String,
+  attachment_ui : String,
   open_url : (String) -> Unit,
-  persist_review : (String) -> Unit,
+  persist_review : (String) -> String,
 ) -> Unit =
-  #|(targetUrl, port, host, noOpen, instanceId, openUrl, persistReview) => {
+  #|(targetUrl, port, host, noOpen, instanceId, attachmentUi, openUrl, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -410,6 +411,10 @@ extern "js" fn start_live_proxy(
   #|      }
   #|    }
   #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
+  #|    if (payload.summaryAttachments?.length) {
+  #|      lines.push("summary_images:");
+  #|      for (const ref of payload.summaryAttachments) lines.push(`  - ${yamlEscape(ref)}`);
+  #|    }
   #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
   #|    return lines.join("\n") + "\n";
   #|  };
@@ -429,7 +434,9 @@ extern "js" fn start_live_proxy(
   #|    const overlayScript = `(() => {
   #|      if (window.__yunomiLiveInstalled) return;
   #|      window.__yunomiLiveInstalled = true;
-  #|      const comments = [];
+  #|      const draftKey = "yunomi:live-comments:" + ${JSON.stringify(targetUrl)};
+  #|      const comments = JSON.parse(localStorage.getItem(draftKey) || "[]");
+  #|      ${attachmentUi}
   #|      let enabled = true;
   #|      let active = null;
   #|      const style = document.createElement("style");
@@ -509,13 +516,20 @@ extern "js" fn start_live_proxy(
   #|        card.innerHTML = '<p class="meta"></p><textarea placeholder="Comment for this element"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-save>Save</button></div>';
   #|        card.querySelector(".meta").textContent = selector;
   #|        document.documentElement.appendChild(card);
+  #|        const image = attachImage(card);
+  #|        for (const saved of comments.filter(comment => comment.selector === selector)) {
+  #|          const bubble = document.createElement("blockquote"); bubble.className = "yunomi-live-saved-comment"; bubble.textContent = saved.text;
+  #|          if (saved.image) { const img = document.createElement("img"); img.src = saved.image; img.alt = "Attached image"; img.style.maxWidth = "100%"; bubble.appendChild(img); }
+  #|          card.querySelector(".meta").after(bubble);
+  #|        }
   #|        card.querySelector("textarea").focus();
   #|        card.querySelector("[data-yunomi-cancel]").onclick = closeCard;
   #|        card.querySelector("[data-yunomi-save]").onclick = () => {
   #|          const text = card.querySelector("textarea").value.trim();
-  #|          if (!text) return;
-  #|          comments.push({ row: 0, col: 0, text, selector, value: elementText(el), screenshot: "", bounds: boundsFor(el) });
+  #|          if (!text && !image()) return;
+  #|          comments.push({ row: 0, col: 0, text, image: image(), selector, value: elementText(el), screenshot: "", bounds: boundsFor(el) });
   #|          el.classList.add("yunomi-live-pin");
+  #|          localStorage.setItem(draftKey, JSON.stringify(comments));
   #|          updateCount();
   #|          closeCard();
   #|        };
@@ -526,9 +540,17 @@ extern "js" fn start_live_proxy(
   #|        active?.classList.remove("yunomi-live-hover");
   #|      };
   #|      document.getElementById("yunomi-live-submit").onclick = async () => {
-  #|        const summary = window.prompt("Overall comment", "") || "";
-  #|        await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "final_request_changes", decision: "request_changes", summary, comments }) });
+  #|        closeCard();
+  #|        const card = document.createElement("div"); card.id = "yunomi-live-card"; card.style.top = "64px"; card.style.right = "16px";
+  #|        card.innerHTML = '<p class="meta">Overall comment</p><textarea placeholder="Overall comment"></textarea><button data-yunomi-cancel>Cancel</button><button data-yunomi-save>Submit</button>';
+  #|        document.documentElement.appendChild(card);
+  #|        const image = attachImage(card);
+  #|        card.querySelector('[data-yunomi-cancel]').onclick = closeCard;
+  #|        card.querySelector('[data-yunomi-save]').onclick = async () => {
+  #|        const summary = card.querySelector('textarea').value;
+  #|        await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "final_request_changes", decision: "request_changes", summary, summaryImages: image() ? [image()] : [], comments }) });
   #|        document.body.innerHTML = "<main style=\\"font:16px system-ui,sans-serif;padding:40px\\"><h1>Review submitted</h1><p>yunomi live can be closed.</p></main>";
+  #|        };
   #|      };
   #|    })();`;
   #|    const inject = (html) => {
@@ -547,7 +569,7 @@ extern "js" fn start_live_proxy(
   #|        req.on("end", () => {
   #|          let payload = {};
   #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
-  #|          persistReview(JSON.stringify(payload));
+  #|          payload = JSON.parse(persistReview(JSON.stringify(payload)));
   #|          process.stdout.write(toYaml(payload));
   #|          res.writeHead(200, { "Content-Type": "application/json" });
   #|          res.end('{"ok":true}', () => server.close(() => process.exit(0)));
@@ -625,13 +647,14 @@ extern "js" fn start_html_preview_server(
   host : String,
   no_open : Bool,
   instance_id : String,
+  attachment_ui : String,
   max_port_attempts : Int,
   open_url : (String) -> Unit,
   on_listening : (Int) -> Unit,
   on_finished : (Int) -> Unit,
-  persist_review : (String) -> Unit,
+  persist_review : (String) -> String,
 ) -> Unit =
-  #|(filePath, port, host, noOpen, instanceId, maxPortAttempts, openUrl, onListening, onFinished, persistReview) => {
+  #|(filePath, port, host, noOpen, instanceId, attachmentUi, maxPortAttempts, openUrl, onListening, onFinished, persistReview) => {
   #|  const yamlEscape = (value) => {
   #|    const s = String(value ?? "");
   #|    if (!/[:#'"\n\[\]{},&*!|>%@]/.test(s)) return s;
@@ -670,6 +693,10 @@ extern "js" fn start_html_preview_server(
   #|      }
   #|    }
   #|    lines.push(`summary: ${yamlEscape(payload.summary || "")}`);
+  #|    if (payload.summaryAttachments?.length) {
+  #|      lines.push("summary_images:");
+  #|      for (const ref of payload.summaryAttachments) lines.push(`  - ${yamlEscape(ref)}`);
+  #|    }
   #|    lines.push(`decision: ${payload.decision || "request_changes"}`);
   #|    return lines.join("\n") + "\n";
   #|  };
@@ -711,7 +738,8 @@ extern "js" fn start_html_preview_server(
   #|        link.setAttribute("rel", "noopener noreferrer");
   #|      };
   #|      document.querySelectorAll("a[href]").forEach(externalizeLink);
-  #|      const comments = [];
+  #|      const draftKey = "yunomi:html-comments:" + ${JSON.stringify(resolvedFile)};
+  #|      const comments = JSON.parse(localStorage.getItem(draftKey) || "[]");
   #|      let enabled = true;
   #|      let active = null;
   #|      const style = document.createElement("style");
@@ -736,6 +764,7 @@ extern "js" fn start_html_preview_server(
   #|      bar.innerHTML = '<strong>🝵 yunomi html</strong><span id="yunomi-html-count">0</span><button id="yunomi-html-toggle">Comment mode</button><button id="yunomi-html-submit">Submit &amp; Exit</button>';
   #|      document.documentElement.appendChild(bar);
   #|      const publishComments = () => {
+  #|        localStorage.setItem(draftKey, JSON.stringify(comments));
   #|        if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-comments", comments }, location.origin);
   #|      };
   #|      const isUi = (el) => !!el.closest?.("#yunomi-html-bar,#yunomi-html-card,#yunomi-html-submit-card");
@@ -768,6 +797,7 @@ extern "js" fn start_html_preview_server(
   #|      const updateCount = () => { document.getElementById("yunomi-html-count").textContent = String(comments.length); };
   #|      const closeCard = () => document.getElementById("yunomi-html-card")?.remove();
   #|      const closeSubmitCard = () => document.getElementById("yunomi-html-submit-card")?.remove();
+  #|      ${attachmentUi}
   #|      const openSubmitCard = () => {
   #|        closeSubmitCard();
   #|        const card = document.createElement("div");
@@ -775,6 +805,7 @@ extern "js" fn start_html_preview_server(
   #|        const defaultDecision = comments.length > 0 ? "request_changes" : "approve";
   #|        card.innerHTML = '<p class="meta">Submit HTML review</p><textarea placeholder="Overall comment"></textarea><div class="choices"><label><input type="radio" name="yunomi-html-decision" value="approve"> Approve</label><label><input type="radio" name="yunomi-html-decision" value="request_changes"> Request Changes</label></div><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-submit>Submit</button></div>';
   #|        document.documentElement.appendChild(card);
+  #|        const image = attachImage(card);
   #|        const radio = card.querySelector('input[value="' + defaultDecision + '"]');
   #|        if (radio) radio.checked = true;
   #|        card.querySelector("[data-yunomi-cancel]").onclick = closeSubmitCard;
@@ -782,7 +813,7 @@ extern "js" fn start_html_preview_server(
   #|          const decision = card.querySelector("input[name='yunomi-html-decision']:checked")?.value || defaultDecision;
   #|          const summary = card.querySelector("textarea")?.value || "";
   #|          const action = decision === "approve" ? "final_approve" : "final_request_changes";
-  #|          if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-submit", comments, summary, decision, action }, location.origin);
+  #|          if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-submit", comments, summary, summaryImages: image() ? [image()] : [], decision, action }, location.origin);
   #|        };
   #|        card.querySelector("textarea")?.focus();
   #|      };
@@ -815,12 +846,18 @@ extern "js" fn start_html_preview_server(
   #|        card.innerHTML = '<p class="meta"></p><textarea placeholder="Comment for this element"></textarea><div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px"><button data-yunomi-cancel>Cancel</button><button data-yunomi-save>Save</button></div>';
   #|        card.querySelector(".meta").textContent = selector;
   #|        document.documentElement.appendChild(card);
+  #|        const image = attachImage(card);
+  #|        for (const saved of comments.filter(comment => comment.selector === selector)) {
+  #|          const bubble = document.createElement("blockquote"); bubble.className = "yunomi-html-saved-comment"; bubble.textContent = saved.text;
+  #|          if (saved.image) { const img = document.createElement("img"); img.src = saved.image; img.alt = "Attached image"; img.style.maxWidth = "100%"; bubble.appendChild(img); }
+  #|          card.querySelector(".meta").after(bubble);
+  #|        }
   #|        card.querySelector("textarea").focus();
   #|        card.querySelector("[data-yunomi-cancel]").onclick = closeCard;
   #|        card.querySelector("[data-yunomi-save]").onclick = () => {
   #|          const text = card.querySelector("textarea").value.trim();
-  #|          if (!text) return;
-  #|          comments.push({ row: 0, col: 0, text, selector, value: elementText(el), bounds: boundsFor(el) });
+  #|          if (!text && !image()) return;
+  #|          comments.push({ row: 0, col: 0, text, image: image(), selector, value: elementText(el), bounds: boundsFor(el) });
   #|          el.classList.add("yunomi-html-pin");
   #|          updateCount();
   #|          publishComments();
@@ -841,7 +878,7 @@ extern "js" fn start_html_preview_server(
   #|      const tag = `<script data-yunomi-html="${instanceId}">${overlayScript.replaceAll("</script", "<\\\\/script")}</script>`;
   #|      return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, tag + "</body>") : html + tag;
   #|    };
-  #|    const shell = () => `<!doctype html><html data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${htmlEscape(filename)} | yunomi</title><style>:root{--bg:#ffffff;--bg-gradient:linear-gradient(180deg,#ffffff 0%,#f6f8fa 100%);--panel-alpha:rgba(255,255,255,.92);--border:#d0d7de;--text:#24292f;--muted:#57606a;--accent-strong:#0550ae;--accent-soft:rgba(9,105,218,.10);--font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--bg-gradient:linear-gradient(180deg,#0d1117 0%,#161b22 100%);--panel-alpha:rgba(22,27,34,.88);--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent-strong:#58a6ff;--accent-soft:rgba(47,129,247,.16)}}html,body{margin:0;height:100%;display:flex;flex-direction:column;font:14px var(--font);background:var(--bg-gradient);color:var(--text);letter-spacing:0}header{flex-shrink:0;box-sizing:border-box;display:flex;gap:14px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--panel-alpha);backdrop-filter:saturate(140%) blur(18px)}.brand{display:inline-flex;align-items:center;color:var(--accent-strong);font-weight:800;text-decoration:none}.brand-mark{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);font-size:18px}header h1{margin:0;display:flex;flex-direction:column;min-width:0;line-height:1.3;font-size:14px;font-weight:700}header .muted{color:var(--muted);font-size:12px;font-weight:500}iframe{display:block;flex:1;min-height:0;width:100%;border:0;background:#fff}</style></head><body><header><a class="brand" aria-label="yunomi"><span class="brand-mark" aria-hidden="true">??</span></a><h1><span>${htmlEscape(filename)}</span><span class="muted">HTML preview</span></h1></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin allow-popups" src="/__yunomi_html_target"></iframe><script>window.addEventListener("message", event => { if (event.origin !== location.origin || event.data?.type !== "yunomi-html-submit") return; const comments = Array.isArray(event.data.comments) ? event.data.comments : []; const decision = event.data.decision || (comments.length > 0 ? "request_changes" : "approve"); const action = event.data.action || (decision === "approve" ? "final_approve" : "final_request_changes"); fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, decision, summary: event.data.summary || "", comments }) }).then(() => { window.close(); setTimeout(() => location.replace("about:blank"), 400); }); });</script></body></html>`;
+  #|    const shell = () => `<!doctype html><html data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${htmlEscape(filename)} | yunomi</title><style>:root{--bg:#ffffff;--bg-gradient:linear-gradient(180deg,#ffffff 0%,#f6f8fa 100%);--panel-alpha:rgba(255,255,255,.92);--border:#d0d7de;--text:#24292f;--muted:#57606a;--accent-strong:#0550ae;--accent-soft:rgba(9,105,218,.10);--font:'Inter','Hiragino Kaku Gothic ProN','Hiragino Sans',system-ui,-apple-system,sans-serif}@media (prefers-color-scheme:dark){:root{--bg:#0d1117;--bg-gradient:linear-gradient(180deg,#0d1117 0%,#161b22 100%);--panel-alpha:rgba(22,27,34,.88);--border:#30363d;--text:#e6edf3;--muted:#8b949e;--accent-strong:#58a6ff;--accent-soft:rgba(47,129,247,.16)}}html,body{margin:0;height:100%;display:flex;flex-direction:column;font:14px var(--font);background:var(--bg-gradient);color:var(--text);letter-spacing:0}header{flex-shrink:0;box-sizing:border-box;display:flex;gap:14px;align-items:center;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--panel-alpha);backdrop-filter:saturate(140%) blur(18px)}.brand{display:inline-flex;align-items:center;color:var(--accent-strong);font-weight:800;text-decoration:none}.brand-mark{display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--accent-soft);font-size:18px}header h1{margin:0;display:flex;flex-direction:column;min-width:0;line-height:1.3;font-size:14px;font-weight:700}header .muted{color:var(--muted);font-size:12px;font-weight:500}iframe{display:block;flex:1;min-height:0;width:100%;border:0;background:#fff}</style></head><body><header><a class="brand" aria-label="yunomi"><span class="brand-mark" aria-hidden="true">??</span></a><h1><span>${htmlEscape(filename)}</span><span class="muted">HTML preview</span></h1></header><iframe id="yunomi-html-frame" sandbox="allow-scripts allow-same-origin allow-popups" src="/__yunomi_html_target"></iframe><script>window.addEventListener("message", event => { if (event.origin !== location.origin || event.data?.type !== "yunomi-html-submit") return; const comments = Array.isArray(event.data.comments) ? event.data.comments : []; const decision = event.data.decision || (comments.length > 0 ? "request_changes" : "approve"); const action = event.data.action || (decision === "approve" ? "final_approve" : "final_request_changes"); fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, decision, summary: event.data.summary || "", summaryImages: event.data.summaryImages || [], comments }) }).then(() => { window.close(); setTimeout(() => location.replace("about:blank"), 400); }); });</script></body></html>`;
   #|    const sendFile = (res, target) => {
   #|      const ext = path.extname(target);
   #|      res.writeHead(200, { "Content-Type": mime(ext), "Cache-Control": "no-store" });
@@ -873,7 +910,7 @@ extern "js" fn start_html_preview_server(
   #|        req.on("end", () => {
   #|          let payload = {};
   #|          try { payload = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch (e) {}
-  #|          persistReview(JSON.stringify(payload));
+  #|          payload = JSON.parse(persistReview(JSON.stringify(payload)));
   #|          process.stdout.write(toYaml(payload));
   #|          res.writeHead(200, { "Content-Type": "application/json" });
   #|          res.end('{"ok":true}', () => server.close(() => {
@@ -1036,10 +1073,12 @@ extern "js" fn json_with_comment_image_paths(
   json_str : String,
   paths : Array[String],
   attachment_refs : Array[String],
+  summary_refs? : Array[String] = [],
 ) -> String =
-  #|(s, paths, attachmentRefs) => {
+  #|(s, paths, attachmentRefs, summaryRefs) => {
   #|  try {
   #|    const obj = JSON.parse(s || "{}");
+  #|    obj.summaryAttachments = summaryRefs;
   #|    obj.comments = Array.isArray(obj.comments) ? obj.comments : [];
   #|    obj.comments.forEach((comment, index) => {
   #|      const imagePath = Array.isArray(paths) ? String(paths[index] || "") : "";
@@ -1753,6 +1792,8 @@ extern "js" fn js_external_review_submit(
   #|      anchor: { snippet, context_before: before, context_after: after }
   #|    });
   #|  }
+  #|  const attachments = Array.isArray(submit.summaryAttachments) ? submit.summaryAttachments : [];
+  #|  if (current.summary || attachments.length) review.comments.push({ id: `r-${round}`, scope: "round", file: "", line: 0, round, text: current.summary, author: "human", status: "unresolved", replies: [], attachments });
   #|  return JSON.stringify(review, null, 2) + "\n";
   #|}
 
@@ -1940,6 +1981,10 @@ extern "js" fn js_review_mux_submit(
   #|  current.submitted_at = new Date().toISOString();
   #|  current.decision = payloads.some(payload => String(payload.decision || "") === "request_changes") ? "request_changes" : "approve";
   #|  current.summary = ordered.map(name => `${name}: ${String(current.results[name].payload?.summary || "")}`).join("\n");
+  #|  const attachments = payloads.flatMap(payload => Array.isArray(payload.summaryAttachments) ? payload.summaryAttachments : []);
+  #|  if (payloads.some(payload => payload.summary) || attachments.length) {
+  #|    review.comments.push({ id: `r-${round}`, scope: "round", file: "", line: 0, round, text: current.summary, author: "human", status: "unresolved", replies: [], attachments });
+  #|  }
   #|  return finish(current.decision === "approve" ? "complete_approve" : "complete_changes");
   #|}
 
@@ -2030,7 +2075,7 @@ extern "js" fn js_review_mux_history(json : String, file : String) -> String =
   #|    const review = JSON.parse(json || "{}");
   #|    return JSON.stringify((review.rounds || []).flatMap(round => {
   #|      const payload = round?.results?.[file]?.payload;
-  #|      return payload ? [{ round: Number(round.round || 1), summary: String(payload.summary || ""), decision: String(payload.decision || "") }] : [];
+  #|      return payload ? [{ round: Number(round.round || 1), summary: String(payload.summary || ""), summaryAttachments: payload.summaryAttachments || [], decision: String(payload.decision || "") }] : [];
   #|    }));
   #|  } catch (_) { return "[]"; }
   #|}
@@ -2132,11 +2177,12 @@ extern "js" fn js_review_submit_update(
   #|  review.comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const roundNo = Number(current.round || review.rounds.length);
   #|  const summary = String(current.summary || "").trim();
-  #|  if (summary) {
+  #|  const summaryAttachments = Array.isArray(submit.summaryAttachments) ? submit.summaryAttachments : [];
+  #|  if (summary || summaryAttachments.length) {
   #|    const id = `r-${roundNo}`;
   #|    const existingIndex = review.comments.findIndex(c => c && c.id === id);
   #|    if (existingIndex >= 0) review.comments.splice(existingIndex, 1);
-  #|    review.comments.push({ id, scope: "round", file: "", line: 0, round: roundNo, text: summary, author: "human", status: "unresolved", replies: [], attachments: [] });
+  #|    review.comments.push({ id, scope: "round", file: "", line: 0, round: roundNo, text: summary, author: "human", status: "unresolved", replies: [], attachments: summaryAttachments });
   #|  }
   #|  let seq = review.comments.filter(c => Number(c.round) === roundNo && c.scope !== "round").length + 1;
   #|  const lineWindow = (row, before, after) => {
@@ -2233,8 +2279,9 @@ extern "js" fn js_review_send_now_update(
   round : Int,
   target : String,
   value : String,
+  attachment : String,
 ) -> String =
-  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target, value) => {
+  #|(json, file, id, line, col, text, snippet, quote, before, after, round, target, value, attachment) => {
   #|  const review = JSON.parse(json || "{}");
   #|  review.version = review.version || 1;
   #|  review.files = Array.isArray(review.files) && review.files.length ? review.files : [file];
@@ -2260,16 +2307,16 @@ extern "js" fn js_review_send_now_update(
   #|    element_text: String(value || snippet || ""),
   #|    value: String(value || ""),
   #|    target: String(target || ""),
-  #|    attachments: []
+  #|    attachments: attachment ? [attachment] : []
   #|  };
   #|  if (existing) {
   #|    existing.file = existing.file || file;
-  #|    Object.assign(existing, { ...structured, ...existing, attachments: Array.isArray(existing.attachments) ? existing.attachments : structured.attachments });
+  #|    Object.assign(existing, { ...structured, ...existing, attachments: attachment ? [attachment] : (existing.attachments || []) });
   #|    existing.line = Number(line || existing.line || 1);
   #|    existing.round = Number(existing.round || round || 1);
-  #|    existing.text = String(text || existing.text || "");
+  #|    existing.text = String(text || "");
   #|    existing.author = existing.author || "human";
-  #|    existing.status = existing.status || "unresolved";
+  #|    existing.status = "unresolved";
   #|    existing.replies = Array.isArray(existing.replies) ? existing.replies : [];
   #|    existing.anchor = existing.anchor || anchor;
   #|    existing.quote = String(existing.quote || structured.quote || "");
@@ -2303,6 +2350,7 @@ fn update_review_on_send_now(
   target : String,
   selected_quote? : String = "",
   value? : String = "",
+  attachment? : String = "",
 ) -> Unit {
   ensure_review_state(file_path)
   let review_path = review_json_path_for_file(file_path)
@@ -2332,6 +2380,7 @@ fn update_review_on_send_now(
       current_review_round(file_path),
       target,
       value,
+      attachment,
     ),
   )
 }
@@ -4089,3 +4138,37 @@ extern "js" fn js_update_review_json(
   #|  });
   #|  return JSON.stringify(review, null, 2) + "\n";
   #|}
+
+///|
+extern "js" fn overlay_attachment_script() -> String =
+  #|() => `
+  #|      const attachImage = (card) => {
+  #|        const label = document.createElement("label");
+  #|        label.textContent = "Attach image ";
+  #|        const picker = document.createElement("input");
+  #|        picker.type = "file"; picker.accept = "image/*"; picker.setAttribute("aria-label", "Attach image");
+  #|        label.appendChild(picker);
+  #|        const preview = document.createElement("div");
+  #|        preview.className = "yunomi-html-attachment";
+  #|        let image = "";
+  #|        const setImage = (value) => {
+  #|          image = value; preview.replaceChildren();
+  #|          if (!image) return;
+  #|          const img = document.createElement("img"); img.src = image; img.alt = "Attached image"; img.style.maxWidth = "100%";
+  #|          const remove = document.createElement("button"); remove.textContent = "Remove image"; remove.onclick = () => { picker.value = ""; setImage(""); };
+  #|          preview.append(img, remove);
+  #|        };
+  #|        const read = (file) => {
+  #|          if (!file?.type.startsWith("image/")) return;
+  #|          const reader = new FileReader(); reader.onload = () => setImage(String(reader.result)); reader.readAsDataURL(file);
+  #|        };
+  #|        picker.onchange = () => read(picker.files[0]);
+  #|        card.querySelector("textarea").addEventListener("paste", event => {
+  #|          const item = Array.from(event.clipboardData?.items || []).find(item => item.type.startsWith("image/"));
+  #|          if (item) { event.preventDefault(); read(item.getAsFile()); }
+  #|        });
+  #|        card.querySelector("textarea").after(label, preview);
+  #|        card.style.bottom = "12px"; card.style.maxHeight = "100%"; card.style.overflowY = "auto";
+  #|        return () => image;
+  #|      };
+  #|`
