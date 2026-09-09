@@ -5357,5 +5357,6 @@ fn close_video_fullscreen_moonbit(
 ///|
 /// Entry point: auto-init on module load
 fn main {
+  install_draft_storage()
   init_app()
 }

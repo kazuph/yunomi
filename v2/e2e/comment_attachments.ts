@@ -216,6 +216,7 @@ for (const fixture of fixtures) {
       await page.locator('#history-toggle').click();
       await page.locator('.history-entry img').waitFor();
       assert.equal(await page.locator('.history-entry img').evaluate(async (el: HTMLImageElement) => { await el.decode(); return el.naturalWidth; }), 1);
+      await page.locator('#history-panel-close').click();
       console.log('PASS global root / global reply / image-only pending submit / image-only overall submit / reload');
     }
     if (fixture.name === 'text.txt') {
@@ -223,6 +224,13 @@ for (const fixture of fixtures) {
         const chunk = 'x'.repeat(1024 * 1024);
         for (const size of [chunk.length, 1024]) for (let i = 0; ; i++) { try { localStorage.setItem('quota-fixture-' + size + '-' + i, chunk.slice(0, size)); } catch (_) { break; } }
       });
+      const chat = page.locator('#review-loop-panel');
+      await chat.locator('input[type=file]').setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: readFileSync(new URL('../../assets/screenshot-comment-dialog.png', import.meta.url)) });
+      await chat.locator('.review-loop-reply-preview img').waitFor();
+      await page.locator('#yunomi-draft-storage-error').waitFor();
+      await chat.locator('textarea').fill('Reply still sendable when storage is full');
+      await chat.locator('button[type=submit]').click();
+      await chat.getByText('Reply still sendable when storage is full', { exact: true }).waitFor();
       await page.locator('.text-line[data-row="2"]').click();
       {
         const screenshot = readFileSync(new URL('../../assets/screenshot-comment-dialog.png', import.meta.url));

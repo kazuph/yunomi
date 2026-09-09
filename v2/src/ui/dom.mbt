@@ -306,7 +306,7 @@ extern "js" fn apply_comment_reply_event(
   #|    text: String(event.text || "")
   #|  });
   #|  store[id] = list;
-  #|  localStorage.setItem(key, JSON.stringify(store));
+  #|  try { localStorage.setItem(key, JSON.stringify(store)); } catch (_) {}
   #|  const selector = `#comment-list li[data-key="${CSS.escape(id)}"],.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`;
   #|  for (const item of document.querySelectorAll(selector)) {
   #|    const container = item.matches("tr.yunomi-inline-comment") ? item.querySelector("td") : item;
@@ -413,8 +413,8 @@ extern "js" fn ls_set(key : String, value : String) -> Unit =
   #|(key, val) => localStorage.setItem(key, val)
 
 ///|
-extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
-  #|(key, value) => {
+extern "js" fn install_draft_storage() -> Unit =
+  #|() => { window.__yunomiSaveDraftStorage = (key, value) => {
   #|  try { localStorage.setItem(key, value); document.getElementById("yunomi-draft-storage-error")?.remove(); }
   #|  catch (_) {
   #|    if (document.getElementById("yunomi-draft-storage-error")) return;
@@ -422,7 +422,11 @@ extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
   #|    warning.textContent = "Draft could not be saved in this browser. Keep this tab open and send or submit your comments to save them.";
   #|    document.querySelector("header")?.after(warning);
   #|  }
-  #|}
+  #|}; }
+
+///|
+extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
+  #|(key, value) => window.__yunomiSaveDraftStorage(key, value)
 
 ///|
 extern "js" fn ls_remove(key : String) -> Unit =
@@ -945,10 +949,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const saveReplyDraft = (key, text) => {
   #|    if (text) replyDrafts[key] = text;
   #|    else delete replyDrafts[key];
-  #|    try {
-  #|      if (Object.keys(replyDrafts).length > 0) localStorage.setItem(replyDraftStorageKey, JSON.stringify(replyDrafts));
-  #|      else localStorage.removeItem(replyDraftStorageKey);
-  #|    } catch (_) {}
+  #|    if (Object.keys(replyDrafts).length > 0) window.__yunomiSaveDraftStorage(replyDraftStorageKey, JSON.stringify(replyDrafts));
+  #|    else localStorage.removeItem(replyDraftStorageKey);
   #|  };
   #|  panel.querySelectorAll(".review-loop-reply-form").forEach(form => {
   #|    const editor = form.querySelector("textarea, input[type='text']");
