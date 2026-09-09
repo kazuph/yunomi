@@ -56,7 +56,8 @@ for (const fixture of fixtures) {
     const read = (data: Buffer) => { output += data; const match = output.match(fixture.name === "live" ? /at (http:\/\/127\.0\.0\.1:\d+)/ : /(http:\/\/127\.0\.0\.1:\d+)/); if (match) { clearTimeout(timeout); resolve(match[1]); } };
     server.stdout!.on('data', read); server.stderr!.on('data', read);
   });
-  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  const context = await browser.newContext({ viewport: { width: 1100, height: 900 } });
+  const page = await context.newPage();
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   try {
     const url = await ready;
@@ -81,9 +82,13 @@ for (const fixture of fixtures) {
       const submit = frame.locator(live ? '#yunomi-live-card' : '#yunomi-html-submit-card');
       await submit.locator('input[type=file]').setInputFiles(file);
       await submit.locator('.yunomi-html-attachment img').waitFor();
+      const storageObserver = await page.context().newPage();
+      await storageObserver.goto(url);
       const response = page.waitForResponse(r => new URL(r.url()).pathname === '/exit');
       await submit.locator(live ? '[data-yunomi-save]' : '[data-yunomi-submit]').click();
       assert.equal((await response).ok(), true);
+      await storageObserver.waitForFunction(key => localStorage.getItem(key) === null, (live ? 'yunomi:live-comments:' + liveUrl : 'yunomi:html-comments:' + path));
+      await storageObserver.close();
       const saved = JSON.parse(readFileSync(join(state, 'review.json'), 'utf8'));
       for (const comment of saved.comments) {
         assert.equal(comment.attachments.length, 1);
@@ -150,6 +155,20 @@ for (const fixture of fixtures) {
     await imageLoaded(reply.locator('img'));
     await page.reload();
     await imageLoaded(reply.locator('img'));
+    if (fixture.name === 'paragraph.md') {
+      await page.getByRole('button', { name: 'Resolve conversation', exact: true }).click();
+      await thread.waitFor({ state: 'hidden' });
+      await page.locator(fixture.target).first().click();
+      await page.locator('#comment-input').fill('Image removed on resend');
+      await page.locator('#comment-image-preview button').click();
+      const resend = page.waitForResponse(r => new URL(r.url()).pathname === '/comment');
+      await page.locator('#send-now-comment').click();
+      await resend;
+      await page.reload();
+      await page.getByText('Image removed on resend', { exact: true }).waitFor();
+      assert.equal(await bubble.locator('img').count(), 0);
+      assert.deepEqual(JSON.parse(readFileSync(join(state, 'review.json'), 'utf8')).comments.find((c: any) => c.id === root.id).attachments, []);
+    }
     if (fixture.name === 'text.txt') {
       const chat = page.locator('#review-loop-panel');
       for (const text of ['Global root image', 'Global reply image']) {
@@ -195,7 +214,7 @@ for (const fixture of fixtures) {
     await page.screenshot({ path: join(dir, fixture.name + '.png'), fullPage: true });
     assert.deepEqual(errors, []);
     console.log('PASS draft / send-now image-only / reply / reload / file bytes / bubble bounds: ' + fixture.name);
-  } catch (error) { writeFileSync(join(dir, fixture.name + '-failure.html'), await page.content()); console.error('Evidence: ' + dir, errors); throw error; } finally { await page.close(); server.kill('SIGTERM'); }
+  } catch (error) { writeFileSync(join(dir, fixture.name + '-failure.html'), await page.content()); console.error('Evidence: ' + dir, errors); throw error; } finally { await context.close(); server.kill('SIGTERM'); }
 }
 } finally { await browser.close(); await new Promise<void>(resolve => liveTarget.close(() => resolve())); }
 console.log('Evidence: ' + dir);
