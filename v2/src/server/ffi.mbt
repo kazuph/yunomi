@@ -435,7 +435,7 @@ extern "js" fn start_live_proxy(
   #|      if (window.__yunomiLiveInstalled) return;
   #|      window.__yunomiLiveInstalled = true;
   #|      const draftKey = "yunomi:live-comments:" + ${JSON.stringify(targetUrl)};
-  #|      const comments = JSON.parse(localStorage.getItem(draftKey) || "[]");
+  #|      let comments; try { comments = JSON.parse(localStorage.getItem(draftKey) || "[]"); } catch (_) { comments = []; }
   #|      ${attachmentUi}
   #|      let enabled = true;
   #|      let active = null;
@@ -491,6 +491,8 @@ extern "js" fn start_live_proxy(
   #|        return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), viewportWidth: innerWidth, viewportHeight: innerHeight };
   #|      };
   #|      const updateCount = () => { document.getElementById("yunomi-live-count").textContent = String(comments.length); };
+  #|      updateCount();
+  #|      for (const comment of comments) document.querySelector(comment.selector)?.classList.add("yunomi-live-pin");
   #|      const closeCard = () => document.getElementById("yunomi-live-card")?.remove();
   #|      document.addEventListener("mouseover", (event) => {
   #|        if (!enabled || isUi(event.target)) return;
@@ -529,7 +531,7 @@ extern "js" fn start_live_proxy(
   #|          if (!text && !image()) return;
   #|          comments.push({ row: 0, col: 0, text, image: image(), selector, value: elementText(el), screenshot: "", bounds: boundsFor(el) });
   #|          el.classList.add("yunomi-live-pin");
-  #|          localStorage.setItem(draftKey, JSON.stringify(comments));
+  #|          saveOverlayDraft();
   #|          updateCount();
   #|          closeCard();
   #|        };
@@ -741,7 +743,7 @@ extern "js" fn start_html_preview_server(
   #|      };
   #|      document.querySelectorAll("a[href]").forEach(externalizeLink);
   #|      const draftKey = "yunomi:html-comments:" + ${JSON.stringify(resolvedFile)};
-  #|      const comments = JSON.parse(localStorage.getItem(draftKey) || "[]");
+  #|      let comments; try { comments = JSON.parse(localStorage.getItem(draftKey) || "[]"); } catch (_) { comments = []; }
   #|      let enabled = true;
   #|      let active = null;
   #|      const style = document.createElement("style");
@@ -766,7 +768,7 @@ extern "js" fn start_html_preview_server(
   #|      bar.innerHTML = '<strong>🝵 yunomi html</strong><span id="yunomi-html-count">0</span><button id="yunomi-html-toggle">Comment mode</button><button id="yunomi-html-submit">Submit &amp; Exit</button>';
   #|      document.documentElement.appendChild(bar);
   #|      const publishComments = () => {
-  #|        localStorage.setItem(draftKey, JSON.stringify(comments));
+  #|        saveOverlayDraft();
   #|        if (window.parent !== window) window.parent.postMessage({ type: "yunomi-html-comments", comments }, location.origin);
   #|      };
   #|      const isUi = (el) => !!el.closest?.("#yunomi-html-bar,#yunomi-html-card,#yunomi-html-submit-card");
@@ -797,6 +799,8 @@ extern "js" fn start_html_preview_server(
   #|        return { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height), viewportWidth: innerWidth, viewportHeight: innerHeight };
   #|      };
   #|      const updateCount = () => { document.getElementById("yunomi-html-count").textContent = String(comments.length); };
+  #|      updateCount();
+  #|      for (const comment of comments) document.querySelector(comment.selector)?.classList.add("yunomi-html-pin");
   #|      const closeCard = () => document.getElementById("yunomi-html-card")?.remove();
   #|      const closeSubmitCard = () => document.getElementById("yunomi-html-submit-card")?.remove();
   #|      ${attachmentUi}
@@ -1795,7 +1799,10 @@ extern "js" fn js_external_review_submit(
   #|    });
   #|  }
   #|  const attachments = Array.isArray(submit.summaryAttachments) ? submit.summaryAttachments : [];
-  #|  if (current.summary || attachments.length) review.comments.push({ id: `r-${round}`, scope: "round", file: "", line: 0, round, text: current.summary, author: "human", status: "unresolved", replies: [], attachments });
+  #|  if (current.summary || attachments.length) {
+  #|    review.comments = review.comments.filter(comment => comment.id !== `r-${round}`);
+  #|    review.comments.push({ id: `r-${round}`, scope: "round", file: "", line: 0, round, text: current.summary, author: "human", status: "unresolved", replies: [], attachments });
+  #|  }
   #|  return JSON.stringify(review, null, 2) + "\n";
   #|}
 
@@ -4144,6 +4151,15 @@ extern "js" fn js_update_review_json(
 ///|
 extern "js" fn overlay_attachment_script() -> String =
   #|() => `
+  #|      const saveOverlayDraft = () => {
+  #|        try { localStorage.setItem(draftKey, JSON.stringify(comments)); document.getElementById("yunomi-draft-storage-error")?.remove(); }
+  #|        catch (_) {
+  #|          if (document.getElementById("yunomi-draft-storage-error")) return;
+  #|          const warning = document.createElement("p"); warning.id = "yunomi-draft-storage-error"; warning.setAttribute("role", "alert");
+  #|          warning.textContent = "Draft could not be saved in this browser. Keep this tab open and submit your comments to save them.";
+  #|          document.querySelector("#yunomi-html-bar,#yunomi-live-bar")?.appendChild(warning);
+  #|        }
+  #|      };
   #|      const attachImage = (card) => {
   #|        const label = document.createElement("label");
   #|        label.textContent = "Attach image ";
@@ -4174,3 +4190,13 @@ extern "js" fn overlay_attachment_script() -> String =
   #|        return () => image;
   #|      };
   #|`
+
+///|
+extern "js" fn absolute_external_attachments(body : String, directory : String) -> String =
+  #|(body, directory) => {
+  #|  const data = JSON.parse(body);
+  #|  const absolute = ref => String(ref).startsWith("./comment-attachments/") ? directory + "/" + ref : ref;
+  #|  for (const comment of data.comments || []) comment.attachments = (comment.attachments || []).map(absolute);
+  #|  data.summaryAttachments = (data.summaryAttachments || []).map(absolute);
+  #|  return JSON.stringify(data);
+  #|}

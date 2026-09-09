@@ -2176,7 +2176,7 @@ fn persist_draft() -> Unit {
   buf.write_string(",\"timestamp\":")
   buf.write_string(date_now_string())
   buf.write_char('}')
-  ls_set(key, buf.to_string())
+  save_draft_storage(key, buf.to_string())
 }
 
 ///|

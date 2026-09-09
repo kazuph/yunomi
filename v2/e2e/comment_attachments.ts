@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Locator } from 'playwright';
@@ -13,7 +13,7 @@ writeFileSync(join(dir, 'demo.mp4'), readFileSync(new URL('../../assets/demo.mp4
 const file = { name: 'attachment.png', mimeType: 'image/png', buffer: png };
 const fixtures = [
   { name: 'element.html', text: '<!doctype html><html><body><button id="target">Target</button></body></html>', target: '#target' },
-  { name: 'text.txt', text: 'First line\nSecond line\n', target: '.text-line[data-row="0"]' },
+  { name: 'text.txt', text: 'First line\nSecond line\nThird line\n', target: '.text-line[data-row="0"]' },
   { name: 'table.csv', text: 'left,right\none,two\n', target: 'tbody td[data-row][data-col]' },
   { name: 'table.tsv', text: 'left\tright\none\ttwo\n', target: 'tbody td[data-row][data-col]' },
   { name: 'change.diff', text: 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+new\n', target: '.diff-line[data-row]' },
@@ -43,6 +43,10 @@ try {
 for (const fixture of fixtures) {
   const path = join(dir, fixture.name), state = join(dir, fixture.name + '-state');
   writeFileSync(path, fixture.text);
+  if (fixture.name === 'element.html' || fixture.name === 'live') {
+    mkdirSync(state, { recursive: true });
+    writeFileSync(join(state, 'review.json'), JSON.stringify({ version: 1, files: [], rounds: [{ round: 1, submitted_at: null }], comments: [{ id: 'r-1', scope: 'round', round: 1, text: 'Earlier overall comment', status: 'unresolved', replies: [], attachments: [] }] }));
+  }
   const probe = createServer();
   await new Promise<void>(resolve => probe.listen(0, '127.0.0.1', resolve));
   const port = (probe.address() as { port: number }).port;
@@ -95,6 +99,8 @@ for (const fixture of fixtures) {
         assert.deepEqual(readFileSync(join(state, comment.attachments[0])), png);
       }
       assert.equal(saved.comments.length, 2);
+      assert.ok(output.includes(state + '/./comment-attachments/'));
+      assert.equal(new Set(saved.comments.map((c: any) => c.id)).size, saved.comments.length);
       console.log(fixture.name + ': PASS element attachment / saved bubble / reload / overall attachment / saved file bytes');
       assert.deepEqual(errors, []);
       continue;
@@ -139,6 +145,7 @@ for (const fixture of fixtures) {
       await page.locator('#send-now-comment').click();
       await imageLoaded(bubble.locator('img'));
       assert.equal(await bubble.textContent(), 'Resent after resolving');
+      assert.notEqual(JSON.parse(readFileSync(join(state, 'review.json'), 'utf8')).comments.find((c: any) => c.id === root.id).attachments[0], root.attachments[0]);
       await page.reload();
       await imageLoaded(bubble.locator('img'));
       assert.equal(await bubble.locator('.yunomi-comment-button').count(), 0);
@@ -210,6 +217,22 @@ for (const fixture of fixtures) {
       await page.locator('.history-entry img').waitFor();
       assert.equal(await page.locator('.history-entry img').evaluate(async (el: HTMLImageElement) => { await el.decode(); return el.naturalWidth; }), 1);
       console.log('PASS global root / global reply / image-only pending submit / image-only overall submit / reload');
+    }
+    if (fixture.name === 'text.txt') {
+      await page.evaluate(() => {
+        const chunk = 'x'.repeat(1024 * 1024);
+        for (const size of [chunk.length, 1024]) for (let i = 0; ; i++) { try { localStorage.setItem('quota-fixture-' + size + '-' + i, chunk.slice(0, size)); } catch (_) { break; } }
+      });
+      await page.locator('.text-line[data-row="2"]').click();
+      {
+        const screenshot = readFileSync(new URL('../../assets/screenshot-comment-dialog.png', import.meta.url));
+        await editor.locator('input[type=file]').setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: screenshot });
+        await editor.locator('#comment-image-preview img').waitFor();
+        await page.locator('#yunomi-draft-storage-error').waitFor();
+        await page.locator('#comment-input').fill('Still sendable when storage is full');
+        await page.locator('#send-now-comment').click();
+        await page.getByText('Still sendable when storage is full', { exact: true }).waitFor();
+      }
     }
     await page.screenshot({ path: join(dir, fixture.name + '.png'), fullPage: true });
     assert.deepEqual(errors, []);

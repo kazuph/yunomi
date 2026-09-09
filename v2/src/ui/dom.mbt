@@ -413,6 +413,18 @@ extern "js" fn ls_set(key : String, value : String) -> Unit =
   #|(key, val) => localStorage.setItem(key, val)
 
 ///|
+extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
+  #|(key, value) => {
+  #|  try { localStorage.setItem(key, value); document.getElementById("yunomi-draft-storage-error")?.remove(); }
+  #|  catch (_) {
+  #|    if (document.getElementById("yunomi-draft-storage-error")) return;
+  #|    const warning = document.createElement("div"); warning.id = "yunomi-draft-storage-error"; warning.setAttribute("role", "alert");
+  #|    warning.textContent = "Draft could not be saved in this browser. Keep this tab open and send or submit your comments to save them.";
+  #|    document.querySelector("header")?.after(warning);
+  #|  }
+  #|}
+
+///|
 extern "js" fn ls_remove(key : String) -> Unit =
   #|(key) => localStorage.removeItem(key)
 

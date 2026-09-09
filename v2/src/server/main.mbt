@@ -516,7 +516,7 @@ fn main {
       fn(body) {
         let saved = external_review_images(review_json_path_for_cwd(), body)
         persist_external_review(review_json_path_for_cwd(), args[1], saved)
-        saved
+        absolute_external_attachments(saved, path_dirname(review_json_path_for_cwd()))
       },
     )
     return
@@ -2296,7 +2296,7 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
           review_display_file(ctx.file_path),
           saved,
         )
-        saved
+        absolute_external_attachments(saved, path_dirname(review_json_path_for_file(ctx.file_path)))
       },
     )
     return
@@ -3761,7 +3761,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   let has_image = json_parse_string("hasImage", body)
   let image = json_parse_string("image", body)
   let attachment = if event_type == "send-now" && ctx.file_path != "<stdin>" && image.length() > 0 {
-    save_comment_image(ctx, safe_attachment_name_component(key) + "-root." + extract_base64_ext(image), image)
+    save_comment_image(ctx, safe_attachment_name_component(key) + "-root-" + gen_instance_id() + "." + extract_base64_ext(image), image)
   } else { "" }
   let target = json_parse_string("target", body)
   let source_quote = comment_quote_for_row(ctx, line)
