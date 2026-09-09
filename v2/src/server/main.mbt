@@ -511,9 +511,12 @@ fn main {
       bind_host.val,
       no_open,
       server_instance_id.val,
+      overlay_attachment_script(),
       open_browser,
       fn(body) {
-        persist_external_review(review_json_path_for_cwd(), args[1], body)
+        let saved = external_review_images(review_json_path_for_cwd(), body)
+        persist_external_review(review_json_path_for_cwd(), args[1], saved)
+        absolute_external_attachments(saved, path_dirname(review_json_path_for_cwd()))
       },
     )
     return
@@ -2273,6 +2276,7 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
       bind_host.val,
       no_open,
       server_instance_id.val,
+      overlay_attachment_script(),
       max_port_attempts,
       open_browser,
       fn(bound_port) {
@@ -2286,11 +2290,13 @@ fn start_file_server(file_path : String, port : Int, no_open : Bool) -> Unit {
         js_remove_file_lock(lock_dir(), ctx.file_path)
       },
       fn(body) {
+        let saved = external_review_images(review_json_path_for_file(ctx.file_path), body)
         persist_external_review(
           review_json_path_for_file(ctx.file_path),
           review_display_file(ctx.file_path),
-          body,
+          saved,
         )
+        absolute_external_attachments(saved, path_dirname(review_json_path_for_file(ctx.file_path)))
       },
     )
     return
@@ -2916,8 +2922,19 @@ fn save_conversation_image(
     (review_comment_reply_count(read_file_safe(review_path), id) + 1).to_string() +
     "." +
     ext
+  save_comment_image(ctx, attachment_name, image)
+}
+
+///|
+fn save_comment_image(ctx : ServerContext, attachment_name : String, image : String) -> String {
+  save_review_image(review_dir_for_file(ctx.file_path), attachment_name, image)
+}
+
+///|
+fn save_review_image(review_dir : String, attachment_name : String, image : String) -> String {
+  let ext = extract_base64_ext(image)
   let attachment_dir = path_join(
-    review_dir_for_file(ctx.file_path),
+    review_dir,
     "comment-attachments",
   )
   if ext.length() > 0 &&
@@ -3742,6 +3759,10 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     buf.write_string(json_encode_value(author))
   }
   let has_image = json_parse_string("hasImage", body)
+  let image = json_parse_string("image", body)
+  let attachment = if event_type == "send-now" && ctx.file_path != "<stdin>" && image.length() > 0 {
+    save_comment_image(ctx, safe_attachment_name_component(key) + "-root-" + gen_instance_id() + "." + extract_base64_ext(image), image)
+  } else { "" }
   let target = json_parse_string("target", body)
   let source_quote = comment_quote_for_row(ctx, line)
   let selected_quote = json_parse_string("quote", body)
@@ -3763,7 +3784,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
   }
   buf.write_string("}")
   append_live_log(buf.to_string())
-  if text.length() > 0 && event_type == "send-now" && ctx.file_path != "<stdin>" {
+  if (text.length() > 0 || attachment.length() > 0) && event_type == "send-now" && ctx.file_path != "<stdin>" {
     let id = if key.length() > 0 { key } else { "draft" }
     update_review_on_send_now(
       ctx.file_path,
@@ -3774,6 +3795,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       target,
       selected_quote=json_parse_string("quote", body),
       value=json_parse_string("value", body),
+      attachment~,
     )
   }
   if text.length() > 0 && event_type == "comment" && ctx.file_path != "<stdin>" {
@@ -3781,7 +3803,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     let writer = if author.length() > 0 { author } else { "agent" }
     update_review_on_cli_comment(ctx.file_path, key, line, text, writer)
   }
-  if text.length() > 0 && event_type != "delete" {
+  if (text.length() > 0 || attachment.length() > 0) && event_type != "delete" {
     let round = if ctx.file_path == "<stdin>" {
       1
     } else {
@@ -3811,6 +3833,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       quote_line +
       "\nhuman: " +
       @core.expand_notify_escapes(text) +
+      (if attachment.length() > 0 { "\nattachment: " + path_join(review_dir_for_file(ctx.file_path), attachment) } else { "" }) +
       "\nurl=" +
       review_url(ctx),
     )
@@ -3896,6 +3919,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   // Save summary images
   let images = json_parse_images(body)
   let summary_image_paths : Array[String] = []
+  let summary_attachment_refs : Array[String] = []
   if server_instance_id.val.length() == 0 {
     server_instance_id.val = gen_instance_id()
   }
@@ -3913,6 +3937,10 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
         let path = base64_to_named_file(img, output_dir, filename)
         if path.length() > 0 {
           summary_image_paths.push(path)
+          if ctx.file_path != "<stdin>" {
+            let ref = save_comment_image(ctx, filename, img)
+            if ref.length() > 0 { summary_attachment_refs.push(ref) }
+          }
         }
       }
     }
@@ -4064,7 +4092,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   }
   if review_mux_mode.val && ctx.file_path != "<stdin>" {
     let persisted_body = json_with_comment_image_paths(
-      body, comment_image_paths, comment_attachment_refs,
+      body, comment_image_paths, comment_attachment_refs, summary_refs=summary_attachment_refs,
     )
     let status = review_mux_submit(
       ctx.file_path,
@@ -4126,7 +4154,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     update_review_on_submit(
       ctx.file_path,
       json_with_comment_image_paths(
-        body, comment_image_paths, comment_attachment_refs,
+        body, comment_image_paths, comment_attachment_refs, summary_refs=summary_attachment_refs,
       ),
       source_lines,
       current_round,
@@ -4147,7 +4175,12 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     entry_buf.write_string(@core.escape_js_string(decision_str))
     entry_buf.write_string("\",\"roundCount\":")
     entry_buf.write_string(current_round.to_string())
-    entry_buf.write_string("}")
+    entry_buf.write_string(",\"summaryAttachments\":[")
+    for i, ref in summary_attachment_refs {
+      if i > 0 { entry_buf.write_char(',') }
+      entry_buf.write_string(json_encode_value(ref))
+    }
+    entry_buf.write_string("]}")
     save_history(ctx.file_path, entry_buf.to_string())
   }
   console_log(
@@ -4437,4 +4470,18 @@ fn handle_video_timeline(
     res_end(res, "")
     rm_dir_recursive(tmp_dir)
   })
+}
+
+///|
+fn external_review_images(review_path : String, body : String) -> String {
+  let directory = path_dirname(review_path)
+  let refs = json_parse_comments(body).map(fn(c) {
+    if c.length() > 4 && c[4].length() > 0 {
+      save_review_image(directory, gen_instance_id() + "." + extract_base64_ext(c[4]), c[4])
+    } else { "" }
+  })
+  let summary_refs = json_parse_images(body).map(fn(img) {
+    save_review_image(directory, gen_instance_id() + "." + extract_base64_ext(img), img)
+  })
+  json_with_comment_image_paths(body, [], refs, summary_refs~)
 }

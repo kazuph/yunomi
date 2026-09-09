@@ -306,7 +306,7 @@ extern "js" fn apply_comment_reply_event(
   #|    text: String(event.text || "")
   #|  });
   #|  store[id] = list;
-  #|  localStorage.setItem(key, JSON.stringify(store));
+  #|  try { localStorage.setItem(key, JSON.stringify(store)); } catch (_) {}
   #|  const selector = `#comment-list li[data-key="${CSS.escape(id)}"],.yunomi-inline-comment[data-comment-key="${CSS.escape(id)}"]`;
   #|  for (const item of document.querySelectorAll(selector)) {
   #|    const container = item.matches("tr.yunomi-inline-comment") ? item.querySelector("td") : item;
@@ -413,6 +413,22 @@ extern "js" fn ls_set(key : String, value : String) -> Unit =
   #|(key, val) => localStorage.setItem(key, val)
 
 ///|
+extern "js" fn install_draft_storage() -> Unit =
+  #|() => { window.__yunomiSaveDraftStorage = (key, value) => {
+  #|  try { localStorage.setItem(key, value); document.getElementById("yunomi-draft-storage-error")?.remove(); }
+  #|  catch (_) {
+  #|    if (document.getElementById("yunomi-draft-storage-error")) return;
+  #|    const warning = document.createElement("div"); warning.id = "yunomi-draft-storage-error"; warning.setAttribute("role", "alert");
+  #|    warning.textContent = "Draft could not be saved in this browser. Keep this tab open and send or submit your comments to save them.";
+  #|    document.querySelector("header")?.after(warning);
+  #|  }
+  #|}; }
+
+///|
+extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
+  #|(key, value) => window.__yunomiSaveDraftStorage(key, value)
+
+///|
 extern "js" fn ls_remove(key : String) -> Unit =
   #|(key) => localStorage.removeItem(key)
 
@@ -513,7 +529,7 @@ extern "js" fn parse_stored_comments(json : String) -> Array[Array[String]] =
   #|    const data = JSON.parse(json);
   #|    const comments = data.comments;
   #|    if (!comments || typeof comments !== "object") return [];
-  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false), String(v.surface || "preview"), String(v.quote || "")]);
+  #|    return Object.entries(comments).map(([k, v]) => [k, String(v.row||0), String(v.col||0), v.text||"", v.value||"", String(v.pending === true), String(v.sent !== false), String(v.surface || "preview"), String(v.quote || ""), String(v.image || "")]);
   #|  } catch(e) { return []; }
   #|}
 
@@ -589,7 +605,7 @@ extern "js" fn resolve_restored_comment_target(
   #|    const rect = element.getBoundingClientRect();
   #|    return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
   #|  };
-  #|  const sourceSelector = `td[data-row="${row}"][data-col="${col > 0 ? col : 1}"]:not(#md-preview *),.text-line[data-row="${row}"],.diff-line[data-row="${row}"]`;
+  #|  const sourceSelector = `td[data-row="${row}"][data-col="${["csv", "tsv"].includes(window.__YUNOMI_MODE__) ? col : (col > 0 ? col : 1)}"]:not(#md-preview *),.text-line[data-row="${row}"],.diff-line[data-row="${row}"]`;
   #|  if (surface === "source") {
   #|    const source = document.querySelector(sourceSelector);
   #|    return visible(source) ? source : null;
@@ -933,10 +949,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const saveReplyDraft = (key, text) => {
   #|    if (text) replyDrafts[key] = text;
   #|    else delete replyDrafts[key];
-  #|    try {
-  #|      if (Object.keys(replyDrafts).length > 0) localStorage.setItem(replyDraftStorageKey, JSON.stringify(replyDrafts));
-  #|      else localStorage.removeItem(replyDraftStorageKey);
-  #|    } catch (_) {}
+  #|    if (Object.keys(replyDrafts).length > 0) window.__yunomiSaveDraftStorage(replyDraftStorageKey, JSON.stringify(replyDrafts));
+  #|    else localStorage.removeItem(replyDraftStorageKey);
   #|  };
   #|  panel.querySelectorAll(".review-loop-reply-form").forEach(form => {
   #|    const editor = form.querySelector("textarea, input[type='text']");
@@ -1085,7 +1099,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const file = String(c.file || "");
   #|    const snippet = norm(quoteFor(c));
   #|    const visibleCandidates = (items) => Array.from(items).filter(el => {
-  #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) return false;
+  #|      if (el.closest("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment,.review-loop-inline")) return false;
   #|      const rect = el.getBoundingClientRect();
   #|      const style = getComputedStyle(el);
   #|      return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
@@ -1113,6 +1127,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const target = mostSpecific(document.querySelectorAll(selector));
   #|        if (target) return target;
   #|      }
+  #|      const sourceTarget = mostSpecific(document.querySelectorAll(`td[data-row="${row}"][data-col="${col}"], .text-line[data-row="${row}"], .diff-line[data-row="${row}"]`));
+  #|      if (sourceTarget) return sourceTarget;
   #|      if (col === 0) {
   #|        const target = mostSpecific(Array.from(document.querySelectorAll("#md-preview [data-source-start-line][data-source-end-line]")).filter(element => {
   #|          const start = Number(element.getAttribute("data-source-start-line"));
@@ -1177,9 +1193,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      const draftKey = globalChat ? "global-timeline" : `${endpoint}:${threadId}`;
   #|      if (editor) editor.value = String(replyDrafts[draftKey] || "");
   #|      editor?.addEventListener("input", () => saveReplyDraft(draftKey, String(editor.value || "")));
-  #|      let image = "";
+  #|      let image = String(replyDrafts[draftKey + ":image"] || "");
   #|      let submitting = false;
   #|      const renderPreview = () => {
+  #|        saveReplyDraft(draftKey + ":image", image);
   #|        if (!preview) return;
   #|        preview.innerHTML = image ? `<div><img src="${esc(image)}" alt="${esc(t.attachedImage)}" /><button type="button" class="review-loop-reply-remove">${esc(t.removeImage)}</button></div>` : "";
   #|        preview.querySelector(".review-loop-reply-remove")?.addEventListener("click", () => {
@@ -1188,6 +1205,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|          renderPreview();
   #|        });
   #|      };
+  #|      renderPreview();
   #|      const readImage = (file) => {
   #|        if (!file || !String(file.type || "").startsWith("image/")) return;
   #|        const reader = new FileReader();
@@ -1582,7 +1600,7 @@ extern "js" fn render_inline_saved_comment(
   #|  const md = (window.__yunomiFormatChatMarkdown || ((s) => esc(s)))(text);
   #|  const quoteText = selectedQuote || (imageAlt ? `画像「${imageAlt}」` : (tableText || String(value || "").split(" | source:")[0].trim()));
   #|  const quote = quoteText ? `<div class="review-loop-quote yunomi-inline-comment-context">${esc(quoteText)}</div>` : "";
-  #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div>${quote}<div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}</div></div>${image ? `<img class="yunomi-inline-comment-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div>`;
+  #|  const body = `<div class="yunomi-inline-comment-view" role="button" tabindex="0" title="Edit comment" aria-label="Edit comment"><div class="review-loop-comment-head"><span class="review-loop-status-dot" aria-hidden="true"></span><strong class="yunomi-inline-comment-label">${esc(label)}</strong>${badge}</div>${quote}<div class="review-loop-thread"><div class="review-loop-thread-line is-human yunomi-inline-comment-text">${md}${image ? `<img class="yunomi-inline-comment-image review-loop-conversation-image" src="${esc(image)}" alt="Attached comment image" />` : ""}</div></div></div>`;
   #|  const insert = (target, surface) => {
   #|    if (!target || !target.parentElement) return;
   #|    let holder;
@@ -1833,10 +1851,10 @@ extern "js" fn get_active_element() -> Element =
 extern "js" fn comment_target_description(target : Element) -> String =
   #|(target) => {
   #|  if (!target) return "";
-  #|  const image = target.matches?.("img:not(.timeline-thumb)")
+  #|  const image = target.matches?.("img:not(.timeline-thumb):not(.yunomi-inline-comment img):not(.review-loop-inline img)")
   #|    ? target
-  #|    : target.querySelector?.("img:not(.timeline-thumb)")
-  #|      || target.closest?.(".yunomi-media-comment-host")?.querySelector("img:not(.timeline-thumb)");
+  #|    : target.querySelector?.("img:not(.timeline-thumb):not(.yunomi-inline-comment img):not(.review-loop-inline img)")
+  #|      || target.closest?.(".yunomi-media-comment-host")?.querySelector("img:not(.timeline-thumb):not(.yunomi-inline-comment img):not(.review-loop-inline img)");
   #|  if (image) return `image (alt="${image.getAttribute("alt") || ""}" src="${image.getAttribute("src") || ""}")`;
   #|  const video = target.matches?.("video.video-preview")
   #|    ? target
@@ -2278,7 +2296,7 @@ extern "js" fn _children_count(el : Element) -> Int =
 extern "js" fn normalize_preview_commentable(el : Element) -> Element =
   #|(el) => {
   #|  if (!el) return null;
-  #|  if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) return null;
+  #|  if (el.closest?.("#review-loop-panel,.yunomi-inline-comment,.review-loop-inline")) return null;
   #|  if (el.classList?.contains("yunomi-comment-button") || el.classList?.contains("yunomi-copy-button")) {
   #|    el = el.__yunomiCommentTarget || el.parentElement;
   #|  }
@@ -2322,7 +2340,7 @@ extern "js" fn get_preview_comment_targets() -> Array[Element] =
   #|  for (const raw of preview.querySelectorAll(selector)) {
   #|    const el = raw.closest(".timeline-thumb-wrapper") || raw;
   #|    if (el.matches?.("ul,ol")) continue;
-  #|    if (el.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
+  #|    if (el.closest?.("#review-loop-panel,.yunomi-inline-comment,.review-loop-inline")) continue;
   #|    if (el.matches?.("img.timeline-thumb")) continue;
   #|    if (el.closest?.(".yunomi-comment-button,.yunomi-copy-button")) continue;
   #|    if (el.closest?.(".video-timeline") && !el.classList?.contains("timeline-thumb-wrapper")) continue;
@@ -2515,7 +2533,7 @@ extern "js" fn install_preview_comment_buttons(
   #|    const seen = new Set();
   #|    for (const raw of preview.querySelectorAll(selector)) {
   #|      const target = raw.closest(".timeline-thumb-wrapper") || raw;
-  #|      if (target.closest?.("#review-loop-panel,.yunomi-inline-comment")) continue;
+  #|      if (target.closest?.("#review-loop-panel,.yunomi-inline-comment,.review-loop-inline")) continue;
   #|      if (target.closest?.(".video-timeline") && !target.classList?.contains("timeline-thumb-wrapper")) continue;
   #|      if (seen.has(target)) continue;
   #|      seen.add(target);
@@ -2896,7 +2914,7 @@ extern "js" fn setup_vim_review_keyboard(filename : String) -> Unit =
   #|    const out = [];
   #|    for (const raw of document.querySelectorAll(selectors)) {
   #|      const el = raw.closest(".timeline-thumb-wrapper") || raw;
-  #|      if (el.closest?.("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment")) continue;
+  #|      if (el.closest?.("#review-loop-panel,.comment-list,.modal-overlay,.yunomi-inline-comment,.review-loop-inline")) continue;
   #|      if (el.matches?.("td[data-row]") && el.closest?.("#md-preview")) continue;
   #|      if (seen.has(el) || !visible(el)) continue;
   #|      seen.add(el);
@@ -3193,3 +3211,15 @@ extern "js" fn new_selection_comment_id() -> String =
 ///|
 extern "js" fn parse_json_string_field(json : String, field : String) -> String =
   #|(json, field) => { try { return String(JSON.parse(json)[field] || ""); } catch { return ""; } }
+
+///|
+extern "js" fn parse_summary_images(json : String) -> Array[String] =
+  #|(json) => { try { const images = JSON.parse(json).summaryImages; return Array.isArray(images) ? images.map(String) : []; } catch (_) { return []; } }
+
+///|
+extern "js" fn history_attachment_html(json : String) -> String =
+  #|(json) => {
+  #|  const entry = JSON.parse(json);
+  #|  const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
+  #|  return (entry.summaryAttachments || []).map(ref => `<img class="review-loop-conversation-image" alt="Attached image" src="${esc(ref)}" />`).join("");
+  #|}
