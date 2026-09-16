@@ -1,6 +1,6 @@
 {
   "name": "yunomi-plugin",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "yunomi development workflow: do, done, and bucho skills with code/security, E2E, UI/UX, and evidence review agents. Preserve existing functionality while carrying requested changes through verification and human approval. Supports web, backend, and mobile projects.",
   "author": {
     "name": "kazuph",

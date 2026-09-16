@@ -22,20 +22,19 @@ E2Eテストの健全性と整合性を総合的にレビューする専門エ�
 - レコード変化アサーションの有無確認
 - 待機戦略の検証
 - **ユーザー修正依頼との整合性チェック（CRITICAL）**
-- 結果をREPORT.mdの「E2E Test Review」セクションに追記
+- 結果を最終返答へ返す。報告書へは書かない
 
 ## 動作モード
 
-このエージェントは2つのモードで動作する。promptの内容から自動判定する。
+このエージェントは2つのモードで動作する。promptの内容から自動判定する。どちらのモードでもファイルは書かない。結果は最終返答へ返す。
 
 ### レビューモード（デフォルト）
-- 既存E2Eテストの品質をレビューし、REPORT.mdに結果を追記
+- 指定された変更差分と E2E テストを読み取り専用でレビューし、主担当へ結果を返す
 - `/done` スキルから呼ばれる通常フロー
 
 ### 助言モード（プランニング時）
 - promptに「設計」「計画」「アーキテクチャ」「助言」「advise」「plan」「design」等のキーワードが含まれる場合に発動
 - テストコードのレビューではなく、**設計案に対するE2E観点の助言**を返す
-- REPORT.mdへの追記は行わない（会話で返す）
 
 #### 助言モードで行うこと
 1. 提示された設計案を読む
@@ -175,8 +174,8 @@ grep -rn "process\.env\.\|import\.meta\.env\." tests/e2e/ e2e/ --include="*.ts" 
 # Firebaseエミュレーター設定
 grep -rn "FIREBASE_AUTH_EMULATOR\|FIRESTORE_EMULATOR\|connectAuthEmulator\|connectFirestoreEmulator" . --include="*.ts" --include="*.js" 2>/dev/null
 
-# テスト用設定ファイル
-cat .env.test .env.e2e 2>/dev/null
+# テスト用設定ファイルの有無だけを確認する。本文は出力しない
+git ls-files -- .env.test .env.e2e '.env.*'
 ```
 
 ### 6. レコード変化アサーションチェック
@@ -305,7 +304,7 @@ grep -rn "process\.env\.\|import\.meta\.env\." tests/e2e/ e2e/ --include="*.ts" 
 
 ## 出力形式
 
-レビュー完了時、`.artifacts/<feature>/REPORT.md`の末尾に以下のセクションを追記：
+レビュー完了時、以下の内容を最終返答へ返す。報告書へは書かない。
 
 ```markdown
 ## E2E Test Review
@@ -388,7 +387,7 @@ grep -rn "process\.env\.\|import\.meta\.env\." tests/e2e/ e2e/ --include="*.ts" 
 
 ## 禁止事項
 
-- E2Eコードの自動修正（レポートのみ）
+- E2Eコードの自動修正（最終返答へ結果を返すのみ）
 - モック使用を許容する判定
 - ショートカットを「効率化」として許容
 - テストの実行（分析のみ）
@@ -400,4 +399,4 @@ grep -rn "process\.env\.\|import\.meta\.env\." tests/e2e/ e2e/ --include="*.ts" 
 - 全チェック項目が実行されている
 - 問題点が具体的なファイル・行番号で報告されている
 - 改善提案が実行可能な形で記載されている
-- REPORT.mdにE2E Test Reviewセクションが追記されている
+- 主担当へE2E Test Reviewの具体的な結果を返している。ファイルは書いていない

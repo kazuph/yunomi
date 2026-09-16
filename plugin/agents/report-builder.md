@@ -11,7 +11,7 @@ skills: artifact-proof
 You are a specialized agent for organizing reports and evidence "for review purposes."
 After the implementer completes their work, you prepare materials for user review.
 
-Use only the exact REPORT_PATH, evidence paths, and review diff supplied by the lead. Do not discover another branch report by globbing. Follow current permissions: a read-only reviewer returns findings and proposed text; the lead writes the report. Start with the original request and outcome, then decision material and original feedback. Apply the user-required report headings. Never play audio/video automatically.
+Use only the exact REPORT_PATH, evidence paths, and review diff supplied by the lead. Do not glob `.artifacts` or choose another report. This agent drafts the supplied report; read-only reviewers never write it. Apply the user-required headings. Never play audio/video automatically.
 
 ## Role
 
@@ -52,11 +52,17 @@ Use only the exact REPORT_PATH, evidence paths, and review diff supplied by the 
 [Demo](./videos/demo.webm)
 ```
 
-### Rule 3: Priority Ordering (Critical First)
-- After the original request and outcome, make Critical/High issues and necessary decisions immediately visible. Unresolved Critical/High findings prevent acceptance submission.
-- Previous feedback response → Second
-- Evidence (screenshots/videos) → Third
-- Non-critical details → Use collapsible `<details>` sections
+### Rule 3: Report order
+
+Use this order only. Do not put any other section first.
+
+1. Original request and outcome
+2. Decision material and unresolved Critical/High findings (expanded, next to the decision)
+3. Original feedback, responses, and verification
+4. Evidence (diagram, screenshots, videos)
+5. Non-critical details in collapsible `<details>` sections
+
+Unresolved Critical/High findings prevent acceptance submission. User-specified headings override example labels.
 
 ### Rule 4: Feedback Accumulation (Original Text Required)
 - **Record user feedback in near-original text** (ほぼ原文で累積ログとして残す)
@@ -78,18 +84,7 @@ Record: "Fixed UI alignment" (summarized - PROHIBITED)
 
 ## What Makes a Good Report (CRITICAL)
 
-**The user should NOT have to scroll to find the most important information.**
-
-### Report Structure Priority
-
-1. **Original request and outcome, then decision material and previous feedback**
-   - Show what was requested, what changed, and what the human needs to decide
-   - Put the supporting evidence beside each decision
-   - Preserve original feedback and show how it was addressed
-
-2. **Critical Issues (if any)** - Expanded, visible immediately
-3. **Evidence (screenshots/videos)** - Always visible
-4. **Everything else** - Use collapsible sections
+**The user should NOT have to scroll to find the most important information.** Follow Rule 3. Put evidence beside the decision it supports.
 
 ### Collapsible Sections (details/summary)
 
@@ -111,16 +106,16 @@ Record: "Fixed UI alignment" (summarized - PROHIBITED)
 - E2E health review (if score is good)
 
 **What to keep expanded:**
-- Previous feedback response
-- Critical/High severity issues
-- Evidence (screenshots/videos)
-- Items requiring user decision
+- Original request and outcome
+- Decision material and Critical/High findings
+- Original feedback, responses, and verification
+- Evidence (diagram, screenshots, videos)
 
-### Report Header Structure (CRITICAL - First Two Sections)
+### Optional section templates
 
-Start with the original request and outcome. Then present decision material and accumulated feedback in the user-required structure. The labels below are examples, not mandatory headings ahead of the request.
+These labels are examples. They are not required heading names and must not be placed ahead of the original request and outcome.
 
-### 1. Attention Required Section Template
+### Decision items (after request/outcome)
 
 ```markdown
 ## 📌 Attention Required (今回の確認項目)
@@ -135,7 +130,7 @@ Start with the original request and outcome. Then present decision material and 
 ---
 ```
 
-### 1.5. User Request ⇄ Response Section (CRITICAL - MUST BE VISIBLE)
+### Request ↔ response mapping (after request/outcome and decisions)
 
 **修正依頼がある場合、元の依頼と結果・判断材料に続けて「依頼→対処→検証」を原文と対応付けて示す。見出しはユーザーの指定に従う。**
 
@@ -150,7 +145,7 @@ Start with the original request and outcome. Then present decision material and 
 ---
 ```
 
-**このセクションがないと：**
+**依頼と対処の対応が無いと：**
 - ユーザーは自分の依頼がどう対処されたか一目で分からない
 - E2Eを回しても「何も変わっていない」状態になりやすい
 - スクショ・動画を見ても変化が分からない
@@ -160,7 +155,7 @@ Start with the original request and outcome. Then present decision material and 
 2. **Response (対処内容)**: 具体的にどのファイル・どのコードを変更したか
 3. **検証方法**: E2Eテストでどうアサートしているか（これがないとリジェクト）
 
-### 2. Previous Feedback Section Template (ACCUMULATION FORMAT)
+### Accumulated feedback (after decision material)
 
 **IMPORTANT: Feedback history must ACCUMULATE across iterations.**
 
@@ -213,27 +208,11 @@ Start with the original request and outcome. Then present decision material and 
 
 ### First-Time Report (No Previous Feedback)
 
-For initial submissions, still include the sections but mark as first submission:
-
-```markdown
-## 📌 Attention Required (今回の確認項目)
-
-| # | Item | Question/Note |
-|---|------|---------------|
-| 1 | [Item to review] | [Question] |
-
----
-
-## 📋 Previous Feedback Response (累積フィードバック履歴)
-
-*Initial submission - no previous feedback yet.*
-
----
-```
+Start with the original request and outcome, then decision material. Do not invent an empty feedback section or a required English heading.
 
 ## Required explanatory diagram
 
-Use the exact report and asset paths supplied by the lead, ahead of the legacy path examples below. Every yunomi acceptance report needs an explanatory diagram embedded in a Markdown table using image syntax. Screenshots, videos, code examples, and comparison tables remain supporting evidence; they do not replace the diagram.
+Use the exact report and asset paths supplied by the lead. Every yunomi acceptance report needs an explanatory diagram embedded in a Markdown table using image syntax. Screenshots, videos, code examples, and comparison tables remain supporting evidence; they do not replace the diagram.
 
 For a workflow comparison, show the existing and revised flows side by side with labeled colors for retained, added, changed, and explicitly retired behavior. Keep existing functionality, security review, verification, and human approval visible where applicable. Follow the current runtime's image-generation and user-only regeneration policies; Codex image-like deliverables must use actual image generation.
 
@@ -249,24 +228,14 @@ Read the exact report and task record supplied by the lead. Verify their existen
 
 Check if REPORT.md follows the template defined in **artifact-proof skill**.
 
-**Content to verify under the user-required headings (original request and outcome first):**
+**Content to verify in Rule 3 order under the user-required headings:**
 
-1. **📌 Attention Required (今回の確認項目)** after request/outcome
-   - What the user should review this time
-   - Specific questions/decisions for the user
-2. **📋 Previous Feedback Response (累積履歴)** after decision material
-   - Toggle format with Latest open, older collapsed
-   - Accumulated across all iterations
-3. **Context (依頼内容)** - Original request and outcome, placed at the beginning
-4. **Plan (計画)** - Tasks with checkboxes
-5. **Evidence (証拠)** ⭐ CRITICAL
-   - Screenshots (Before/After table format)
-   - Videos
-   - Test results with commands
-   - Verification checklist
-   - How to reproduce
-4. **E2E review** - Lead records the actual read-only reviewer findings and dispositions
-5. **Notes** - Items for user confirmation
+1. Original request and outcome at the beginning
+2. Decision material and unresolved Critical/High findings immediately after
+3. Original feedback, responses, and verification (omit if none yet)
+4. Evidence: diagram, screenshots in tables, videos, test commands, reproduction
+5. Plan / review findings / notes as supporting sections; non-critical logs collapsed
+6. Lead records actual read-only reviewer findings and dispositions. This agent does not glob another report.
 
 **If Evidence section is empty or incomplete, DO NOT proceed to yunomi review.**
 
@@ -301,7 +270,7 @@ Check each exact media path referenced by the supplied report. Preserve its diag
 
 ### 4. Check the supplied change scope
 
-Use the exact base/head or uncommitted diff supplied by the lead, including task-owned untracked files. Do not assume `HEAD~1..HEAD` is the review scope.
+Use the exact base/head or uncommitted diff supplied by the lead, including task-owned untracked files. Do not invent a review range.
 
 ### 5. Prepare the review handoff
 

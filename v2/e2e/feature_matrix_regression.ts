@@ -361,7 +361,7 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.5.1" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonが統合ワークフロー2.5.1と3スキルの同梱を明記している", {
+  assert(pluginManifest.version === "2.5.2" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonが統合ワークフロー2.5.2と3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
@@ -389,6 +389,51 @@ try {
       hasSelect: doSkill.includes("## Select the matching procedure"),
       investigationHasName: /^name:/m.test(investigation),
     },
+  );
+  const claudeMd = readFileSync(join(ROOT, "CLAUDE.md"), "utf8");
+  const reportBuilder = readFileSync(join(pluginAgents, "report-builder.md"), "utf8");
+  const reportValidator = readFileSync(join(pluginAgents, "report-validator.md"), "utf8");
+  const securityReview = readFileSync(join(pluginAgents, "review-code-security.md"), "utf8");
+  const e2eReview = readFileSync(join(pluginAgents, "review-e2e.md"), "utf8");
+  const uiReview = readFileSync(join(pluginAgents, "review-ui-ux.md"), "utf8");
+  assert(
+    claudeMd.includes("すべて `/do` → `/done`") &&
+      claudeMd.includes("`/bucho` は委譲時のみ入口") &&
+      !claudeMd.includes("/tiny-done") &&
+      !claudeMd.includes("tiny系"),
+    "CLAUDE.mdの完了入口は /do → /done のみで tiny を残さない",
+  );
+  assert(
+    reportBuilder.includes("Use this order only") &&
+      !reportBuilder.includes("MUST BE FIRST") &&
+      !reportBuilder.includes("MUST BE SECOND") &&
+      !reportBuilder.includes("ls -la .artifacts") &&
+      !reportBuilder.includes("HEAD~1") &&
+      !reportBuilder.includes("npx yunomi .artifacts"),
+    "report-builderは報告順序を1つだけ持ち、旧commandを残さない",
+  );
+  assert(
+    reportValidator.includes("ラベルそのものを要求しない") &&
+      !reportValidator.includes("grep -c '## .*Previous Feedback'") &&
+      !reportValidator.includes("grep -c '## .*User Request'") &&
+      !reportValidator.includes("find .artifacts"),
+    "report-validatorは旧英語見出しとglob探索を要求しない",
+  );
+  assert(
+    securityReview.includes("git ls-files -- .env") &&
+      securityReview.includes("いかなるファイルにも書かない") &&
+      !securityReview.includes("cat .env") &&
+      !securityReview.includes("REPORT.mdへの追記") &&
+      !securityReview.includes("末尾に以下のセクションを追記"),
+    "security reviewerは秘密値を出力せず報告書へ書かない",
+  );
+  assert(
+    e2eReview.includes("git ls-files -- .env.test") &&
+      e2eReview.includes("報告書へは書かない") &&
+      !e2eReview.includes("cat .env.test") &&
+      !uiReview.includes("HEAD~1") &&
+      !uiReview.includes("末尾に以下のセクションを追記"),
+    "read-only reviewerは.env本文とHEAD~1差分を使わない",
   );
   assert(
     Array.isArray(hooksConfig.hooks?.PreToolUse) &&
