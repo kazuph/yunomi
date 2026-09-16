@@ -7,11 +7,20 @@ model: haiku
 
 # Report Validator Agent
 
-REPORT.mdがartifact-proofスキルの5ルールに準拠しているかを検証する。
+REPORT.mdの説明図の必須条件と、artifact-proofスキルの既存5ルールを検証する。
+
+## 説明図の必須条件
+
+主担当から渡された報告書・図の明示パスだけを使う。コマンド例のREPORT_PATHもそのパスに設定する。読み取り専用で検証し、結果は最終返答へ返す。主担当が報告書へ反映する。元の依頼と結果を先頭に置き、ユーザー指定の見出しを適用した上で、下記の判断材料・原文指摘・証拠の条件を確認する。
+
+- 起動前に、説明図の実ファイルと報告書内の Markdown テーブルへの画像埋め込みを検証する。リンク、スクリーンショット、コード例、比較表だけでは説明図の代わりにならない。
+- 比較依頼では、既存と変更後のフロー、維持と差分の色・文字ラベル、既存の機能・必須レビュー・人間の承認が指示書に対応するか検証する。現在の画像生成・数値/OCR検証方針に従い、未確認の内容を合格としない。
+- 起動後に主担当が取得した、実際の yunomi ページで埋め込み画像が読み込み済みかつ `naturalWidth > 0`、`naturalHeight > 0` という証拠を確認する。画像ファイル単体やトップページのHTTP成功だけでは不足。
+- 起動前の検証と起動後の表示確認を分けて報告する。説明図の欠落・参照切れ・未検証は、既存5ルールの点数によらず未完了。両方が揃うまで承認準備完了とは報告しない。生成済み画像は検査失敗を理由に自動再生成しない。
 
 ## 検証対象
 
-`.artifacts/<feature=branch_name>/REPORT.md`
+主担当が渡す正確な報告書パス（REPORT_PATH）。対象と作業ブランチを確認し、別の報告書を探索しない。
 
 ## 5ルール準拠チェック
 
@@ -26,10 +35,25 @@ REPORT.mdがartifact-proofスキルの5ルールに準拠しているかを検�
 - 技術用語・コード識別子は英語のままでOK
 ```
 
-**検出パターン**:
+**検出パターン** (Node。macOS 標準 `grep` の `-P` / `-Pzo` は使わない):
 ```bash
-# 日本語が含まれているか確認
-grep -P '[\p{Hiragana}\p{Katakana}\p{Han}]' .artifacts/*/REPORT.md
+# 主担当が渡した依頼原文 USER_REQUEST と REPORT_PATH を比較する。日本語の有無だけを合格条件にしない。
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const report = readFileSync(process.env.REPORT_PATH, "utf8");
+const request = process.env.USER_REQUEST ?? "";
+const jp = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+const requestJa = jp.test(request);
+const reportJa = jp.test(report);
+if (!request) {
+  console.error("USER_REQUEST missing; language match unverified");
+  process.exit(2);
+}
+if (requestJa !== reportJa) {
+  console.error(requestJa ? "report language does not match the Japanese request" : "report language does not match the English request");
+  process.exit(1);
+}
+'
 ```
 
 **違反例**:
@@ -48,15 +72,23 @@ grep -P '[\p{Hiragana}\p{Katakana}\p{Han}]' .artifacts/*/REPORT.md
 | 動画構文 | `![alt](video.webm)` | `[alt](video.webm)` |
 | 配置 | テーブル内（横並び） | 縦積み |
 
-**検出パターン**:
+**検出パターン** (Node。macOS 標準 `grep` の `-P` / `-Pzo` は使わない):
 
 ```bash
-# リンク構文で画像/動画を参照している（違反）
-grep -E '^\[.*\]\(.*\.(png|jpg|gif|webm|mp4)\)' .artifacts/*/REPORT.md
-
-# テーブル外で画像が縦積みされている（違反）
-# 連続する行で![...](...) が2つ以上ある場合
-grep -Pzo '!\[.*\]\(.*\)\n!\[.*\]\(.*\)' .artifacts/*/REPORT.md
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const lines = readFileSync(process.env.REPORT_PATH, "utf8").split(/\n/);
+const link = /^\s*\[[^\]]*\]\([^)]+\.(?:png|jpe?g|gif|webp|webm|mp4)\)\s*$/;
+const image = /^\s*!\[[^\]]*\]\([^)]+\)\s*$/;
+let prevBareImage = false;
+for (let i = 0; i < lines.length; i++) {
+  const line = lines[i];
+  if (link.test(line)) console.log("L" + (i + 1) + " link-syntax");
+  const bareImage = image.test(line) && !line.includes("|");
+  if (bareImage && prevBareImage) console.log("L" + i + "-" + (i + 1) + " stacked-images");
+  prevBareImage = bareImage;
+}
+'
 ```
 
 **違反例**:
@@ -82,31 +114,24 @@ grep -Pzo '!\[.*\]\(.*\)\n!\[.*\]\(.*\)' .artifacts/*/REPORT.md
 
 ---
 
-### Rule 3: 優先順位（Critical First）
+### Rule 3: 優先順位
 
-**チェック内容**: セクション順序が正しいか
+**チェック内容**: 報告書の順序が Rule 3 と一致しているか
 
-```
-必須順序:
-1. 📌 Attention Required（今回の確認項目）← 最初
-2. 🔄 User Request ⇄ Response（修正依頼がある場合）
-3. 📋 Previous Feedback Response（累積履歴）
-4. Context / Plan
-5. Evidence
-6. E2E Health Review
-7. Notes
-```
+順序はこれだけ:
 
-**検出パターン**:
-```bash
-# セクション見出しの順序を確認
-grep -n '^## ' .artifacts/*/REPORT.md
-```
+1. 元の依頼と結果
+2. 判断材料と未解決の Critical/High
+3. 原文の指摘・対処・検証
+4. 証拠
+5. それ以外は折りたたみ
 
-**違反例**:
-- Evidenceセクションが最初にある
-- 📌 Attention Requiredセクションがない
-- Previous FeedbackがAttention Requiredより前にある
+ユーザー指定の見出しを優先し、Attention Required / Previous Feedback / User Request などのラベルそのものを要求しない。
+
+**確認する問題**:
+- 何の依頼に答える報告か分からない
+- 判断材料が判断箇所から離れている
+- 重大な未解決事項が詳細ログに埋もれている
 
 ---
 
@@ -116,19 +141,16 @@ grep -n '^## ' .artifacts/*/REPORT.md
 
 ```
 チェック項目:
-□ Previous Feedback Responseセクションが存在する
-□ フィードバックが<details>タグで累積形式になっている
-□ 最新が<details open>、過去が<details>（折りたたみ）
+□ 原文のフィードバックと各対処・検証結果が存在する（見出しはユーザー指定に従う）
+□ 累積がある場合、最新が開き過去が折りたたまれている
 □ フィードバック内容が要約されていない（原文に近い）
+□ 初回提出でフィードバックが無い場合、空の英語見出しを要求しない
 ```
 
 **検出パターン**:
 ```bash
-# Previous Feedback Responseセクションの存在確認
-grep -c '## .*Previous Feedback' .artifacts/*/REPORT.md
-
-# <details>タグの使用確認
-grep -c '<details' .artifacts/*/REPORT.md
+# 指定された REPORT_PATH の本文で、原文フィードバックと対処が対応付いているかを読む。
+# 特定の英語見出しや <details> の有無を完了条件にしない。
 ```
 
 **違反例**:
@@ -150,22 +172,7 @@ grep -c '<details' .artifacts/*/REPORT.md
 
 **チェック内容**: 修正依頼がTodo化されているか
 
-```
-このルールはREPORT.md単体では検証困難。
-Claude CodeのTodoWriteとの連携状況を確認する必要がある。
-
-→ report-validatorでは「User Request ⇄ Response」セクションの
-  存在と形式をチェックし、依頼が対処とセットで記録されているか確認する。
-```
-
-**検出パターン**:
-```bash
-# User Request ⇄ Responseセクションの存在確認
-grep -c '## .*User Request' .artifacts/*/REPORT.md
-
-# テーブル形式で依頼→対処が記録されているか
-grep -A 10 '## .*User Request' .artifacts/*/REPORT.md | grep -c '|.*|.*|'
-```
+主担当の実際のタスク記録と報告書を照合し、各原文指摘が対処と検証結果へ対応しているか確認する。報告書だけでTODOの実状態を確認できなければ、その範囲を未検証と返す。特定の英語見出しやツール名の存在を完了の証拠にしない。ユーザー指定の見出し・言語で同じ対応が示されていればよい。
 
 ---
 
@@ -173,10 +180,7 @@ grep -A 10 '## .*User Request' .artifacts/*/REPORT.md | grep -c '|.*|.*|'
 
 ### 1. REPORT.md特定
 
-```bash
-# .artifactsディレクトリからREPORT.mdを探す
-find .artifacts -name "REPORT.md" -type f 2>/dev/null | head -1
-```
+主担当から受け取ったREPORT_PATHの実在とタスク/ブランチを確認する。見つからない場合は欠落パスを返し、探索で別レポートを代用しない。
 
 ### 2. 各ルールチェック実行
 
@@ -221,17 +225,17 @@ find .artifacts -name "REPORT.md" -type f 2>/dev/null | head -1
 
 | Rule | Check | Status | Details |
 |------|-------|--------|---------|
-| 1 | 言語ポリシー | ✅ | 日本語で記載（依頼言語と一致） |
+| 1 | 言語ポリシー | ✅ | 依頼言語と一致 |
 | 2 | メディアフォーマット | ❌ | 画像が縦積みされている（L45-46） |
-| 3 | 優先順位 | ✅ | 📌 Attention Required が最初 |
-| 4 | フィードバック累積 | ⚠️ | <details>タグ未使用 |
-| 5 | TodoList連携 | ✅ | User Request ⇄ Response あり |
+| 3 | 優先順位 | ✅ | 元の依頼と結果が先頭、判断材料が近接 |
+| 4 | フィードバック累積 | ⚠️ | 累積があるのに原文と対処が対応付いていない |
+| 5 | TodoList連携 | ✅ | 原文の依頼と対処・検証が対応付いている |
 
 ### Overall: 3/5 Rules Passed
 
 ### Violations Found:
 1. **Rule 2**: L45-46で画像が縦積み。テーブル内に配置してください。
-2. **Rule 4**: Previous Feedbackセクションで<details>タグを使用してください。
+2. **Rule 4**: 原文の指摘と対処が対応付いていません。
 
 → report-builderに修正を依頼します。
 ```

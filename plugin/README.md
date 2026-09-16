@@ -10,25 +10,6 @@ yunomi CLI ツールを Claude Code と連携させるプラグインです。�
 /plugin install yunomi-plugin@yunomi-plugins
 ```
 
-## `npx skills` で使う
-
-Claude Code プラグインではなく、Codex、OpenCode、Cursor などの skills 対応エージェントへ task skill 群だけを入れたい場合は `npx skills` を使います。Claude Code は上の導線を使ってください。
-
-```bash
-# 検出される skill を確認
-npx skills add https://github.com/kazuph/yunomi --list
-
-# 例: Codex にグローバルインストール
-npx skills add https://github.com/kazuph/yunomi -g -a codex -s '*' --copy -y
-
-# 例: Codex / OpenCode にまとめてインストール
-npx skills add https://github.com/kazuph/yunomi -g -a codex -a opencode -s '*' --copy -y
-```
-
-この経路で入るのは `plugin/skills/` の skill だけです。`-a codex -g --copy` を付けると、Codex のグローバルスキル置き場である `~/.agents/skills/` にコピーされます。`~/.agents/skills` が symlink の場合は、そのリンク先に実体が置かれます。
-
-Claude Code の command や hooks まで含めたい場合は、上のプラグイン導線を使ってください。
-
 ## 更新
 
 プラグインを最新版に更新するには、一度アンインストールしてから再インストールしてください：
@@ -55,161 +36,55 @@ claude plugin marketplace remove yunomi-marketplace    # ターミナルで実�
 
 その後、上記の「インストール」セクションの手順で再インストールしてください。
 
-## 機能一覧
+### 開発ワークフロー
 
-### Task Skills（スラッシュスキル）
+原本は `plugin/skills/do/`・`done/`・`bucho/` です。個人環境へコピーする場合も同じ本文を配布し、配布先で別の手順を保守しません。`tiny-do`・`tiny-done` は統合され、作業規模による品質水準の選択はありません。
 
-| スキル | 説明 |
-|--------|------|
-| `/yunomi:ask` | 要件を深掘りして AskUserQuestion で認識ズレを防ぐ |
-| `/yunomi:check-yourself` | 推測を禁止し、実機検証を強制する |
-| `/yunomi:commit-and-push` | 変更をコミットして push まで完了させる |
-| `/yunomi:do <タスク説明>` | タスク開始スキル - git wt で worktree 作成、計画策定、Todo 登録 |
-| `/yunomi:done` | タスク完了スキル - エビデンス収集、yunomi でレビュー開始 |
-| `/yunomi:open <file-or-url>` | macOS の `open` でファイルや URL を開く |
-| `/yunomi:tiny-do <タスク説明>` | 小タスク向け軽量開始スキル |
-| `/yunomi:tiny-done` | 小タスク向け軽量完了スキル |
-| `/yunomi:bucho <指示>` | Claude Code と Codex を束ねる部長モード |
+| 入口 | 担当する工程 |
+|---|---|
+| `/do` | 要求確認、種類に合う手順ファイルを読む、現行機能と全呼び出し元の調査、再利用の検討、データ・状態・責任範囲の設計、設計助言、ネストした git wt、TDD、検証できる単位での実装から `/done` まで。 |
+| `/done` | 新要件と既存動作の回帰確認、動作を保持した deslop、ビルドと実動作検証、専門レビュー、説明図・スクリーンショット・動画・報告の検証、人間の承認と指摘修正。 |
+| `/bucho` | 同じ `/do` → `/done` の全成果を、承認済みのHerdr実装責任者へ委譲。部長は判断記録と実際の差分・証拠を確認して完遂まで責任を持つ。 |
 
-#### Task Skill 一覧
+名前空間付きの呼び出し名はエージェントのスキル一覧で確認してください。本文の実行手順は [do](skills/do/SKILL.md)、[done](skills/done/SKILL.md)、[bucho](skills/bucho/SKILL.md) にあります。
 
-| 名前 | 用途 |
-|------|------|
-| `ask` | 実装前に AskUserQuestion を使って要求・制約・成功条件を明確化する |
-| `bucho` | Claude Code と Codex を tmux 経由で指揮してチーム開発フローを回す |
-| `check-yourself` | 推測を止めて、webapp-testing / backend-testing / mobile-testing による実検証へ強制する |
-| `commit-and-push` | 変更内容からコミットメッセージを作り、commit / push / 最終状態確認まで実行する |
-| `do` | worktree 作成、計画策定、Todo 登録、レビュー準備を含むフルのタスク開始フローを始める |
-| `done` | 完了条件チェック、証跡収集、レビュー起動を含むフルのタスク完了フローを実行する |
-| `exit-notifier` | tmux / Herdr で background task の終了と stdout/stderr を現在 pane に通知する |
-| `open` | 直近で触れたファイルや URL、または明示したパスを macOS の `open` で開く |
-| `tiny-do` | 小さなタスク向けに、軽量な開始フローで実装へ入る |
-| `tiny-done` | 小さなタスク向けに、軽量な検証と確認フローで完了へ進む |
-| `validate-report` | `done` から呼ばれる内部 helper として、REPORT.md が artifact-proof の 5 ルールを満たしているかをチェックする |
+### 取り込んだ行動
 
-### Agents（サブエージェント）
+P-Stackから、依頼の種類に合う手順を選ぶこと、実際の処理の理解、データと責任範囲のモデル化、観測による技術的な不明点の解消、前提を検証してから次へ進む作業順序、判断理由と証拠の記録を取り込みます。Ponytailからは、理解した要求を満たす既存コード → 標準機能 → プラットフォーム機能 → 導入済み依存 → 新しいコードの順で検討し、全呼び出し元から共通原因を直す行動を取り込みます。
 
-| エージェント | 説明 |
-|-------------|------|
-| `report-builder` | レビューしてもらうための報告書・エビデンス整理専門 |
-| `e2e-health-reviewer` | E2Eテストの健全性レビュー（goto制限、レコードアサーション、ハードコード検出） |
+既存の必須レビュー・テスト・承認は保持します。deslopでも信頼境界の検証、データ保護、セキュリティ、アクセシビリティ、必要なテストを削りません。第三者のスクリプト・ライブラリ・モデル設定は取り込みません。
 
-使用方法:
-```
-Task ツールで subagent_type: "report-builder" を指定
-Task ツールで subagent_type: "e2e-health-reviewer" を指定
-（/done時は両方を並列実行）
-```
+### 同梱するレビューと実装の指示
 
-### Skills（自動参照スキル）
+| 指示ファイル（`plugin/agents/`） | 保持する責任 |
+|---|---|
+| `review-code-security.md` | 設計助言と最終コード・セキュリティレビュー。型、エラー処理、重複、インジェクション、認証認可、秘密情報、暗号化。 |
+| `review-e2e.md` | 全プロジェクト種別の実際のフロー、アサーション、永続状態、モック・迂回、待機、テスト環境の確認。 |
+| `review-ui-ux.md` | 該当UIのWCAG 2.2 AA、キーボード・フォーカス、デザイン、文言・国際化。 |
+| `report-builder.md` / `report-validator.md` | 元の依頼と指摘、判断理由、図と証拠の埋め込み、リンク、報告形式の確認。 |
+| `webapp-impl.md` / `backend-impl.md` / `mobile-impl.md` | Web・バックエンド・モバイルの実装と実動作検証。 |
+| `dogfooding.md` / `review-video.md` | 実操作と動画の確認。 |
 
-| スキル | 説明 |
-|--------|------|
-| `artifact-proof` | エビデンス収集（スクショ・動画・ログ）+ yunomi でのレビューワークフロー |
-| `exit-notifier` | background で実行した `npx yunomi` などの終了結果と stdout/stderr を tmux / Herdr pane に返す |
+現在の環境で承認された独立レビューの起動方法・モデル・権限を使います。固定数のエージェント起動や退役済みモデルの利用は要求しません。重大な指摘（Critical/High）は修正・再検証・再レビューしてから人間へ提出します。
 
-### Hooks（自動フック）
+### Markdownだけを既存環境へ配布する
 
-| イベント | 動作 |
-|---------|------|
-| `PreToolUse` (git commit/push) | yunomi でのレビュー完了確認リマインダー |
-| `UserPromptSubmit` | **完了報告前チェックリスト**（AIへのカンペ） |
+信頼済みのローカルYunomiチェックアウトから、`plugin/skills/{do,done,bucho}/` を既存のスキル配置先へコピーします。まず配布先の独自変更を確認し、3つを同じ改訂へそろえます。`/do` 配下の `playbooks/` と `why.md` も含めます。追加インストーラーや第三者スクリプトは必要ありません。Claude Codeプラグインのインストールとは別の操作で、hooksは有効化しません。
 
-#### UserPromptSubmit hook の詳細
+専門レビューの指示は同じチェックアウトの `plugin/agents/` を参照できます。既存環境の `yunomi`、`artifact-proof`、`validate-report`、該当するテストスキル、Web UIの `frontend-design`、委譲する場合の `herdr-pane-commander` も引き続き使用します。これらの補助スキルはこの3スキルの同梱物ではありません。参照先が見つからないときに検証を省略したり、外部スクリプトを取得したりしてはいけません。
 
-ユーザーがメッセージを送信した直後、AIが応答を生成する**前**に、以下のチェックリストがAIのコンテキストに追加されます（ユーザーには見えません）：
+### 証拠・レビュー・再開
 
-- 実装完了（1/3）: ビルド成功・型エラーなし
-- 動作検証完了（2/3）: 開発サーバー起動・webapp-testing で検証
-- レビュー完了（3/3）: エビデンス収集・`/done` スキル実行・yunomi でレビュー・ユーザー承認
+- 元のcheckoutは既定ブランチのまま保持し、その配下の `git wt` ワークツリーで開発します。
+- Webは実ブラウザ、バックエンドは実テストフレームワーク・DBまたは許可済みローカルエミュレーター・カバレッジ、モバイルはMaestroのアサーションと各段階の証拠を使います。Fullstackは両側と通信経路を検証します。
+- 説明図、スクリーンショット、動画を報告の表に埋め込みます。比較では既存と新フローを並べ、維持・追加・変更・明示的廃止を色と文字で区別します。提出前にファイルと埋め込み、起動後にブラウザで画像の読み込みを確認します。
+- REPORT.md、証拠、判断記録には合意済みの保存先を使い、圧縮や再起動後も同じ記録から再開します。`.artifacts/` の新設・移動はユーザーの許可が必要です。証跡はコミットせず、PR添付は既存の添付手段を使います。
+- `yunomi` スキルの現行プロトコルで、検証済みHerdrまたはtmux通知先と `--loop` を指定します。指摘は原文のTODOにして実装・再検証し、同じ承認ループを継続します。人間の承認をAIが代行しません。
+- 完了状態は、実装、ビルド・実動作・証拠の検証、人間の承認、許可済みの配布を区別します。
 
-これにより、AIが「実装しました！」だけで完了報告することを防ぎ、yunomi のワークフローに従うよう促します。
+### 既存のフック
 
-## ワークフロー
-
-```
-/yunomi:do <タスク説明>
-    ↓
-git wt で worktree 作成 + 計画策定
-    ↓
-実装作業
-    ↓
-/yunomi:done
-    ↓
-エビデンス収集 + 報告書作成
-    ↓
-npx yunomi で報告書を開く（フォアグラウンド）
-    ↓
-ユーザーがコメント → Submit & Exit
-    ↓
-フィードバックを Todo に登録
-    ↓
-修正 → 再レビュー
-    ↓
-承認されたら完了
-```
-
-## 完了基準
-
-| 段階 | 内容 |
-|------|------|
-| 1/3 | 実装完了 |
-| 2/3 | ビルド・起動・動作検証完了 |
-| 3/3 | yunomi でレビュー → ユーザー承認 |
-
-**実装完了だけでは 1/3。yunomi でレビューを受けて初めて完了。**
-
-## ディレクトリ構成
-
-```
-yunomi-plugin/
-├── .claude-plugin/
-│   └── plugin.json          # プラグインマニフェスト
-├── agents/
-│   └── report-builder.md    # 報告書作成エージェント
-├── skills/
-│   ├── ask/
-│   │   └── SKILL.md         # 要件ヒアリングスキル
-│   ├── bucho/
-│   │   └── SKILL.md         # 部長オーケストレーションスキル
-│   ├── do/
-│   │   └── SKILL.md         # タスク開始スキル
-│   ├── done/
-│   │   └── SKILL.md         # タスク完了スキル
-│   ├── exit-notifier/
-│   │   ├── SKILL.md         # background task 終了通知スキル
-│   │   └── scripts/
-│   │       └── watch-exit-notify.sh
-│   ├── tiny-do/
-│   │   └── SKILL.md         # 軽量タスク開始スキル
-│   ├── tiny-done/
-│   │   └── SKILL.md         # 軽量タスク完了スキル
-│   ├── validate-report/
-│   │   └── SKILL.md         # REPORT.md検証の内部 helper
-│   └── artifact-proof/
-│       └── SKILL.md         # エビデンス収集 + yunomi レビュースキル
-├── hooks/
-│   └── hooks.json           # 自動フック設定
-└── README.md
-```
-
-## yunomi の基本的な使い方
-
-```bash
-# Markdown を開く
-npx yunomi report.md
-
-# CSV を開く
-npx yunomi data.csv
-
-# git diff を開く
-git diff HEAD | npx yunomi
-
-# 複数ファイル
-npx yunomi file1.md file2.csv
-```
-
-詳細は `yunomi-master` スキルを参照してください。
+`plugin/hooks/` と `plugin/hooks-handlers/` は、commit/push前のレビュー確認、完了チェックリスト、worktreeとテストの保護を提供します。今回の3スキル統合は新しいフックや外部実行依存を追加しません。スキルだけの配布でフックを有効化しません。
 
 ## License
 

@@ -251,320 +251,55 @@ decision: request_changes
 /plugin install yunomi-plugin@yunomi-plugins
 ```
 
-### `npx skills` でスキルを入れる
-
-Codex、OpenCode、Cursor など、`npx skills` 対応エージェントで yunomi のタスクスキルを使いたい場合はこちらを使います。Claude Code は上のプラグイン導線を使ってください。
-
-```bash
-# まず検出されるスキルを確認
-npx skills add https://github.com/kazuph/yunomi --list
-
-# Codex 向けに全スキルをグローバルインストール
-npx skills add https://github.com/kazuph/yunomi -g -a codex -s '*' --copy -y
-
-# Codex と OpenCode へまとめてグローバルインストール
-npx skills add https://github.com/kazuph/yunomi -g -a codex -a opencode -s '*' --copy -y
-```
-
-`npx skills` が配るのは `plugin/skills/` 配下のスキル群です。`-a codex -g --copy` を付けると、Codex のグローバルスキル置き場である `~/.agents/skills/` にコピーされます。`~/.agents/skills` が symlink の場合は、そのリンク先に実体が置かれます。
-
-Claude Code のプラグイン command や hooks はこの経路では入らず、上の Claude Code プラグイン導線でインストールします。
-
-### プラグインディレクトリ構成
-
-```
-plugin/
-├── .claude-plugin/
-│   └── plugin.json          # プラグインメタデータ（名前、バージョン、説明）
-├── agents/
-│   ├── report-builder.md     # レポート生成エージェント
-│   ├── e2e-health-reviewer.md    # E2Eテスト健全性チェック
-│   ├── review-code-quality.md    # コード品質レビュー
-│   ├── review-security.md        # セキュリティ監査
-│   ├── review-a11y-ux.md         # アクセシビリティ & UX
-│   ├── review-figma-fidelity.md  # デザイン忠実度
-│   ├── review-copy-consistency.md # テキスト整合性
-│   └── review-e2e-integrity.md   # E2Eテスト整合性
-├── skills/
-│   ├── ask/
-│   │   └── SKILL.md          # 要件ヒアリングスキル
-│   ├── bucho/
-│   │   └── SKILL.md          # 部長オーケストレーションスキル
-│   ├── do/
-│   │   └── SKILL.md          # タスク開始スキル
-│   ├── done/
-│   │   └── SKILL.md          # タスク完了スキル
-│   ├── exit-notifier/
-│   │   ├── SKILL.md          # background task 終了通知スキル
-│   │   └── scripts/
-│   │       └── watch-exit-notify.sh
-│   ├── tiny-do/
-│   │   └── SKILL.md          # 軽量タスク開始スキル
-│   ├── tiny-done/
-│   │   └── SKILL.md          # 軽量タスク完了スキル
-│   ├── validate-report/
-│   │   └── SKILL.md          # REPORT.md検証の内部 helper
-│   ├── artifact-proof/
-│   │   └── SKILL.md          # エビデンス収集スキル
-│   └── webapp-testing/
-│       ├── SKILL.md          # Webテストスキル
-│       ├── scripts/          # ヘルパースクリプト
-│       └── examples/         # 使用例
-├── hooks/
-│   └── hooks.json            # フック定義
-├── hooks-handlers/
-│   └── completion-checklist.sh  # UserPromptSubmitハンドラ
-└── README.md
-```
-
-### コンポーネント概要
-
-| 種類 | 名前 | 説明 |
-|------|------|------|
-| **タスクスキル** | `/yunomi:do` | タスク開始 - git wtでworktree作成、計画、todo登録 |
-| **タスクスキル** | `/yunomi:done` | 完了チェックリスト - 7レビューエージェント実行、エビデンス収集、レビュー開始 |
-| **タスクスキル** | `/yunomi:tiny-do` | 小タスク向けの軽量開始フロー |
-| **タスクスキル** | `/yunomi:tiny-done` | 小タスク向けの軽量完了フロー |
-| **タスクスキル** | `/yunomi:bucho` | Claude Code と Codex を束ねる部長モード |
-| **エージェント** | `report-builder` | ユーザーレビュー用レポート準備 |
-| **エージェント** | `review-code-quality` | コード品質: 可読性、DRY、型安全性、エラーハンドリング |
-| **エージェント** | `review-security` | セキュリティ: XSS、インジェクション、OWASP Top 10、秘密情報検出 |
-| **エージェント** | `review-a11y-ux` | アクセシビリティ: WCAG 2.2 AA、キーボード操作、UXフロー |
-| **エージェント** | `review-figma-fidelity` | デザイン: トークン準拠、視覚的一貫性 |
-| **エージェント** | `review-copy-consistency` | コピー: テキスト整合性、トーン&マナー、i18n |
-| **エージェント** | `review-e2e-integrity` | E2E: ユーザーフロー再現、モック汚染検出 |
-| **エージェント** | `e2e-health-reviewer` | E2E: goto制限、レコードアサーション、ハードコード検出 |
-| **スキル** | `artifact-proof` | エビデンス収集（スクリーンショット、動画、ログ） |
-| **スキル** | `exit-notifier` | background task の終了と stdout/stderr を現在の tmux / Herdr pane に通知 |
-| **スキル** | `webapp-testing` | Playwrightによるブラウザ自動化と検証 |
-| **フック** | PreToolUse | git commit/push前にレビューを促すリマインダー |
-| **フック** | UserPromptSubmit | AI コンテキストに完了チェックリストを注入 |
-
----
-
-### タスクスキル
-
-#### 同梱タスクスキル一覧
-
-| スキル | 用途 |
-|------|------|
-| `ask` | 実装前に要求・スコープ・制約・成功条件を明確化する |
-| `bucho` | Claude Code と Codex を tmux 経由で束ねてチーム開発フローを回す |
-| `check-yourself` | 推測を禁止し、実際の検証を強制する |
-| `commit-and-push` | コミットメッセージ生成、commit、push、最終状態確認まで実行する |
-| `do` | worktree 作成、計画策定、レビュー準備を含むフルの開始フローを実行する |
-| `done` | エビデンス収集と yunomi レビューを含むフルの完了フローを実行する |
-| `exit-notifier` | background task の終了結果と stdout/stderr を現在の tmux / Herdr pane に返す |
-| `open` | ファイル、成果物、URL を macOS の `open` で開く |
-| `tiny-do` | 小さなタスク向けの軽量開始フローで実装へ入る |
-| `tiny-done` | 小さなタスク向けの軽量完了フローで検証と確認を行う |
-| `validate-report` | `done` から呼ばれる内部 helper として `REPORT.md` を検証する |
+### 開発ワークフロー
 
-#### `/yunomi:do <タスク説明>`
-
-適切な環境セットアップで新しいタスクを開始します。
-
-**処理内容:**
-1. git wtを使用して分離開発用のgit worktreeを作成（`feature/<name>`、`fix/<name>`など）
-2. エビデンス用の`.artifacts/<feature>/`ディレクトリをセットアップ
-3. 計画とTODOチェックリスト付きの`REPORT.md`を作成
-4. 進捗追跡用にTodoWriteにtodoを登録
-
-**作成されるディレクトリ構成:**
-```
-<worktree>/                   # 例: .worktree/feature-auth/
-└── .artifacts/
-    └── <feature>/            # 例: auth（feature/authから）
-        ├── REPORT.md         # 計画、進捗、エビデンスリンク
-        ├── images/           # スクリーンショット
-        └── videos/           # 動画録画
-```
+原本は `plugin/skills/do/`・`done/`・`bucho/` です。個人環境へコピーする場合も同じ本文を配布し、配布先で別の手順を保守しません。`tiny-do`・`tiny-done` は統合され、作業規模による品質水準の選択はありません。
 
-**タスク再開:** セッション開始時またはコンテキスト圧縮後、スキルは既存のworktreeを確認（`git wt`）し、`REPORT.md`から再開します。
+| 入口 | 担当する工程 |
+|---|---|
+| `/do` | 要求確認、**種類に合う手順ファイルを読む**、現行機能と全呼び出し元の調査、再利用の検討、データ・状態・責任範囲の設計、設計助言、ネストした git wt、TDD、検証できる単位での実装から `/done` まで。 |
+| `/done` | 新要件と既存動作の回帰確認、動作を保持した deslop、ビルドと実動作検証、専門レビュー、説明図・スクリーンショット・動画・報告の検証、人間の承認と指摘修正。 |
+| `/bucho` | 同じ `/do` → `/done` の全成果を、承認済みのHerdr実装責任者へ委譲。部長は判断記録と実際の差分・証拠を確認して完遂まで責任を持つ。 |
 
-#### `/yunomi:done`
+名前空間付きの呼び出し名はエージェントのスキル一覧で確認してください。本文の実行手順は [do](plugin/skills/do/SKILL.md)、[done](plugin/skills/done/SKILL.md)、[bucho](plugin/skills/bucho/SKILL.md) にあります。
 
-タスク完了を許可する前に完了基準を検証します。
+### 取り込んだ行動
 
-**適用されるチェックリスト:**
-- [ ] ビルド成功（型/lintエラーなし）
-- [ ] 開発サーバー起動・動作
-- [ ] `webapp-testing`スキルで検証
-- [ ] `.artifacts/<feature>/`にエビデンス収集
-- [ ] `artifact-proof`スキルでレポート作成
-- [ ] yunomiでレビュー（フォアグラウンドモード）
-- [ ] ユーザー承認取得
+P-Stackから、依頼の種類に合う手順（調査・不具合・新機能など、`/do` 配下のネストした Markdown）を選ぶこと、実際の処理の理解、データと責任範囲のモデル化、観測による技術的な不明点の解消、前提を検証してから次へ進む作業順序、判断理由と証拠の記録を取り込みます。Ponytailからは、理解した要求を満たす既存コード → 標準機能 → プラットフォーム機能 → 導入済み依存 → 新しいコードの順で検討し、全呼び出し元から共通原因を直す行動を取り込みます。
 
-**禁止事項:**
-- 検証なしに「実装完了」と言う
-- yunomiレビュー前にコミット/プッシュ
-- エビデンスなしのレポート
+既存の必須レビュー・テスト・承認は保持します。deslopでも信頼境界の検証、データ保護、セキュリティ、アクセシビリティ、必要なテストを削りません。第三者のスクリプト・ライブラリ・モデル設定は取り込みません。
 
----
+### 同梱するレビューと実装の指示
 
-### エージェント
+| 指示ファイル（`plugin/agents/`） | 保持する責任 |
+|---|---|
+| `review-code-security.md` | 設計助言と最終コード・セキュリティレビュー。型、エラー処理、重複、インジェクション、認証認可、秘密情報、暗号化。 |
+| `review-e2e.md` | 全プロジェクト種別の実際のフロー、アサーション、永続状態、モック・迂回、待機、テスト環境の確認。 |
+| `review-ui-ux.md` | 該当UIのWCAG 2.2 AA、キーボード・フォーカス、デザイン、文言・国際化。 |
+| `report-builder.md` / `report-validator.md` | 元の依頼と指摘、判断理由、図と証拠の埋め込み、リンク、報告形式の確認。 |
+| `webapp-impl.md` / `backend-impl.md` / `mobile-impl.md` | Web・バックエンド・モバイルの実装と実動作検証。 |
+| `dogfooding.md` / `review-video.md` | 実操作と動画の確認。 |
 
-#### `report-builder`
-
-レビュー資料準備専門エージェント。
-
-**役割:**
-- 実装を構造化レポートに整理
-- エビデンス（スクリーンショット、動画）を収集・配置
-- yunomiレビュー用に`REPORT.md`を準備
-- yunomiフィードバックを解析してtodoに登録
-
-**呼び出し:**
-```
-Task tool with subagent_type: "report-builder"
-```
-
-**自動読み込みスキル:** `artifact-proof`
-
----
-
-### スキル
-
-#### `artifact-proof`
-
-ビジュアルリグレッションとPRドキュメント用のエビデンス収集を管理。
-
-**機能:**
-- `.artifacts/<feature>/`配下にスクリーンショットと動画
-- 自動キャプチャ用Playwright統合
-- 動画ファイル用Git LFSセットアップ
-- コミットハッシュ付きPR画像URL（ブランチ削除後も永続）
+現在の環境で承認された独立レビューの起動方法・モデル・権限を使います。固定数のエージェント起動や退役済みモデルの利用は要求しません。重大な指摘（Critical/High）は修正・再検証・再レビューしてから人間へ提出します。
 
-**yunomi統合:**
-```bash
-# yunomiでレポートを開く（フォアグラウンド必須）
-npx yunomi .artifacts/<feature>/REPORT.md
+### Markdownだけを既存環境へ配布する
 
-# 動画プレビュー付き
-open .artifacts/<feature>/videos/demo.webm
-npx yunomi .artifacts/<feature>/REPORT.md
-```
-
-#### `webapp-testing`
+信頼済みのローカルYunomiチェックアウトから、`plugin/skills/{do,done,bucho}/` を既存のスキル配置先へコピーします。まず配布先の独自変更を確認し、3つを同じ改訂へそろえます。`/do` 配下の `playbooks/` と `why.md` も含めます。追加インストーラーや第三者スクリプトは必要ありません。Claude Codeプラグインのインストールとは別の操作で、hooksは有効化しません。
 
-Playwrightを使用したブラウザ自動化ツールキット。
+専門レビューの指示は同じチェックアウトの `plugin/agents/` を参照できます。既存環境の `yunomi`、`artifact-proof`、`validate-report`、該当するテストスキル、Web UIの `frontend-design`、委譲する場合の `herdr-pane-commander` も引き続き使用します。これらの補助スキルはこの3スキルの同梱物ではありません。参照先が見つからないときに検証を省略したり、外部スクリプトを取得したりしてはいけません。
 
-**機能:**
-- TypeScript Playwright Test (`@playwright/test`)
-- webServerサポート付きPlaywright設定
-- スクリーンショットと動画キャプチャ
-- コンソールログとネットワークリクエスト監視
-- 高度なデバッグ用CDP統合
+### 証拠・レビュー・再開
 
-**クイック検証:**
-```bash
-node -e "const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
-  await page.screenshot({ path: '/tmp/webapp.png', fullPage: true });
-  await browser.close();
-})();"
-```
+- 元のcheckoutは既定ブランチのまま保持し、その配下の `git wt` ワークツリーで開発します。
+- Webは実ブラウザ、バックエンドは実テストフレームワーク・DBまたは許可済みローカルエミュレーター・カバレッジ、モバイルはMaestroのアサーションと各段階の証拠を使います。Fullstackは両側と通信経路を検証します。
+- 説明図、スクリーンショット、動画を報告の表に埋め込みます。比較では既存と新フローを並べ、維持・追加・変更・明示的廃止を色と文字で区別します。提出前にファイルと埋め込み、起動後にブラウザで画像の読み込みを確認します。
+- REPORT.md、証拠、判断記録には合意済みの保存先を使い、圧縮や再起動後も同じ記録から再開します。`.artifacts/` の新設・移動はユーザーの許可が必要です。証跡はコミットせず、PR添付は既存の添付手段を使います。
+- `yunomi` スキルの現行プロトコルで、検証済みHerdrまたはtmux通知先と `--loop` を指定します。指摘は原文のTODOにして実装・再検証し、同じ承認ループを継続します。人間の承認をAIが代行しません。
+- 完了状態は、実装、ビルド・実動作・証拠の検証、人間の承認、許可済みの配布を区別します。
 
----
+### 既存のフック
 
-### フック
-
-#### PreToolUse（Bashマッチャー）
-
-`git commit`または`git push`検出時にトリガー。
-
-**メッセージ:** コミット前に`/yunomi:done`を実行してyunomiでレビューするよう促す。
-
-#### UserPromptSubmit
-
-すべてのAI応答コンテキストに完了チェックリストを注入。
-
-**目的:** 適切な検証なしの「実装完了」主張を防止。チェックリストは常にAIに見え、完了基準の一貫した適用を保証。
-
----
-
-### ワークフロー
-
-```
-/yunomi:do <タスク説明>
-    ↓
-Worktree作成 + 計画 + TodoWrite
-    ↓
-実装（サブエージェント経由）
-    ↓
-ビルド & 検証（webapp-testing）
-    ↓
-/yunomi:done
-    ↓
-エビデンス収集（artifact-proof）
-    ↓
-npx yunomiでレポートを開く（フォアグラウンド）
-    ↓
-ユーザーコメント → Submit & Exit
-    ↓
-フィードバックをTodoに登録
-    ↓
-修正 → 承認まで再レビュー
-    ↓
-コミット & PR（承認後のみ）
-```
-
-### 完了基準
-
-| ステージ | 内容 | ステータス |
-|----------|------|----------|
-| 1/3 | 実装完了 | まだ報告しない |
-| 2/3 | ビルド、起動、検証完了 | まだ報告しない |
-| 3/3 | yunomiでレビュー → ユーザー承認 | 完了 |
-
-### 設計思想
-
-プラグインは**Human-in-the-loop**開発を強制します:
-
-1. **ショートカットなし:** モック、バイパス、検証スキップは禁止
-2. **エビデンス必須:** すべての完了主張にはスクリーンショット/動画が必要
-3. **ユーザー承認:** ユーザーのみがタスクを完了としてマークできる
-4. **コンテキスト保持:** 重い操作はサブエージェントで実行してコンテキスト枯渇を防止
-
-### `.artifacts`ディレクトリポリシー
-
-`.artifacts/`ディレクトリは開発中に生成されたスクリーンショット、動画、レポートを保存します。**デフォルトでは、このディレクトリは`.gitignore`に追加すべきです**。大きなメディアファイルによるリポジトリ肥大化を防ぎます。
-
-```bash
-# .gitignoreに追加（推奨）
-echo ".artifacts" >> .gitignore
-```
-
-**デフォルトで除外する理由:**
-- スクリーンショットと動画は大きくなる可能性がある（特に画面録画）
-- エビデンスは主にレビュープロセス用で、永続的なドキュメントではない
-- リポジトリサイズを管理可能に保つ
-
-**特定のエビデンスをコミットしたい場合:**
-
-`git add --force`で明示的にファイルを追加:
-
-```bash
-# 特定のエビデンスファイルを強制追加
-git add --force .artifacts/feature/images/final-screenshot.png
-git add --force .artifacts/feature/REPORT.md
-
-# または機能全体のエビデンスを強制追加
-git add --force .artifacts/feature/
-```
-
-**動画ファイル**の場合、リポジトリ肥大化を避けるためGit LFSを使用:
-
-```bash
-git lfs track "*.mp4" "*.webm" "*.mov"
-git add .gitattributes
-git add --force .artifacts/feature/videos/demo.mp4
-```
-
-このアプローチで完全なコントロールが可能: デフォルトで除外、必要なものだけをコミット。
+`plugin/hooks/` と `plugin/hooks-handlers/` は、commit/push前のレビュー確認、完了チェックリスト、worktreeとテストの保護を提供します。今回の3スキル統合は新しいフックや外部実行依存を追加しません。スキルだけの配布でフックを有効化しません。
 
 ## 開発
 

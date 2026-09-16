@@ -326,6 +326,19 @@ try {
     "agents/report-builder.md",
     "agents/report-validator.md",
     "agents/review-e2e.md",
+    "agents/review-code-security.md",
+    "agents/review-ui-ux.md",
+    "skills/do/SKILL.md",
+    "skills/do/why.md",
+    "skills/do/playbooks/investigation.md",
+    "skills/do/playbooks/bug-fix.md",
+    "skills/do/playbooks/feature.md",
+    "skills/do/playbooks/refactoring.md",
+    "skills/do/playbooks/perf-issue.md",
+    "skills/do/playbooks/authoring-a-skill.md",
+    "skills/do/playbooks/session-pickup.md",
+    "skills/done/SKILL.md",
+    "skills/bucho/SKILL.md",
   ];
   const missingPluginFiles = requiredPluginFiles.filter((file) => !existsSync(join(pluginRoot, file)));
   const pluginManifest = JSON.parse(readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
@@ -348,13 +361,91 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.4.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが独立版2.4.0の据え置きとskill非同梱方針を明記している", {
+  assert(pluginManifest.version === "2.6.6" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがyunomi 2.6.6と同じバージョンと3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
-  assert(skillFiles.length === 0, "pluginはskills/SKILL.mdを同梱しない", {
+  assert(JSON.stringify(skillFiles.map(String).sort()) === JSON.stringify(["bucho/SKILL.md", "do/SKILL.md", "done/SKILL.md"]), "pluginがdo・done・buchoを同梱し、tinyによる別の完了経路を持たない", {
     skillFiles,
   });
+  const doSkill = readFileSync(join(pluginSkills, "do", "SKILL.md"), "utf8");
+  const doneSkill = readFileSync(join(pluginSkills, "done", "SKILL.md"), "utf8");
+  const buchoSkill = readFileSync(join(pluginSkills, "bucho", "SKILL.md"), "utf8");
+  const investigation = readFileSync(join(pluginSkills, "do", "playbooks", "investigation.md"), "utf8");
+  const why = readFileSync(join(pluginSkills, "do", "why.md"), "utf8");
+  assert(
+    doSkill.includes("## Select the matching procedure") &&
+      doSkill.includes("playbooks/investigation.md") &&
+      doSkill.includes("playbooks/bug-fix.md") &&
+      doSkill.includes("playbooks/feature.md") &&
+      !/^name:/m.test(investigation) &&
+      investigation.includes("read-only") &&
+      why.includes("recorded") &&
+      why.includes("inferred") &&
+      doneSkill.includes("Inherit the selected procedure") &&
+      buchoSkill.includes("selected procedure"),
+    "/do が種類別手順を選び、playbookは独立スキルにならず、/done と /bucho が引き継ぐ",
+    {
+      hasSelect: doSkill.includes("## Select the matching procedure"),
+      investigationHasName: /^name:/m.test(investigation),
+    },
+  );
+  const claudeMd = readFileSync(join(ROOT, "CLAUDE.md"), "utf8");
+  const reportBuilder = readFileSync(join(pluginAgents, "report-builder.md"), "utf8");
+  const reportValidator = readFileSync(join(pluginAgents, "report-validator.md"), "utf8");
+  const securityReview = readFileSync(join(pluginAgents, "review-code-security.md"), "utf8");
+  const e2eReview = readFileSync(join(pluginAgents, "review-e2e.md"), "utf8");
+  const uiReview = readFileSync(join(pluginAgents, "review-ui-ux.md"), "utf8");
+  const reviewVideo = readFileSync(join(pluginAgents, "review-video.md"), "utf8");
+  assert(
+    claudeMd.includes("すべて `/do` → `/done`") &&
+      claudeMd.includes("`/bucho` は委譲時のみ入口") &&
+      !claudeMd.includes("/tiny-done") &&
+      !claudeMd.includes("tiny系"),
+    "CLAUDE.mdの完了入口は /do → /done のみで tiny を残さない",
+  );
+  assert(
+    reportBuilder.includes("Use this order only") &&
+      !reportBuilder.includes("MUST BE FIRST") &&
+      !reportBuilder.includes("MUST BE SECOND") &&
+      !reportBuilder.includes("ls -la .artifacts") &&
+      !reportBuilder.includes("HEAD~1") &&
+      !reportBuilder.includes("npx yunomi .artifacts"),
+    "report-builderは報告順序を1つだけ持ち、旧commandを残さない",
+  );
+  assert(
+    reportValidator.includes("ラベルそのものを要求しない") &&
+      reportValidator.includes("USER_REQUEST") &&
+      reportValidator.includes("node --input-type=module") &&
+      !reportValidator.includes("grep -P") &&
+      !reportValidator.includes("grep -Pzo") &&
+      !reportValidator.includes("日本語が含まれているか確認") &&
+      !reportValidator.includes("grep -c '## .*Previous Feedback'") &&
+      !reportValidator.includes("grep -c '## .*User Request'") &&
+      !reportValidator.includes("find .artifacts"),
+    "report-validatorはNodeで依頼言語とメディアを検査し、PCRE grepと旧英語見出しを要求しない",
+  );
+  assert(
+    securityReview.includes("git ls-files -- .env") &&
+      securityReview.includes("いかなるファイルにも書かない") &&
+      !securityReview.includes("cat .env") &&
+      !securityReview.includes("REPORT.mdへの追記") &&
+      !securityReview.includes("末尾に以下のセクションを追記"),
+    "security reviewerは秘密値を出力せず報告書へ書かない",
+  );
+  assert(
+    e2eReview.includes("git ls-files -- .env.test") &&
+      e2eReview.includes("報告書へは書かない") &&
+      !e2eReview.includes("cat .env.test") &&
+      !uiReview.includes("HEAD~1") &&
+      !uiReview.includes("末尾に以下のセクションを追記"),
+    "read-only reviewerは.env本文とHEAD~1差分を使わない",
+  );
+  assert(
+    reviewVideo.includes("2. **期待される操作フロー**") &&
+      !reviewVideo.includes("3. **期待される操作フロー**"),
+    "review-videoの入力番号が連続している",
+  );
   assert(
     Array.isArray(hooksConfig.hooks?.PreToolUse) &&
       Array.isArray(hooksConfig.hooks?.PostToolUse) &&
