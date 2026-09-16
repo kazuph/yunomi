@@ -35,10 +35,25 @@ REPORT.mdの説明図の必須条件と、artifact-proofスキルの既存5ル�
 - 技術用語・コード識別子は英語のままでOK
 ```
 
-**検出パターン**:
+**検出パターン** (Node。macOS 標準 `grep` の `-P` / `-Pzo` は使わない):
 ```bash
-# 日本語が含まれているか確認
-grep -P '[\p{Hiragana}\p{Katakana}\p{Han}]' "$REPORT_PATH"
+# 主担当が渡した依頼原文 USER_REQUEST と REPORT_PATH を比較する。日本語の有無だけを合格条件にしない。
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const report = readFileSync(process.env.REPORT_PATH, "utf8");
+const request = process.env.USER_REQUEST ?? "";
+const jp = /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u;
+const requestJa = jp.test(request);
+const reportJa = jp.test(report);
+if (!request) {
+  console.error("USER_REQUEST missing; language match unverified");
+  process.exit(2);
+}
+if (requestJa !== reportJa) {
+  console.error(requestJa ? "report language does not match the Japanese request" : "report language does not match the English request");
+  process.exit(1);
+}
+'
 ```
 
 **違反例**:
@@ -57,15 +72,23 @@ grep -P '[\p{Hiragana}\p{Katakana}\p{Han}]' "$REPORT_PATH"
 | 動画構文 | `![alt](video.webm)` | `[alt](video.webm)` |
 | 配置 | テーブル内（横並び） | 縦積み |
 
-**検出パターン**:
+**検出パターン** (Node。macOS 標準 `grep` の `-P` / `-Pzo` は使わない):
 
 ```bash
-# リンク構文で画像/動画を参照している（違反）
-grep -E '^\[.*\]\(.*\.(png|jpg|gif|webm|mp4)\)' "$REPORT_PATH"
-
-# テーブル外で画像が縦積みされている（違反）
-# 連続する行で![...](...) が2つ以上ある場合
-grep -Pzo '!\[.*\]\(.*\)\n!\[.*\]\(.*\)' "$REPORT_PATH"
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+const lines = readFileSync(process.env.REPORT_PATH, "utf8").split(/\n/);
+const link = /^\s*\[[^\]]*\]\([^)]+\.(?:png|jpe?g|gif|webp|webm|mp4)\)\s*$/;
+const image = /^\s*!\[[^\]]*\]\([^)]+\)\s*$/;
+let prevBareImage = false;
+for (let i = 0; i < lines.length; i++) {
+  const line = lines[i];
+  if (link.test(line)) console.log("L" + (i + 1) + " link-syntax");
+  const bareImage = image.test(line) && !line.includes("|");
+  if (bareImage && prevBareImage) console.log("L" + i + "-" + (i + 1) + " stacked-images");
+  prevBareImage = bareImage;
+}
+'
 ```
 
 **違反例**:
@@ -202,7 +225,7 @@ grep -Pzo '!\[.*\]\(.*\)\n!\[.*\]\(.*\)' "$REPORT_PATH"
 
 | Rule | Check | Status | Details |
 |------|-------|--------|---------|
-| 1 | 言語ポリシー | ✅ | 日本語で記載（依頼言語と一致） |
+| 1 | 言語ポリシー | ✅ | 依頼言語と一致 |
 | 2 | メディアフォーマット | ❌ | 画像が縦積みされている（L45-46） |
 | 3 | 優先順位 | ✅ | 元の依頼と結果が先頭、判断材料が近接 |
 | 4 | フィードバック累積 | ⚠️ | 累積があるのに原文と対処が対応付いていない |

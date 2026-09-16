@@ -361,7 +361,7 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.5.2" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonが統合ワークフロー2.5.2と3スキルの同梱を明記している", {
+  assert(pluginManifest.version === "2.6.6" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがyunomi 2.6.6と同じバージョンと3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
@@ -396,6 +396,7 @@ try {
   const securityReview = readFileSync(join(pluginAgents, "review-code-security.md"), "utf8");
   const e2eReview = readFileSync(join(pluginAgents, "review-e2e.md"), "utf8");
   const uiReview = readFileSync(join(pluginAgents, "review-ui-ux.md"), "utf8");
+  const reviewVideo = readFileSync(join(pluginAgents, "review-video.md"), "utf8");
   assert(
     claudeMd.includes("すべて `/do` → `/done`") &&
       claudeMd.includes("`/bucho` は委譲時のみ入口") &&
@@ -414,10 +415,15 @@ try {
   );
   assert(
     reportValidator.includes("ラベルそのものを要求しない") &&
+      reportValidator.includes("USER_REQUEST") &&
+      reportValidator.includes("node --input-type=module") &&
+      !reportValidator.includes("grep -P") &&
+      !reportValidator.includes("grep -Pzo") &&
+      !reportValidator.includes("日本語が含まれているか確認") &&
       !reportValidator.includes("grep -c '## .*Previous Feedback'") &&
       !reportValidator.includes("grep -c '## .*User Request'") &&
       !reportValidator.includes("find .artifacts"),
-    "report-validatorは旧英語見出しとglob探索を要求しない",
+    "report-validatorはNodeで依頼言語とメディアを検査し、PCRE grepと旧英語見出しを要求しない",
   );
   assert(
     securityReview.includes("git ls-files -- .env") &&
@@ -434,6 +440,11 @@ try {
       !uiReview.includes("HEAD~1") &&
       !uiReview.includes("末尾に以下のセクションを追記"),
     "read-only reviewerは.env本文とHEAD~1差分を使わない",
+  );
+  assert(
+    reviewVideo.includes("2. **期待される操作フロー**") &&
+      !reviewVideo.includes("3. **期待される操作フロー**"),
+    "review-videoの入力番号が連続している",
   );
   assert(
     Array.isArray(hooksConfig.hooks?.PreToolUse) &&
