@@ -326,6 +326,19 @@ try {
     "agents/report-builder.md",
     "agents/report-validator.md",
     "agents/review-e2e.md",
+    "agents/review-code-security.md",
+    "agents/review-ui-ux.md",
+    "skills/do/SKILL.md",
+    "skills/do/why.md",
+    "skills/do/playbooks/investigation.md",
+    "skills/do/playbooks/bug-fix.md",
+    "skills/do/playbooks/feature.md",
+    "skills/do/playbooks/refactoring.md",
+    "skills/do/playbooks/perf-issue.md",
+    "skills/do/playbooks/authoring-a-skill.md",
+    "skills/do/playbooks/session-pickup.md",
+    "skills/done/SKILL.md",
+    "skills/bucho/SKILL.md",
   ];
   const missingPluginFiles = requiredPluginFiles.filter((file) => !existsSync(join(pluginRoot, file)));
   const pluginManifest = JSON.parse(readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
@@ -348,13 +361,35 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.4.0" && pluginManifest.description.includes("Workflow skills"), "plugin.jsonが独立版2.4.0の据え置きとskill非同梱方針を明記している", {
+  assert(pluginManifest.version === "2.5.1" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonが統合ワークフロー2.5.1と3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
-  assert(skillFiles.length === 0, "pluginはskills/SKILL.mdを同梱しない", {
+  assert(JSON.stringify(skillFiles.map(String).sort()) === JSON.stringify(["bucho/SKILL.md", "do/SKILL.md", "done/SKILL.md"]), "pluginがdo・done・buchoを同梱し、tinyによる別の完了経路を持たない", {
     skillFiles,
   });
+  const doSkill = readFileSync(join(pluginSkills, "do", "SKILL.md"), "utf8");
+  const doneSkill = readFileSync(join(pluginSkills, "done", "SKILL.md"), "utf8");
+  const buchoSkill = readFileSync(join(pluginSkills, "bucho", "SKILL.md"), "utf8");
+  const investigation = readFileSync(join(pluginSkills, "do", "playbooks", "investigation.md"), "utf8");
+  const why = readFileSync(join(pluginSkills, "do", "why.md"), "utf8");
+  assert(
+    doSkill.includes("## Select the matching procedure") &&
+      doSkill.includes("playbooks/investigation.md") &&
+      doSkill.includes("playbooks/bug-fix.md") &&
+      doSkill.includes("playbooks/feature.md") &&
+      !/^name:/m.test(investigation) &&
+      investigation.includes("read-only") &&
+      why.includes("recorded") &&
+      why.includes("inferred") &&
+      doneSkill.includes("Inherit the selected procedure") &&
+      buchoSkill.includes("selected procedure"),
+    "/do が種類別手順を選び、playbookは独立スキルにならず、/done と /bucho が引き継ぐ",
+    {
+      hasSelect: doSkill.includes("## Select the matching procedure"),
+      investigationHasName: /^name:/m.test(investigation),
+    },
+  );
   assert(
     Array.isArray(hooksConfig.hooks?.PreToolUse) &&
       Array.isArray(hooksConfig.hooks?.PostToolUse) &&

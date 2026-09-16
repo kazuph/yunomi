@@ -252,363 +252,55 @@ This repository also serves as a Claude Code plugin marketplace. The plugin inte
 /plugin install yunomi-plugin@yunomi-plugins
 ```
 
-### Install Skills with `npx skills`
-
-Use this route when you want the task skills in Codex, OpenCode, Cursor, or other agent environments that support `npx skills`. For Claude Code, use the plugin installation flow above.
-
-```bash
-# Preview what will be installed
-npx skills add https://github.com/kazuph/yunomi --list
-
-# Install all yunomi skills globally for Codex
-npx skills add https://github.com/kazuph/yunomi -g -a codex -s '*' --copy -y
-
-# Install all yunomi skills globally for Codex and OpenCode
-npx skills add https://github.com/kazuph/yunomi -g -a codex -a opencode -s '*' --copy -y
-```
-
-`npx skills` distributes the skill directories under `plugin/skills/`. With `-a codex -g --copy`, the skills are copied into Codex's global skills directory at `~/.agents/skills/`. If `~/.agents/skills` is a symlink, the copied files land in the symlink target.
-
-Claude Code plugin commands and hooks are installed through the Claude Code plugin flow above, not through `npx skills`.
-
-### Plugin Directory Structure
-
-```
-plugin/
-├── .claude-plugin/
-│   └── plugin.json          # Plugin metadata (name, version, description)
-├── agents/
-│   ├── report-builder.md     # Report generation agent
-│   ├── e2e-health-reviewer.md    # E2E test health check
-│   ├── review-code-quality.md    # Code quality review
-│   ├── review-security.md        # Security audit
-│   ├── review-a11y-ux.md         # Accessibility & UX
-│   ├── review-figma-fidelity.md  # Design fidelity
-│   ├── review-copy-consistency.md # Text consistency
-│   └── review-e2e-integrity.md   # E2E test integrity
-├── skills/
-│   ├── ask/
-│   │   └── SKILL.md          # Requirements elicitation skill
-│   ├── bucho/
-│   │   └── SKILL.md          # Manager orchestration skill
-│   ├── do/
-│   │   └── SKILL.md          # Task start skill
-│   ├── done/
-│   │   └── SKILL.md          # Task completion skill
-│   ├── exit-notifier/
-│   │   ├── SKILL.md          # Background task exit notification skill
-│   │   └── scripts/
-│   │       └── watch-exit-notify.sh
-│   ├── tiny-do/
-│   │   └── SKILL.md          # Lightweight task start skill
-│   ├── tiny-done/
-│   │   └── SKILL.md          # Lightweight task completion skill
-│   ├── validate-report/
-│   │   └── SKILL.md          # Internal REPORT.md validation helper
-│   ├── artifact-proof/
-│   │   └── SKILL.md          # Evidence collection skill
-│   └── webapp-testing/
-│       ├── SKILL.md          # Web testing skill
-│       ├── scripts/          # Helper scripts
-│       └── examples/         # Usage examples
-├── hooks/
-│   └── hooks.json            # Hook definitions
-├── hooks-handlers/
-│   └── completion-checklist.sh  # UserPromptSubmit handler
-└── README.md
-```
-
-### Components Overview
-
-| Type | Name | Description |
-|------|------|-------------|
-| **Task Skill** | `/yunomi:do` | Start a task - create worktree with git wt, plan, register todos |
-| **Task Skill** | `/yunomi:done` | Complete checklist - run 7 review agents, collect evidence, start review |
-| **Task Skill** | `/yunomi:tiny-do` | Start a smaller task with the lightweight workflow |
-| **Task Skill** | `/yunomi:tiny-done` | Finish a smaller task with lightweight review |
-| **Task Skill** | `/yunomi:bucho` | Orchestrate Claude Code and Codex in manager mode |
-| **Agent** | `report-builder` | Prepare reports and evidence for user review |
-| **Agent** | `review-code-quality` | Code quality: readability, DRY, type safety, error handling |
-| **Agent** | `review-security` | Security: XSS, injection, OWASP Top 10, secrets detection |
-| **Agent** | `review-a11y-ux` | Accessibility: WCAG 2.2 AA, keyboard nav, UX flow |
-| **Agent** | `review-figma-fidelity` | Design: token compliance, visual consistency |
-| **Agent** | `review-copy-consistency` | Copy: text consistency, tone & manner, i18n |
-| **Agent** | `review-e2e-integrity` | E2E: user flow reproduction, mock contamination |
-| **Agent** | `e2e-health-reviewer` | E2E: goto restrictions, record assertions, hardcoding |
-| **Skill** | `artifact-proof` | Collect evidence (screenshots, videos, logs) |
-| **Skill** | `exit-notifier` | Notify the current tmux / Herdr pane when background tasks exit, including captured stdout/stderr |
-| **Skill** | `webapp-testing` | Browser automation and verification with Playwright |
-| **Hook** | PreToolUse | Remind to review before git commit/push |
-| **Hook** | UserPromptSubmit | Inject completion checklist into AI context |
-
----
-
-### Task Skills
-
-#### Bundled task skills
-
-| Skill | Purpose |
-|------|---------|
-| `ask` | Clarify requirements, scope, constraints, and success criteria before implementation |
-| `bucho` | Orchestrate Claude Code and Codex as a managed team through tmux |
-| `check-yourself` | Force real verification instead of assumptions or lightweight spot checks |
-| `commit-and-push` | Generate a commit message, create the commit, push it, and confirm a clean git state |
-| `do` | Start the full task workflow with worktree setup, planning, and review preparation |
-| `done` | Run the full completion workflow with evidence collection and yunomi-based review |
-| `exit-notifier` | Report background task completion and captured stdout/stderr back into the current tmux / Herdr pane |
-| `open` | Open files, artifacts, and URLs with macOS `open` |
-| `tiny-do` | Start a smaller task with the lightweight workflow |
-| `tiny-done` | Finish a smaller task with the lightweight completion flow |
-| `validate-report` | Internal helper used by `done` to validate `REPORT.md` against artifact-proof reporting rules |
-
-#### `/yunomi:do <task description>`
-
-Starts a new task with proper environment setup.
-
-**What it does:**
-1. Creates a git worktree using git wt for isolated development (`feature/<name>`, `fix/<name>`, etc.)
-2. Sets up `.artifacts/<feature>/` directory for evidence
-3. Creates `REPORT.md` with plan and TODO checklist
-4. Registers todos in TodoWrite for progress tracking
-
-**Directory structure created:**
-```
-<worktree>/                   # e.g., .worktree/feature-auth/
-└── .artifacts/
-    └── <feature>/            # e.g., auth (from feature/auth)
-        ├── REPORT.md         # Plan, progress, evidence links
-        ├── images/           # Screenshots
-        └── videos/           # Video recordings
-```
-
-**Task resumption:** When a session starts or after context compaction, the skill checks for existing worktrees (via `git wt`) and resumes from `REPORT.md`.
-
-#### `/yunomi:done`
-
-Validates completion criteria before allowing task completion.
-
-**Checklist enforced:**
-- [ ] Build succeeded (no type/lint errors)
-- [ ] Development server started and working
-- [ ] Verified with `webapp-testing` skill
-- [ ] Evidence collected in `.artifacts/<feature>/`
-- [ ] Report created with `artifact-proof` skill
-- [ ] Reviewed with yunomi (foreground mode)
-- [ ] User approval received
-
-**Prohibited:**
-- Saying "implementation complete" without verification
-- Committing/pushing before yunomi review
-- Reports without evidence
-
----
-
-### Agents
-
-#### Review Agents (7 agents run in parallel)
-
-When `/yunomi:done` is executed, 7 review agents run simultaneously and append their findings to `REPORT.md`:
-
-| Agent | Focus | Output Section |
-|-------|-------|----------------|
-| `review-code-quality` | Readability, DRY, type safety, error handling | Code Quality Review |
-| `review-security` | XSS, injection, OWASP Top 10, secrets | Security Review |
-| `review-a11y-ux` | WCAG 2.2 AA, keyboard nav, focus management | A11y & UX Review |
-| `review-figma-fidelity` | Design tokens, visual consistency | Figma Fidelity Review |
-| `review-copy-consistency` | Text consistency, i18n, tone & manner | Copy Consistency Review |
-| `review-e2e-integrity` | User flow reproduction, mock contamination | E2E Integrity Review |
-| `e2e-health-reviewer` | goto restrictions, record assertions | E2E Health Review |
+### Unified development workflow
 
-**Total score:** Each agent scores X/5, combined for X/35 total.
+The canonical sources are `plugin/skills/do/`, `done/`, and `bucho/`. Personal installations contain identical copies. `tiny-do` and `tiny-done` are retired into these entries; task size does not select a lower quality level.
 
-**Invocation (parallel):**
-```
-Task tool with 7 parallel calls:
-  subagent_type: "review-code-quality"
-  subagent_type: "review-security"
-  subagent_type: "review-a11y-ux"
-  subagent_type: "review-figma-fidelity"
-  subagent_type: "review-copy-consistency"
-  subagent_type: "review-e2e-integrity"
-  subagent_type: "e2e-health-reviewer"
-```
-
-#### `report-builder`
-
-Specialized agent for preparing review materials (runs after review agents).
-
-**Role:**
-- Organize implementation into a structured report
-- Calculate total review score (X/35)
-- Collect and arrange evidence (screenshots, videos)
-- Prepare `REPORT.md` for yunomi review
-- Parse yunomi feedback and register as todos
-
-**Invocation:**
-```
-Task tool with subagent_type: "report-builder"
-```
-
-**Skills auto-loaded:** `artifact-proof`
-
----
-
-### Skills
-
-#### `artifact-proof`
-
-Manages evidence collection for visual regression and PR documentation.
-
-**Features:**
-- Screenshots and videos under `.artifacts/<feature>/`
-- Playwright integration for automated capture
-- Git LFS setup for video files
-- PR image URLs with commit hashes (persist after branch deletion)
-
-**yunomi integration:**
-```bash
-# Open report in yunomi (foreground required)
-npx yunomi .artifacts/<feature>/REPORT.md
-
-# With video preview
-open .artifacts/<feature>/videos/demo.webm
-npx yunomi .artifacts/<feature>/REPORT.md
-```
-
-#### `webapp-testing`
-
-Browser automation toolkit using Playwright.
-
-**Features:**
-- TypeScript Playwright Test (`@playwright/test`)
-- Playwright configuration with webServer support
-- Screenshot and video capture
-- Console log and network request monitoring
-- CDP integration for advanced debugging
-
-**Quick verification:**
-```bash
-node -e "const { chromium } = require('playwright');
-(async () => {
-  const browser = await chromium.launch();
-  const page = await browser.newPage();
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
-  await page.screenshot({ path: '/tmp/webapp.png', fullPage: true });
-  await browser.close();
-})();"
-```
-
----
-
-### Hooks
-
-#### PreToolUse (Bash matcher)
-
-Triggers when `git commit` or `git push` is detected.
-
-**Message:** Reminds to run `/yunomi:done` and review with yunomi before committing.
-
-#### UserPromptSubmit
-
-Injects completion checklist into every AI response context.
-
-**Purpose:** Prevents "implementation complete" claims without proper verification. The checklist is always visible to the AI, ensuring consistent enforcement of completion criteria.
-
----
-
-### Workflow
-
-```
-/yunomi:do <task description>
-    ↓
-Create worktree + Plan + TodoWrite
-    ↓
-Implementation (via subagents)
-    ↓
-Build & Verify (webapp-testing)
-    ↓
-/yunomi:done
-    ↓
-┌─────────────────────────────────────────────┐
-│  7 Review Agents (parallel execution)       │
-│                                             │
-│  review-code-quality ──┐                    │
-│  review-security ──────┤                    │
-│  review-a11y-ux ───────┼──→ REPORT.md      │
-│  review-figma-fidelity ┤    (append)        │
-│  review-copy-consistency                    │
-│  review-e2e-integrity ─┤                    │
-│  e2e-health-reviewer ──┘                    │
-└─────────────────────────────────────────────┘
-    ↓
-report-builder (organize + score)
-    ↓
-Collect evidence (artifact-proof)
-    ↓
-npx yunomi opens report (foreground)
-    ↓
-User comments → Submit & Exit
-    ↓
-Register feedback to Todo
-    ↓
-Fix → Re-review until approved
-    ↓
-Commit & PR (only after approval)
-```
-
-### Completion Criteria
-
-| Stage | Content | Status |
-|-------|---------|--------|
-| 1/3 | Implementation complete | Do not report yet |
-| 2/3 | Build, start, verification complete | Do not report yet |
-| 3/3 | Review with yunomi → User approval | Now complete |
-
-### Design Philosophy
-
-The plugin enforces **human-in-the-loop** development:
-
-1. **No shortcuts:** Mocks, bypasses, and skipped verifications are prohibited
-2. **Evidence required:** Every completion claim must have screenshots/videos
-3. **User approval:** Only the user can mark a task as complete
-4. **Context preservation:** Heavy operations run in subagents to prevent context exhaustion
-
-### `.artifacts` Directory Policy
-
-The `.artifacts/` directory stores screenshots, videos, and reports generated during development. **By default, this directory should be added to `.gitignore`** to prevent repository bloat from large media files.
-
-```bash
-# Add to .gitignore (recommended)
-echo ".artifacts" >> .gitignore
-```
-
-**Why ignore by default:**
-- Screenshots and videos can be large (especially screen recordings)
-- Evidence is primarily for the review process, not permanent documentation
-- Keeps repository size manageable
-
-**If you need to commit specific evidence:**
-
-Use `git add --force` to explicitly add files you want to preserve:
-
-```bash
-# Force add specific evidence files
-git add --force .artifacts/feature/images/final-screenshot.png
-git add --force .artifacts/feature/REPORT.md
-
-# Or force add an entire feature's evidence
-git add --force .artifacts/feature/
-```
-
-**For video files**, use Git LFS to avoid bloating the repository:
-
-```bash
-git lfs track "*.mp4" "*.webm" "*.mov"
-git add .gitattributes
-git add --force .artifacts/feature/videos/demo.mp4
-```
-
-This approach gives you full control: ignore by default, commit only what matters.
+| Entry | Responsibilities |
+|---|---|
+| `/do` | Discover requirements and protected behavior, **select the matching playbook**, trace all callers, choose reuse and domain/state ownership, obtain design advice, use a nested git-wt worktree, implement with TDD and verified prerequisites, and continue into `/done`. |
+| `/done` | Verify additions and regressions, deslop without changing behavior, build and exercise real flows, complete specialist reviews, validate diagrams/screenshots/video/report, and continue the human feedback loop. |
+| `/bucho` | Delegate the same complete `/do` → `/done` outcome to an approved Herdr lead, maintain a durable decision record, and inspect actual diffs and evidence before acceptance. |
+
+Check the agent's skill list for any namespaced invocation. See the executable instructions in [do](plugin/skills/do/SKILL.md), [done](plugin/skills/done/SKILL.md), and [bucho](plugin/skills/bucho/SKILL.md).
+
+### Adopted practices and retained guarantees
+
+P-Stack contributes choosing a procedure from the request (investigation, bug-fix, feature, and the other nested playbooks under `/do`), understanding the real flow, modeling data/state/ownership, resolving observable questions with experiments, verifying prerequisites before dependent work, and retaining reasons and evidence for decisions. Ponytail contributes considering repository code, standard facilities, platform features, installed dependencies, then new code after understanding the full requirement, and fixing shared causes across callers.
+
+Existing discovery, design advice, TDD, code/security and E2E reviews, applicable UI/UX review, screenshots and video, report validation, and human approval remain required. Deslop retains trust-boundary validation, data protection, security, accessibility, diagnostics, and necessary tests. No third-party workflow scripts, libraries, or model defaults are imported.
+
+### Existing agent instructions
+
+| File under `plugin/agents/` | Responsibility |
+|---|---|
+| `review-code-security.md` | Design advice and final code/security review: types, errors, reuse, injection, authentication/authorization, secrets, and cryptography. |
+| `review-e2e.md` | Real flows, assertions, persisted state, mocks/bypasses, waits, and test environment across project types. |
+| `review-ui-ux.md` | Applicable WCAG 2.2 AA, keyboard/focus, design consistency, copy, and internationalization. |
+| `report-builder.md` / `report-validator.md` | Original request/feedback, decisions, embedded diagram/evidence, links, and report format. |
+| `webapp-impl.md` / `backend-impl.md` / `mobile-impl.md` | Implementation and real verification for each project type. |
+| `dogfooding.md` / `review-video.md` | Real operation and video review. |
+
+Use the current environment's approved independent review routing, models, and permissions. Do not launch a fixed number of retired agents. Resolve Critical/High findings, reverify, and obtain the affected re-review before human acceptance.
+
+### Distribute Markdown into an existing environment
+
+Copy `plugin/skills/{do,done,bucho}/` from a trusted local Yunomi checkout into the existing skill directory after checking destination changes. Keep the three copies at the same revision, including `/do`'s nested `playbooks/` and `why.md`. No additional installer, script, or library is required. Copying skills does not enable plugin hooks.
+
+Review instructions remain available at `plugin/agents/` in that checkout. The environment's existing `yunomi`, `artifact-proof`, `validate-report`, applicable testing skills, `frontend-design` for Web UI, and `herdr-pane-commander` for delegation remain prerequisites; they are not bundled with these three skill directories. Missing required instructions are a concrete blocker, not permission to skip a review or fetch an external runner.
+
+### Evidence, review, and resumption
+
+- Keep the original checkout on its default branch and work in a nested `git wt` worktree.
+- Web uses the real browser; backend uses its actual test framework, database or permitted local emulator, and coverage; mobile uses Maestro assertions and per-step evidence. Fullstack verifies both sides and the request/response/persistence path.
+- Embed the explanatory diagram, screenshots, and video in report tables. Comparisons place old and new flows side by side, labeling and coloring preserved, added, changed, and explicitly retired behavior. Check files/embedding before launch and actual browser image loading afterward.
+- Use the agreed report/evidence location and retain consequential decisions for resumption after compaction. Creating or relocating `.artifacts/` requires authorization. Never commit evidence; use the existing PR attachment mechanism.
+- Follow the installed `yunomi` protocol with a proven Herdr or tmux notification route and `--loop`. Convert exact human feedback into implementation and verification TODOs and continue the same review loop. Agents do not grant human approval.
+- Distinguish implementation, build/operation/evidence verification, human acceptance, and authorized delivery.
+
+### Existing hooks
+
+`plugin/hooks/` and `plugin/hooks-handlers/` retain pre-commit/push review reminders, completion reminders, worktree protection, and test guards. The workflow integration adds no hooks or external executable dependencies. Markdown-only distribution does not activate hooks.
 
 ## Development
 
