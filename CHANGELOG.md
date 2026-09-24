@@ -9,6 +9,8 @@
 ### Added
 
 - Notifications that never reach the launching agent — for example when upstream Herdr refuses delivery because the agent is waiting at an approval dialog (`agent_blocked`) or is not the pane's foreground process (`agent_not_ready`) — are no longer only a server log line. The header shows an orange counter; its panel lists each lost message with the reason and a resend control that re-delivers the exact original message once the agent can take it. Resend accepts only messages yunomi stored, and the list survives a reload.
+- The Submit dialog lists notifications that have not reached the agent, each with its resend control, so they can be delivered before approving.
+- When the final verdict itself does not reach the agent, yunomi no longer exits: the review is saved, the tab stays open with the undelivered list, and yunomi exits once the verdict is resent successfully, when the human chooses "Exit without delivering", or when the last tab closes. Anything still undelivered at exit is printed in full to yunomi's output.
 
 ## v2.6.2 - 2026-09-04
 

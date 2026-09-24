@@ -296,6 +296,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   )
   buf.write_string("</div>")
   buf.write_string(
+    "<div class=\"submit-undelivered\" id=\"submit-undelivered\" role=\"group\" aria-labelledby=\"submit-undelivered-message\" hidden><span class=\"submit-undelivered-message\" id=\"submit-undelivered-message\"></span><div class=\"submit-undelivered-list\" id=\"submit-undelivered-list\"></div></div>",
+  )
+  buf.write_string(
     "<div class=\"approve-blocked-reason\" id=\"approve-blocked-reason\" role=\"status\"><span class=\"approve-blocked-message\"></span><button type=\"button\" id=\"review-unresolved-action\">Review unresolved item</button></div>",
   )
   buf.write_string("<div class=\"modal-actions modal-actions-decision\">")

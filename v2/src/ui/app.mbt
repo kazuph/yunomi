@@ -1800,6 +1800,17 @@ fn submit_review(_port : Int) -> Unit {
       show_toast("Resolve all open threads before approving")
       return
     }
+    if response.contains("\"held\":true") {
+      // Submitted, but the verdict did not reach the agent: the server keeps
+      // running and the undelivered list offers resend or exit. The tab
+      // stays and must report a later close so the held server can end.
+      hide_submit_modal()
+      ls_remove(get_storage_key())
+      submit_in_flight.val = false
+      close_report_sent.val = false
+      refresh_notify_undelivered()
+      return
+    }
     // Hide the Submit Review dialog explicitly instead of relying solely
     // on the tab itself going away — window_close() is refused by real
     // browsers for tabs they didn't script-open (which is how yunomi opens

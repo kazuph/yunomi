@@ -5,12 +5,19 @@
 /// outdated Herdr, a missing tmux pane) until a resend succeeds. This module
 /// shows the count in the header, lists each lost message with the reason,
 /// and resends one through `/notify/retry`, which only accepts ids the server
-/// stored. `render_notify_undelivered_json` receives the list from the
+/// stored. The Submit dialog lists the same notifications so they can be
+/// resent before approving. When the final verdict itself was not delivered
+/// the server holds its exit (`held`): the list opens with an exit control,
+/// and delivering the verdict or confirming the exit closes the tab. `render_notify_undelivered_json` receives the list from the
 /// `notify-undelivered` SSE event; installation fetches the current list so a
 /// reload or reconnect shows losses that happened while no tab was open.
 extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|(retryIcon) => {
   #|  if (window.__yunomiNotifyUndelivered) return;
+  #|  // The header is a sticky stacking context below the side panels; the
+  #|  // list lives on <body> so its own z-index puts it above them.
+  #|  const initialPanel = document.querySelector("#notify-undelivered-panel");
+  #|  if (initialPanel && initialPanel.parentElement !== document.body) document.body.appendChild(initialPanel);
   #|  const url = (path) => {
   #|    const context = String(window.__YUNOMI_REQUEST_CONTEXT__ || "");
   #|    if (!context) return location.origin + path;
@@ -19,8 +26,16 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|  };
   #|  const badge = () => document.querySelector("#notify-undelivered");
   #|  const panel = () => document.querySelector("#notify-undelivered-panel");
+  #|  const submitBox = () => document.querySelector("#submit-undelivered");
   #|  let items = [];
   #|  let version = -1;
+  #|  let held = false;
+  #|  // Same exit as a completed submit: browsers refuse window.close() for
+  #|  // tabs they did not script-open, so park the survivor on about:blank.
+  #|  const closeTab = () => {
+  #|    window.close();
+  #|    setTimeout(() => location.replace("about:blank"), 400);
+  #|  };
   #|  const live = (text) => {
   #|    const region = document.querySelector("#notify-undelivered-live");
   #|    if (region) region.textContent = text;
@@ -62,15 +77,14 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|    p.style.left = Math.round(Math.min(Math.max(16, rect.right - width), maxLeft)) + "px";
   #|  };
   #|  window.addEventListener("resize", place);
-  #|  const renderPanel = () => {
-  #|    const p = panel();
-  #|    if (!p) return;
+  #|  const renderList = (container, extra) => {
   #|    // Rebuilding the rows must not drop keyboard focus: remember which
   #|    // notification's control had it and give it back to the same one.
-  #|    const focusedId = p.contains(document.activeElement)
+  #|    const hadFocus = container.contains(document.activeElement);
+  #|    const focusedId = hadFocus
   #|      ? document.activeElement.closest("[data-notify-id]")?.dataset.notifyId || ""
   #|      : "";
-  #|    p.replaceChildren(...items.map((item) => {
+  #|    const rows = items.map((item) => {
   #|      const row = document.createElement("div");
   #|      row.className = "notify-undelivered-item";
   #|      row.dataset.notifyId = item.id;
@@ -107,6 +121,7 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|            live(result.delivered
   #|              ? "Resent to the agent: " + item.summary
   #|              : "Still not delivered to the agent: " + item.summary);
+  #|            if (result.exiting) closeTab();
   #|          }
   #|        } catch (_) {
   #|          // The SSE list stays authoritative; a network error leaves the row.
@@ -116,14 +131,53 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|      });
   #|      row.append(summary, retry, error);
   #|      return row;
-  #|    }));
-  #|    if (focusedId) {
-  #|      const again = p.querySelector('[data-notify-id="' + CSS.escape(focusedId) + '"] .notify-undelivered-retry')
-  #|        || p.querySelector(".notify-undelivered-retry");
-  #|      // With nothing left the counter hides, so hand focus to the live
-  #|      // connection status next to it instead of a hidden control.
+  #|    });
+  #|    container.replaceChildren(...(extra ? [extra.status, ...rows, extra.finish] : rows));
+  #|    if (hadFocus) {
+  #|      const again = (focusedId && container.querySelector('[data-notify-id="' + CSS.escape(focusedId) + '"] .notify-undelivered-retry'))
+  #|        || container.querySelector(".notify-undelivered-retry")
+  #|        || container.querySelector(".notify-undelivered-finish");
   #|      if (again) again.focus();
-  #|      else document.querySelector("#sse-status")?.focus();
+  #|      else if (container === panel()) document.querySelector("#sse-status")?.focus();
+  #|    }
+  #|  };
+  #|  const heldControls = () => {
+  #|    const status = document.createElement("div");
+  #|    status.className = "notify-undelivered-held";
+  #|    status.textContent = "Review submitted. The agent has not received the verdict.";
+  #|    const finish = document.createElement("button");
+  #|    finish.type = "button";
+  #|    finish.className = "notify-undelivered-finish";
+  #|    finish.textContent = "Exit without delivering";
+  #|    finish.addEventListener("click", async (event) => {
+  #|      event.stopPropagation();
+  #|      if (finish.getAttribute("aria-disabled") === "true") return;
+  #|      finish.setAttribute("aria-disabled", "true");
+  #|      try {
+  #|        const response = await fetch(url("/notify/finish"), { method: "POST" });
+  #|        if (response.ok) closeTab();
+  #|        else await refresh();
+  #|      } catch (_) {
+  #|      } finally {
+  #|        finish.removeAttribute("aria-disabled");
+  #|      }
+  #|    });
+  #|    return { status, finish };
+  #|  };
+  #|  const renderPanel = () => {
+  #|    const p = panel();
+  #|    if (p) renderList(p, held ? heldControls() : null);
+  #|    const box = submitBox();
+  #|    const list = document.querySelector("#submit-undelivered-list");
+  #|    if (box && list) {
+  #|      box.hidden = items.length === 0;
+  #|      const message = box.querySelector(".submit-undelivered-message");
+  #|      if (message) {
+  #|        message.textContent = items.length === 1
+  #|          ? "1 notification has not reached the agent."
+  #|          : items.length + " notifications have not reached the agent.";
+  #|      }
+  #|      renderList(list, null);
   #|    }
   #|  };
   #|  // `announce` is false for the first list after load: those losses
@@ -159,8 +213,16 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|      const next = Number(data.version ?? 0);
   #|      if (next < version) return;
   #|      const announce = version >= 0;
+  #|      const wasHeld = held;
   #|      version = next;
+  #|      held = data.held === true;
   #|      render(data.items, announce);
+  #|      // The submit is done but its verdict is stuck: open the list so the
+  #|      // human resends it or exits, with focus on the first choice.
+  #|      if (held && !wasHeld) {
+  #|        setOpen(true);
+  #|        panel()?.querySelector(".notify-undelivered-retry, .notify-undelivered-finish")?.focus();
+  #|      }
   #|    } catch (_) {}
   #|  };
   #|  const refresh = async () => {
@@ -202,4 +264,4 @@ extern "js" fn refresh_notify_undelivered() -> Unit =
 /// Keyboard focus is on the undelivered counter or its panel, where Enter and
 /// Space belong to those controls rather than to the document shortcuts.
 extern "js" fn active_in_notify_undelivered() -> Bool =
-  #|() => !!document.activeElement?.closest?.(".notify-undelivered-anchor")
+  #|() => !!document.activeElement?.closest?.(".notify-undelivered-anchor, #notify-undelivered-panel")

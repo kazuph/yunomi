@@ -748,7 +748,7 @@ fn build_css() -> String {
     #|#notify-undelivered[hidden] { display: none; }
     #|#notify-undelivered:hover { filter: brightness(1.08); background: #f76b15; border-color: transparent; }
     #|#notify-undelivered:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-    #|.notify-undelivered-panel { position: fixed; top: 64px; left: 16px; z-index: 60; width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 420px); overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+    #|.notify-undelivered-panel { position: fixed; top: 64px; left: 16px; z-index: 95; width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 420px); overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
     #|.notify-undelivered-panel[hidden] { display: none; }
     #|.notify-undelivered-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
     #|.notify-undelivered-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 8px; border-radius: calc(var(--radius-sm) - 2px); }
@@ -759,6 +759,14 @@ fn build_css() -> String {
     #|.notify-undelivered-retry:hover { background: var(--hover-bg); }
     #|.notify-undelivered-retry[aria-disabled="true"] { opacity: 0.5; cursor: progress; }
     #|.notify-undelivered-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.notify-undelivered-held { padding: 8px; font-size: 13px; font-weight: 600; }
+    #|.notify-undelivered-finish { display: block; margin: 6px 8px 8px auto; padding: 7px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: transparent; color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; }
+    #|.notify-undelivered-finish:hover { background: var(--hover-bg); border-color: var(--border-strong); }
+    #|.notify-undelivered-finish:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.notify-undelivered-finish[aria-disabled="true"] { opacity: 0.5; cursor: progress; }
+    #|.submit-undelivered { margin-top: 12px; padding: 8px 10px; border: 1px solid #f76b15; border-radius: var(--radius-sm); font-size: 13px; }
+    #|.submit-undelivered[hidden] { display: none; }
+    #|.submit-undelivered-message { font-weight: 600; }
     #|@media (prefers-reduced-motion: no-preference) { .notify-undelivered.is-pulse { animation: conversation-unread-pulse 600ms ease-out 1; } }
     #|#conversation-unread[hidden] { display: none; }
     #|#conversation-unread:hover { filter: brightness(1.08); background: #e5484d; border-color: transparent; }

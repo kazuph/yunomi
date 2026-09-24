@@ -62,6 +62,13 @@ let last_mux_submit_status : Ref[String] = Ref("")
 let expected_count : Ref[Int] = Ref(0)
 
 ///|
+/// Id of the final verdict notification the agent did not receive. While set,
+/// the finished review keeps its process alive so the human can resend it
+/// from the page; delivering it, confirming the exit, or closing the last tab
+/// ends the process.
+let exit_held_id : Ref[String] = Ref("")
+
+///|
 /// Per-process id announced over SSE so reused-port tabs can self-reload
 let server_instance_id : Ref[String] = Ref("")
 
@@ -145,7 +152,7 @@ fn review_url(ctx : ServerContext) -> String {
 }
 
 ///|
-fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
+fn notify_reviewer(ctx : ServerContext, msg : String) -> String {
   deliver_notify(ctx, msg, "[yunomi] notify failed: ")
 }
 
@@ -153,11 +160,12 @@ fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
 /// Send one notification to the launching agent. A failure is logged as
 /// before and also kept in `ctx.undelivered`, which every open tab sees, so
 /// the loss is visible and the same message can be resent later.
+/// Returns the id the failed notification is kept under, or "" once delivered.
 fn deliver_notify(
   ctx : ServerContext,
   msg : String,
   failure_prefix : String,
-) -> Unit {
+) -> String {
   let (err, herdr_pane, tmux_pane) = send_notify_routes(
     ctx,
     ctx.notify_pane,
@@ -167,8 +175,9 @@ fn deliver_notify(
   if err.length() > 0 {
     console_error(failure_prefix + err)
     ctx.undelivered_seq += 1
+    let id = "n" + ctx.undelivered_seq.to_string()
     ctx.undelivered.push({
-      id: "n" + ctx.undelivered_seq.to_string(),
+      id,
       message: msg,
       error: err,
       at: iso_now(),
@@ -176,6 +185,9 @@ fn deliver_notify(
       tmux_pane,
     })
     broadcast_undelivered(ctx)
+    id
+  } else {
+    ""
   }
 }
 
@@ -220,6 +232,14 @@ fn undelivered_json(ctx : ServerContext) -> String {
   let buf = StringBuilder::new()
   buf.write_string("{\"version\":")
   buf.write_string(ctx.undelivered_version.to_string())
+  buf.write_string(",\"held\":")
+  buf.write_string(
+    if !share_mode.val && exit_held_id.val.length() > 0 {
+      "true"
+    } else {
+      "false"
+    },
+  )
   buf.write_string(",\"items\":[")
   if !share_mode.val {
     for i, item in ctx.undelivered {
@@ -255,6 +275,52 @@ fn broadcast_undelivered(ctx : ServerContext) -> Unit {
   for client in ctx.sse_clients {
     sse_send(client, "notify-undelivered", data)
   }
+}
+
+///|
+/// The final verdict did not reach the agent: keep serving the finished
+/// review instead of exiting so the page can resend it.
+fn hold_exit(ctx : ServerContext, verdict_id : String) -> Unit {
+  exit_held_id.val = verdict_id
+  console_error(
+    "[yunomi] exit held: the agent did not receive the final verdict; resend it or exit from the review page",
+  )
+  broadcast_undelivered(ctx)
+}
+
+///|
+fn exit_held_delivered() -> Bool {
+  if exit_held_id.val.length() == 0 {
+    return false
+  }
+  for ctx in active_servers {
+    for item in ctx.undelivered {
+      if item.id == exit_held_id.val {
+        return false
+      }
+    }
+  }
+  true
+}
+
+///|
+/// A held review whose last tab stays closed past the reload grace window
+/// has no one left to resend from, so it exits like a completed review.
+fn schedule_held_exit(ctx : ServerContext) -> Unit {
+  ctx.close_notify_seq = ctx.close_notify_seq + 1
+  let seq = ctx.close_notify_seq
+  ignore(
+    set_timeout(
+      fn() {
+        if exit_held_id.val.length() > 0 &&
+          ctx.close_notify_seq == seq &&
+          ctx.active_tabs.length() == 0 {
+          exit_process("review tab closed while exit was held", 0)
+        }
+      },
+      close_notify_grace_ms,
+    ),
+  )
 }
 
 ///|
@@ -1784,6 +1850,9 @@ fn print_skill_doc_text() -> String {
     #|   `agent_not_ready` when you are not the pane's foreground process)
     #|   stays in the human's undelivered counter for resend; any still
     #|   undelivered when yunomi exits is printed in full to its output.
+    #|   If the final verdict itself is refused, yunomi keeps running after
+    #|   the human submits and exits once the human resends it (you then
+    #|   receive it as usual) or exits without delivering.
     #|   Fail closed if delivery is unproven.
     #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
@@ -3229,17 +3298,46 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         res_write_head(res, 404, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"not_found\"}")
       } else {
+        // Delivering the held verdict completes the review's exit.
+        let exiting = delivered && exit_held_delivered()
         res_write_head(res, 200, "application/json")
+        if exiting {
+          res_on_finish(res, fn() {
+            ignore(
+              set_timeout(fn() { exit_process("all reviews submitted", 0) }, 30),
+            )
+          })
+        }
         res_end(
           res,
           "{\"ok\":true,\"delivered\":" +
           (if delivered { "true" } else { "false" }) +
+          ",\"exiting\":" +
+          (if exiting { "true" } else { "false" }) +
           ",\"error\":" +
           json_encode_value(err) +
           "}",
         )
       }
     })
+  } else if http_method == "POST" && path == "/notify/finish" {
+    // Exit a held review without delivering: the undelivered text still
+    // leaves in full through the exit output.
+    if exit_held_id.val.length() == 0 {
+      res_write_head(res, 409, "application/json")
+      res_end(res, "{\"ok\":false,\"error\":\"not_held\"}")
+    } else {
+      res_write_head(res, 200, "application/json")
+      res_on_finish(res, fn() {
+        ignore(
+          set_timeout(
+            fn() { exit_process("exit confirmed with undelivered verdict", 0) },
+            30,
+          ),
+        )
+      })
+      res_end(res, "{\"ok\":true}")
+    }
   } else if http_method == "POST" && path == "/session/open" {
     read_body(req, fn(body) {
       handle_session_open(ctx, body)
@@ -3376,7 +3474,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
           } else {
             ""
           }
-          notify_reviewer(
+          ignore(notify_reviewer(
             ctx,
             "[yunomi] conversation reply id=" +
             id +
@@ -3389,7 +3487,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             id +
             " <text>\nurl=" +
             review_url(ctx),
-          )
+          ))
         }
       }
       res_write_head(res, 200, "application/json")
@@ -3464,7 +3562,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       } else {
         ""
       }
-      notify_reviewer(
+      ignore(notify_reviewer(
         ctx,
         "[yunomi] global comment id=" +
         id +
@@ -3477,7 +3575,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         id +
         " <text>\nurl=" +
         review_url(ctx),
-      )
+      ))
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true,\"id\":" + json_encode_value(id) + "}")
       for mux_ctx in active_servers {
@@ -3510,6 +3608,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       if last_mux_submit_status.val == "stale" {
         res_write_head(res, 409, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"stale_generation\"}")
+        return
+      }
+      if exit_held_id.val.length() > 0 {
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"held\":true}")
         return
       }
       res_write_head(res, 200, "application/json")
@@ -3854,7 +3957,7 @@ fn notify_decision(
     quote_line +
     "\nurl=" +
     decision_url(ctx)
-  deliver_notify(ctx, msg, "yunomi decision: notify failed: ")
+  ignore(deliver_notify(ctx, msg, "yunomi decision: notify failed: "))
 }
 
 ///|
@@ -4011,7 +4114,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       ""
     }
     let quote_line = format_notification_quote(quote)
-    notify_reviewer(
+    ignore(notify_reviewer(
       ctx,
       "[yunomi] " +
       label +
@@ -4030,7 +4133,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       (if attachment.length() > 0 { "\nattachment: " + path_join(review_dir_for_file(ctx.file_path), attachment) } else { "" }) +
       "\nurl=" +
       review_url(ctx),
-    )
+    ))
   }
   // Notify SSE clients about the comment event
   for client in ctx.sse_clients {
@@ -4303,7 +4406,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "Received review for \{ctx.filename} (\{comments.length()} comments)",
     )
-    notify_reviewer(
+    let verdict_undelivered = notify_reviewer(
       ctx,
       verdict_notify_message(
         ctx,
@@ -4337,6 +4440,10 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
           js_remove_file_lock(lock_dir(), srv.file_path)
         }
         remove_lock(srv.port)
+      }
+      if verdict_undelivered.length() > 0 {
+        hold_exit(ctx, verdict_undelivered)
+        return false
       }
       return true
     }
@@ -4380,7 +4487,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   console_log(
     "Received review for \{ctx.filename} (\{comments.length()} comments)",
   )
-  notify_reviewer(
+  let verdict_undelivered = notify_reviewer(
     ctx,
     verdict_notify_message(
       ctx,
@@ -4418,6 +4525,10 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       }
       remove_lock(srv.port)
     }
+    if verdict_undelivered.length() > 0 {
+      hold_exit(ctx, verdict_undelivered)
+      return false
+    }
     true
   } else {
     false
@@ -4426,7 +4537,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
 
 ///|
 fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
-  if ctx.finished {
+  // A held review is finished but still served; its tabs keep registering
+  // so a reload is not mistaken for the last tab closing.
+  if ctx.finished && exit_held_id.val.length() == 0 {
     log_session_event("ignored open for finished context file=\{ctx.filename}")
     return
   }
@@ -4474,7 +4587,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
             log_session_event(
               "close notify file=\{ctx.filename} tab=\{tab_id} active=\{ctx.active_tabs.length()}",
             )
-            notify_reviewer(
+            ignore(notify_reviewer(
               ctx,
               "[yunomi] tab closed " +
               ctx.filename +
@@ -4482,7 +4595,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
               tab_id +
               " active=" +
               ctx.active_tabs.length().to_string(),
-            )
+            ))
           }
           _ =>
             log_session_event(
@@ -4497,7 +4610,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
 
 ///|
 fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
-  if ctx.finished {
+  if ctx.finished && exit_held_id.val.length() == 0 {
     log_session_event("ignored close for finished context file=\{ctx.filename}")
     return
   }
@@ -4528,6 +4641,10 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   log_session_event(
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
+  if exit_held_id.val.length() > 0 {
+    schedule_held_exit(ctx)
+    return
+  }
   schedule_close_notify(ctx, tab_id)
   // Closing or navigating away only unregisters the tab. The browser has
   // already persisted this draft to localStorage; only an explicit /exit

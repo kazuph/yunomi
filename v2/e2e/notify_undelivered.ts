@@ -192,6 +192,105 @@ try {
   await stop(server.proc);
 }
 
+// The final verdict itself is not delivered: the exit is held so the human can
+// resend it from the page; the Submit dialog already offers the earlier losses.
+writeFileSync(CALLS, "");
+rmSync(RECOVERED, { force: true });
+const held = await startServer();
+const heldBrowser = await chromium.launch();
+try {
+  const page = await heldBrowser.newPage({ viewport: { width: 1280, height: 720 } });
+  await page.goto(`http://127.0.0.1:${held.port}/`, { waitUntil: "domcontentloaded" });
+  const badge = page.locator("#notify-undelivered");
+  await page.locator(".task-decision-checkbox").first().click();
+  await badge.waitFor({ state: "visible", timeout: 8000 });
+
+  await page.locator("#send-and-exit").click();
+  await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  const box = page.locator("#submit-undelivered");
+  assert(await box.isVisible(), "提出ダイアログに、まだエージェントへ届いていない通知を出す");
+  assert(/1 notification has not reached the agent/.test((await box.textContent()) ?? "") && ((await box.textContent()) ?? "").includes("decision REPORT.md:3"), "提出ダイアログの一覧に件数と未配送の通知を並べる", { text: await box.textContent() });
+  await shot(page, "notify-undelivered-submit-dialog.png");
+  const beforeDialogResend = prompts().length;
+  await box.locator(".notify-undelivered-retry").first().focus();
+  await page.keyboard.press("Enter");
+  await waitUntil(() => prompts().length > beforeDialogResend, 5000);
+  assert(prompts().length === beforeDialogResend + 1 && await page.locator("#submit-modal.visible").isVisible(), "提出ダイアログの再送ボタンはキーボードの Enter で再送し、ダイアログは開いたまま", { before: beforeDialogResend, after: prompts().length });
+
+  await page.locator("#modal-approve").click();
+  const heldPanel = page.locator("#notify-undelivered-panel");
+  const finish = heldPanel.locator(".notify-undelivered-finish");
+  await finish.waitFor({ state: "visible", timeout: 8000 });
+  const stillRunning = await Promise.race([held.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 1500))]);
+  assert(stillRunning && page.url().startsWith("http://127.0.0.1"), "最終承認の通知が届かなかったときは yunomi を終了せず、画面も閉じない", { url: page.url() });
+  assert((await badge.textContent())?.trim() === "2" && ((await heldPanel.textContent()) ?? "").includes("[yunomi] verdict REPORT.md decision=approve"), "届かなかった最終承認の通知を一覧に加えて開く", { count: await badge.textContent(), panel: await heldPanel.textContent() });
+  assert(((await heldPanel.textContent()) ?? "").includes("The agent has not received the verdict"), "一覧の先頭で、提出済みだが判定がエージェントに届いていないことを示す");
+  const focusInPanel = await page.evaluate(() => !!document.activeElement?.closest("#notify-undelivered-panel .notify-undelivered-retry"));
+  assert(focusInPanel, "保留になったら一覧の最初の再送ボタンへフォーカスを移す");
+  const reachable = await page.evaluate(() => [...document.querySelectorAll("#notify-undelivered-panel button")].every((b) => {
+    const r = b.getBoundingClientRect();
+    // Inside the box for both the round resend buttons and the text button.
+    const y = r.top + r.height / 2;
+    const points = [[r.left + r.width * 0.2, y], [r.left + r.width / 2, y], [r.right - r.width * 0.2, y]];
+    return points.every(([x, y]) => document.elementFromPoint(x, y)?.closest("button") === b);
+  }));
+  assert(reachable, "保留中の一覧のボタンはチャット欄などに隠れず押せる");
+  assert(/exit held/.test(held.out()), "保留したことをサーバーログにも出す", { out: held.out().slice(-400) });
+  await shot(page, "notify-undelivered-held.png");
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.evaluate(() => window.dispatchEvent(new Event("resize")));
+  const phoneFit = await page.evaluate(() => {
+    const r = document.querySelector("#notify-undelivered-panel")!.getBoundingClientRect();
+    return r.left >= 16 && r.right <= window.innerWidth - 16;
+  });
+  assert(phoneFit, "スマホ幅でも保留中の一覧は画面内に収まる");
+  await shot(page, "notify-undelivered-held-390.png");
+  await page.setViewportSize({ width: 1280, height: 720 });
+
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await finish.waitFor({ state: "visible", timeout: 8000 });
+  const aliveAfterReload = await Promise.race([held.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 2500))]);
+  assert(aliveAfterReload, "保留中に再読み込みしても終了せず、再送の一覧を開き直す");
+
+  writeFileSync(RECOVERED, "1");
+  const verdictRow = heldPanel.locator("[data-notify-id]").filter({ hasText: "[yunomi] verdict" });
+  const verdictMessage = await page.evaluate(async () => ((await (await fetch("/notify/undelivered")).json()).items as { message: string }[]).find((i) => i.message.startsWith("[yunomi] verdict"))!.message);
+  await heldPanel.locator("[data-notify-id]").filter({ hasText: "decision REPORT.md:3" }).locator(".notify-undelivered-retry").click();
+  await page.waitForFunction(() => document.querySelector("#notify-undelivered")?.textContent?.trim() === "1");
+  const aliveAfterDecision = await Promise.race([held.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 1000))]);
+  assert(aliveAfterDecision, "最終承認以外の通知を再送しても、判定が届くまでは終了しない");
+  await verdictRow.locator(".notify-undelivered-retry").click();
+  const code = await Promise.race([held.exited, new Promise((r) => setTimeout(() => r("timeout"), 8000))]);
+  assert(code === 0 && prompts().some((c) => c[2] === "p_7" && c[3] === verdictMessage), "最終承認の通知を再送して届いたら yunomi は正常終了する", { code });
+  await waitUntil(() => page.isClosed() || page.url() === "about:blank", 3000);
+  assert(page.isClosed() || page.url() === "about:blank", "再送で終了したら通常の提出と同じくタブを閉じる", { url: page.isClosed() ? "closed" : page.url() });
+  assert(/decision: approve/.test(held.stdout()) && !held.stdout().includes("undelivered notification (the agent did not receive it)"), "終了出力には判定を含め、届いた通知は未配送として残さない", { tail: held.stdout().slice(-600) });
+} finally {
+  await heldBrowser.close();
+  await stop(held.proc);
+}
+
+// Closing the last tab of a held review ends it after the reload grace.
+writeFileSync(CALLS, "");
+rmSync(RECOVERED, { force: true });
+const closing = await startServer();
+const closingBrowser = await chromium.launch();
+try {
+  const page = await closingBrowser.newPage();
+  await page.goto(`http://127.0.0.1:${closing.port}/`, { waitUntil: "domcontentloaded" });
+  await page.locator("#send-and-exit").click();
+  await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  await page.locator("#modal-approve").click();
+  await page.locator("#notify-undelivered-panel .notify-undelivered-finish").waitFor({ state: "visible", timeout: 8000 });
+  // Leaving the page fires the same pagehide close report as closing the tab.
+  await page.goto("about:blank");
+  const code = await Promise.race([closing.exited, new Promise((r) => setTimeout(() => r("timeout"), 8000))]);
+  assert(code === 0 && closing.stdout().includes("[yunomi] undelivered notification (the agent did not receive it):\n[yunomi] verdict REPORT.md decision=approve"), "保留中に最後のタブを閉じたら終了し、届かなかった判定の全文を終了出力に残す", { code, tail: closing.stdout().slice(-400), log: closing.out().split("\n").filter((l) => /SESSION|held|close/.test(l)) });
+} finally {
+  await closingBrowser.close();
+  await stop(closing.proc);
+}
+
 // Herdr upgraded while the review is open: a resend re-checks the contract.
 writeFileSync(CALLS, "");
 writeFileSync(RECOVERED, "1");
@@ -224,6 +323,11 @@ try {
   await page.locator("#send-and-exit").click();
   await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
   await page.locator("#modal-approve").click();
+  // The verdict was not delivered either, so the exit is held until the
+  // human resends it or exits from the list.
+  const finish = page.locator("#notify-undelivered-panel .notify-undelivered-finish");
+  await finish.waitFor({ state: "visible", timeout: 8000 });
+  await finish.click();
   // The reader catches up only after yunomi has started exiting.
   setTimeout(() => upgrade.proc.stdout!.resume(), 1500);
   await Promise.race([upgrade.exited, new Promise((r) => setTimeout(r, 15000))]);
@@ -231,7 +335,7 @@ try {
   // stdout alone: stderr chunks interleave with it in the combined log.
   await waitUntil(() => upgrade.stdout().includes(BIG + "\n"), 5000);
   const out = upgrade.stdout();
-  assert(out.includes(dump + lost + "\n") && out.includes(dump + "[yunomi] verdict REPORT.md decision=approve") && out.includes("human: " + BIG + "\n"), "画面から最終承認して終了するとき、読み手が止まっていても届かなかった通知（約36万文字の承認コメント入り）を全文そのまま終了出力に残す", { bigLength: BIG.length, outLength: out.length, hasDecision: out.includes(dump + lost + "\\n"), hasVerdict: out.includes(dump + "[yunomi] verdict REPORT.md decision=approve"), hasHuman: out.includes("human: " + BIG + "\\n"), around: out.slice(out.indexOf("[yunomi] verdict") - 100, out.indexOf("[yunomi] verdict") + 200), tail: out.slice(-200) });
+  assert(out.includes(dump + lost + "\n") && out.includes(dump + "[yunomi] verdict REPORT.md decision=approve") && out.includes("human: " + BIG + "\n"), "最終承認の通知も届かず「届けずに終了」したとき、読み手が止まっていても届かなかった通知（約36万文字の承認コメント入り）を全文そのまま終了出力に残す", { bigLength: BIG.length, outLength: out.length, hasDecision: out.includes(dump + lost + "\\n"), hasVerdict: out.includes(dump + "[yunomi] verdict REPORT.md decision=approve"), hasHuman: out.includes("human: " + BIG + "\\n"), around: out.slice(out.indexOf("[yunomi] verdict") - 100, out.indexOf("[yunomi] verdict") + 200), tail: out.slice(-200) });
 } finally {
   await upgradeBrowser.close();
   await stop(upgrade.proc);
