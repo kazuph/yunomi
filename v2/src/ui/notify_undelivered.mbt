@@ -126,7 +126,9 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|      else document.querySelector("#sse-status")?.focus();
   #|    }
   #|  };
-  #|  const render = (next) => {
+  #|  // `announce` is false for the first list after load: those losses
+  #|  // are already on screen, not news to read aloud.
+  #|  const render = (next, announce) => {
   #|    const previous = items.length;
   #|    const known = new Set(items.map((item) => item.id));
   #|    items = Array.isArray(next) ? next : [];
@@ -136,7 +138,7 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|      b.textContent = String(items.length);
   #|      b.hidden = items.length === 0;
   #|      b.setAttribute("aria-label", items.length + " undelivered agent notification" + (items.length === 1 ? "" : "s"));
-  #|      if (previous >= 0 && added.length > 0) {
+  #|      if (announce && added.length > 0) {
   #|        live("Not delivered to the agent: " + added[added.length - 1].summary);
   #|      }
   #|      if (items.length > previous) {
@@ -156,8 +158,9 @@ extern "js" fn install_notify_undelivered(retry_icon : String) -> Unit =
   #|      const data = JSON.parse(raw);
   #|      const next = Number(data.version ?? 0);
   #|      if (next < version) return;
+  #|      const announce = version >= 0;
   #|      version = next;
-  #|      render(data.items);
+  #|      render(data.items, announce);
   #|    } catch (_) {}
   #|  };
   #|  const refresh = async () => {

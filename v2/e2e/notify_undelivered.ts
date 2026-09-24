@@ -128,6 +128,7 @@ try {
   await page.reload({ waitUntil: "domcontentloaded" });
   await badge.waitFor({ state: "visible", timeout: 8000 });
   assert((await badge.textContent())?.trim() === "1", "再読み込み後も未配送の通知が残る");
+  assert(((await page.locator("#notify-undelivered-live").textContent()) ?? "") === "", "再読み込みで表示しただけの既存の未配送は読み上げない", { live: await page.locator("#notify-undelivered-live").textContent() });
 
   // A document line selected with the keyboard must not swallow Enter on the counter.
   await page.locator("#md-preview").focus().catch(() => {});
