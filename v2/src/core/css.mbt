@@ -740,6 +740,26 @@ fn build_css() -> String {
     #|.review-loop-conversation.is-unresolved-flash { animation: unresolved-comment-flash 1.5s ease-out 1; }
     #|@keyframes unresolved-comment-flash { 0% { box-shadow: 0 0 0 3px rgba(245, 197, 24, 0.9); } 100% { box-shadow: none; } }
     #|#conversation-unread { margin: 0; background: #e5484d; color: #fff; }
+    #|/* Undelivered agent notifications: an orange counter left of the
+    #|   conversation counters; its panel lists each lost message with the
+    #|   reason and a resend control. */
+    #|.notify-undelivered-anchor { position: relative; display: inline-flex; align-items: center; }
+    #|#notify-undelivered { display: inline-grid; place-items: center; box-sizing: border-box; flex: 0 0 auto; align-self: center; width: 22px; height: 22px; min-width: 22px; min-height: 22px; max-height: 22px; margin: 0 6px 0 0; padding: 0; border: 0; border-radius: 50%; background: #f76b15; color: #fff; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; box-shadow: none; }
+    #|#notify-undelivered[hidden] { display: none; }
+    #|#notify-undelivered:hover { filter: brightness(1.08); background: #f76b15; border-color: transparent; }
+    #|#notify-undelivered:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.notify-undelivered-panel { position: fixed; top: 64px; left: 16px; z-index: 60; width: min(420px, calc(100vw - 32px)); max-height: min(60vh, 420px); overflow: auto; padding: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); color: var(--text); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18); }
+    #|.notify-undelivered-panel[hidden] { display: none; }
+    #|.notify-undelivered-live { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    #|.notify-undelivered-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; align-items: center; padding: 8px; border-radius: calc(var(--radius-sm) - 2px); }
+    #|.notify-undelivered-item + .notify-undelivered-item { border-top: 1px solid var(--border); }
+    #|.notify-undelivered-summary { overflow: hidden; font-size: 13px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+    #|.notify-undelivered-error { grid-column: 1; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; }
+    #|.notify-undelivered-retry { grid-row: 1 / span 2; grid-column: 2; display: inline-grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border: 1px solid var(--border); border-radius: 50%; background: var(--panel); color: var(--text); cursor: pointer; }
+    #|.notify-undelivered-retry:hover { background: var(--hover-bg); }
+    #|.notify-undelivered-retry[aria-disabled="true"] { opacity: 0.5; cursor: progress; }
+    #|.notify-undelivered-retry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|@media (prefers-reduced-motion: no-preference) { .notify-undelivered.is-pulse { animation: conversation-unread-pulse 600ms ease-out 1; } }
     #|#conversation-unread[hidden] { display: none; }
     #|#conversation-unread:hover { filter: brightness(1.08); background: #e5484d; border-color: transparent; }
     #|.conversation-unread.is-pulse { animation: conversation-unread-pulse 600ms ease-out 1; }

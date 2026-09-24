@@ -187,6 +187,9 @@ fn build_page_start(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
   )
   buf.write_string(
+    "<span class=\"notify-undelivered-anchor\"><button type=\"button\" class=\"notify-undelivered\" id=\"notify-undelivered\" title=\"Notifications that did not reach the agent\" aria-label=\"Undelivered agent notifications\" aria-expanded=\"false\" aria-controls=\"notify-undelivered-panel\" hidden>0</button><div class=\"notify-undelivered-panel\" id=\"notify-undelivered-panel\" role=\"group\" aria-label=\"Undelivered agent notifications\" hidden></div><span class=\"notify-undelivered-live\" id=\"notify-undelivered-live\" role=\"status\" aria-live=\"polite\"></span></span>",
+  )
+  buf.write_string(
     "<button type=\"button\" class=\"conversation-unresolved\" id=\"conversation-unresolved\" title=\"Unresolved comments\" aria-label=\"Jump to next unresolved comment\" hidden>0</button>",
   )
   buf.write_string(

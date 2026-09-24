@@ -361,7 +361,7 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.6.6" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがyunomi 2.6.6と同じバージョンと3スキルの同梱を明記している", {
+  assert(pluginManifest.version === "2.6.7" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがyunomi 2.6.7と同じバージョンと3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });

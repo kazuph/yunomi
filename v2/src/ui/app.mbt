@@ -600,6 +600,8 @@ pub fn init_app() -> Unit {
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
   install_conversation_unread(get_yunomi_storage_scope())
+  // Notifications that never reached the launching agent (header counter).
+  install_notify_undelivered(@core.icon_svg_request_changes)
   install_chat_markdown_helpers()
   install_typing_tracker()
   // Setup SSE for live reload
@@ -2047,6 +2049,9 @@ fn setup_sse(_port : Int) -> Unit {
     apply_comment_reply_event(get_yunomi_storage_scope(), sse_event_data(e))
   })
   sse_on(es, "decision", fn(e) { apply_task_decision_event(sse_event_data(e)) })
+  sse_on(es, "notify-undelivered", fn(e) {
+    render_notify_undelivered_json(sse_event_data(e))
+  })
   sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
   sse_on(es, "send-now", fn(e) {
     mark_send_now_event(sse_event_data(e))
@@ -2077,6 +2082,9 @@ fn setup_sse(_port : Int) -> Unit {
     if reconnected || !review_loop_state_loaded.val {
       load_review_loop_state()
     }
+    // Resync on every (re)connect: a failure between the first fetch and
+    // this subscription would otherwise never reach this tab.
+    refresh_notify_undelivered()
   })
   sse_on_error_status(es, fn() {
     set_sse_status(
@@ -3856,7 +3864,10 @@ fn keyboard_shortcuts_blocked() -> Bool {
   }
   let active = get_active_element()
   let tag = get_tag_name(active)
-  tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT"
+  tag == "INPUT" ||
+  tag == "TEXTAREA" ||
+  tag == "SELECT" ||
+  active_in_notify_undelivered()
 }
 
 ///|

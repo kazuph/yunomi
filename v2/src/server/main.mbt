@@ -19,6 +19,23 @@ struct ServerContext {
   /// tab_id -> sequence of the close whose notification is still in its grace window
   pending_close_notify : Map[String, Int]
   mut close_notify_seq : Int
+  /// Notifications the launching agent never received, kept until a resend
+  /// delivers them so the human can see and recover the loss.
+  undelivered : Array[UndeliveredNotify]
+  mut undelivered_seq : Int
+  /// Bumped on every change so a tab can drop a list older than one it shows.
+  mut undelivered_version : Int
+}
+
+///|
+struct UndeliveredNotify {
+  id : String
+  message : String
+  mut error : String
+  at : String
+  /// Only the routes that failed; a resend never repeats a delivered route.
+  mut herdr_pane : String
+  mut tmux_pane : String
 }
 
 ///|
@@ -129,15 +146,153 @@ fn review_url(ctx : ServerContext) -> String {
 
 ///|
 fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
-  let err = send_notify_message(
+  deliver_notify(ctx, msg, "[yunomi] notify failed: ")
+}
+
+///|
+/// Send one notification to the launching agent. A failure is logged as
+/// before and also kept in `ctx.undelivered`, which every open tab sees, so
+/// the loss is visible and the same message can be resent later.
+fn deliver_notify(
+  ctx : ServerContext,
+  msg : String,
+  failure_prefix : String,
+) -> Unit {
+  let (err, herdr_pane, tmux_pane) = send_notify_routes(
+    ctx,
     ctx.notify_pane,
     ctx.notify_tmux_pane,
-    ctx.notify_room,
     msg,
   )
   if err.length() > 0 {
-    console_error("[yunomi] notify failed: " + err)
+    console_error(failure_prefix + err)
+    ctx.undelivered_seq += 1
+    ctx.undelivered.push({
+      id: "n" + ctx.undelivered_seq.to_string(),
+      message: msg,
+      error: err,
+      at: iso_now(),
+      herdr_pane,
+      tmux_pane,
+    })
+    broadcast_undelivered(ctx)
   }
+}
+
+///|
+/// Deliver `msg` to each given route separately and report which ones failed
+/// as (error, failed Herdr pane, failed tmux pane). `YUNOMI_NOTIFY_CMD`
+/// replaces both routes with one command, so it fails or succeeds as a whole.
+fn send_notify_routes(
+  ctx : ServerContext,
+  herdr_pane : String,
+  tmux_pane : String,
+  msg : String,
+) -> (String, String, String) {
+  if get_env_var("YUNOMI_NOTIFY_CMD").length() > 0 {
+    let err = send_notify_message(herdr_pane, tmux_pane, ctx.notify_room, msg)
+    return if err.length() > 0 {
+      (err, herdr_pane, tmux_pane)
+    } else {
+      ("", "", "")
+    }
+  }
+  let herdr_err = if herdr_pane.length() > 0 {
+    send_notify_message(herdr_pane, "", ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  let tmux_err = if tmux_pane.length() > 0 {
+    send_notify_message("", tmux_pane, ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  let errors = [herdr_err, tmux_err].filter(fn(e) { e.length() > 0 })
+  (
+    errors.join("; "),
+    if herdr_err.length() > 0 { herdr_pane } else { "" },
+    if tmux_err.length() > 0 { tmux_pane } else { "" },
+  )
+}
+
+///|
+fn undelivered_json(ctx : ServerContext) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("{\"version\":")
+  buf.write_string(ctx.undelivered_version.to_string())
+  buf.write_string(",\"items\":[")
+  if !share_mode.val {
+    for i, item in ctx.undelivered {
+      if i > 0 {
+        buf.write_char(',')
+      }
+      let mut summary = ""
+      for line in item.message.split("\n") {
+        summary = line.to_owned()
+        break
+      }
+      buf.write_string("{\"id\":")
+      buf.write_string(json_encode_value(item.id))
+      buf.write_string(",\"summary\":")
+      buf.write_string(json_encode_value(summary))
+      buf.write_string(",\"message\":")
+      buf.write_string(json_encode_value(item.message))
+      buf.write_string(",\"error\":")
+      buf.write_string(json_encode_value(item.error))
+      buf.write_string(",\"at\":")
+      buf.write_string(json_encode_value(item.at))
+      buf.write_char('}')
+    }
+  }
+  buf.write_string("]}")
+  buf.to_string()
+}
+
+///|
+fn broadcast_undelivered(ctx : ServerContext) -> Unit {
+  ctx.undelivered_version += 1
+  let data = undelivered_json(ctx)
+  for client in ctx.sse_clients {
+    sse_send(client, "notify-undelivered", data)
+  }
+}
+
+///|
+/// Resend a kept notification by id. Only stored messages can be resent, so
+/// a request can never make yunomi deliver text it did not produce itself.
+/// Returns (found, delivered, error).
+fn retry_undelivered(ctx : ServerContext, id : String) -> (Bool, Bool, String) {
+  let mut index = -1
+  for i, item in ctx.undelivered {
+    if item.id == id {
+      index = i
+    }
+  }
+  if index < 0 {
+    return (false, false, "")
+  }
+  let item = ctx.undelivered[index]
+  // The Herdr contract is resolved once per process; a Herdr upgraded since
+  // the failure must be looked at again instead of refusing from the cache.
+  if herdr_notify_contract.val.has_prefix("unsupported:") {
+    herdr_notify_contract.val = ""
+  }
+  let (err, herdr_pane, tmux_pane) = send_notify_routes(
+    ctx,
+    item.herdr_pane,
+    item.tmux_pane,
+    item.message,
+  )
+  if err.length() > 0 {
+    console_error("[yunomi] notify retry failed: " + err)
+    item.error = err
+    item.herdr_pane = herdr_pane
+    item.tmux_pane = tmux_pane
+  } else {
+    ignore(ctx.undelivered.remove(index))
+  }
+  broadcast_undelivered(ctx)
+  (true, err.length() == 0, err)
 }
 
 ///|
@@ -253,6 +408,17 @@ fn log_session_event(message : String) -> Unit {
 
 ///|
 fn exit_process(reason : String, code : Int) -> Unit {
+  // Whatever the launching agent never received leaves with the process, so
+  // print it in full: the agent reads this output when yunomi exits.
+  for ctx in active_servers {
+    for item in ctx.undelivered {
+      write_stdout_sync(
+        "[yunomi] undelivered notification (the agent did not receive it):\n" +
+        item.message +
+        "\n",
+      )
+    }
+  }
   console_error("[YUNOMI_EXIT] " + reason + " code=" + code.to_string())
   process_exit(code)
 }
@@ -1606,13 +1772,18 @@ fn print_skill_doc_text() -> String {
     #|   `--notify-pane` is Herdr-only and `--notify-tmux-pane` is tmux-only.
     #|   Yunomi validates the exact target and uses the selected runtime's own
     #|   command to submit each comment, verdict, decision, and close event.
-    #|   On Herdr the common contract is `herdr agent send <pane> <text>`
-    #|   (present upstream and in the fork). Add `--notify-room <room>` only on
+    #|   On Herdr the common contract is `herdr agent prompt <pane> <text>`
+    #|   (upstream 0.7.5+ and kazuph fork 0.2.5+). Add `--notify-room <room>` only on
     #|   a Herdr that exposes the durable mailbox `herdr send <to> <text> --room`;
     #|   yunomi then queues every event as mail instead of typing into the
     #|   pane, and refuses to start if that contract is missing.
     #|   A browser reload or navigation is not a close: yunomi waits 1.5 s and
     #|   only reports `tab closed` when the tab did not re-register.
+    #|   A notification the agent cannot take (upstream Herdr refuses with
+    #|   `agent_blocked` while you wait at an approval dialog, or
+    #|   `agent_not_ready` when you are not the pane's foreground process)
+    #|   stays in the human's undelivered counter for resend; any still
+    #|   undelivered when yunomi exits is printed in full to its output.
     #|   Fail closed if delivery is unproven.
     #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
@@ -1687,7 +1858,7 @@ fn print_skill_doc_text() -> String {
     #|
     #|The instant the human presses it, yunomi (a) rewrites the source
     #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
-    #|agent through the installed Herdr's `agent send` contract (or
+    #|agent through the installed Herdr's `agent prompt` contract (or
     #|`herdr send --room` when `--notify-room` is set), or through
     #|`tmux send-keys`, and (c) records the decision
     #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
@@ -2259,6 +2430,9 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
     close_notify_seq: 0,
+    undelivered: [],
+    undelivered_seq: 0,
+    undelivered_version: 0,
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -2329,6 +2503,9 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
     close_notify_seq: 0,
+    undelivered: [],
+    undelivered_seq: 0,
+    undelivered_version: 0,
   }
 }
 
@@ -3033,11 +3210,36 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     }
     res_write_head(res, 200, "application/json")
     res_end(res, state_json)
+  } else if http_method == "GET" && path == "/notify/undelivered" {
+    res_set_header(res, "Cache-Control", "no-store")
+    res_write_head(res, 200, "application/json")
+    res_end(res, undelivered_json(ctx))
   } else if http_method == "GET" && url.has_prefix("/video-timeline?") {
     handle_video_timeline(ctx, url, res)
   } else if share_mode.val && http_method == "POST" {
     res_write_head(res, 405, "application/json")
     res_end(res, "{\"ok\":false,\"error\":\"read_only_share\"}")
+  } else if http_method == "POST" && path == "/notify/retry" {
+    read_body(req, fn(body) {
+      let (found, delivered, err) = retry_undelivered(
+        ctx,
+        json_parse_string("id", body),
+      )
+      if !found {
+        res_write_head(res, 404, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"not_found\"}")
+      } else {
+        res_write_head(res, 200, "application/json")
+        res_end(
+          res,
+          "{\"ok\":true,\"delivered\":" +
+          (if delivered { "true" } else { "false" }) +
+          ",\"error\":" +
+          json_encode_value(err) +
+          "}",
+        )
+      }
+    })
   } else if http_method == "POST" && path == "/session/open" {
     read_body(req, fn(body) {
       handle_session_open(ctx, body)
@@ -3652,15 +3854,7 @@ fn notify_decision(
     quote_line +
     "\nurl=" +
     decision_url(ctx)
-  let err = send_notify_message(
-    ctx.notify_pane,
-    ctx.notify_tmux_pane,
-    ctx.notify_room,
-    msg,
-  )
-  if err.length() > 0 {
-    console_error("yunomi decision: notify failed: " + err)
-  }
+  deliver_notify(ctx, msg, "yunomi decision: notify failed: ")
 }
 
 ///|
