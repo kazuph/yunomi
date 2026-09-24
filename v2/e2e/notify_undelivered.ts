@@ -351,6 +351,18 @@ try {
   const aliveWithOtherTab = await Promise.race([multi.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 3000))]);
   assert(aliveWithOtherTab, "保留中に一方のファイルのタブを閉じても、別ファイルのタブが開いていれば終了しない");
 
+  // A's last tab closes, then B's tab reloads across A's grace deadline: the
+  // grace window restarts on B's close, so B's reload keeps the review alive.
+  const session = (port: number, path: string, instanceId: string) => fetch(`http://127.0.0.1:${port}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tabId: "reloading-b", instanceId }) }).catch(() => null);
+  await session(portB, "/session/open", "b1");
+  await reopened.goto("about:blank");
+  await new Promise((r) => setTimeout(r, 1300));
+  await session(portB, "/close", "b1");
+  await new Promise((r) => setTimeout(r, 300));
+  await session(portB, "/session/open", "b2");
+  const aliveAcrossReload = await Promise.race([multi.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 2500))]);
+  assert(aliveAcrossReload, "一方のタブを閉じた直後に別ファイルのタブを再読み込みしても、猶予内に戻れば終了しない", multi.out().split("\n").filter((l) => /SESSION|EXIT/.test(l)).slice(-12));
+
   writeFileSync(RECOVERED, "1");
   const back = await multiBrowser.newPage();
   await back.goto(`http://127.0.0.1:${portB}/`, { waitUntil: "domcontentloaded" });

@@ -73,6 +73,12 @@ let exit_held_id : Ref[String] = Ref("")
 let undelivered_seq : Ref[Int] = Ref(0)
 
 ///|
+/// One grace window for the whole process: each close of any file's tab
+/// restarts it, so an earlier close cannot end a review whose other tab is
+/// in the middle of a reload.
+let held_close_seq : Ref[Int] = Ref(0)
+
+///|
 /// Per-process id announced over SSE so reused-port tabs can self-reload
 let server_instance_id : Ref[String] = Ref("")
 
@@ -318,14 +324,14 @@ fn exit_held_delivered() -> Bool {
 ///|
 /// A held review whose last tab stays closed past the reload grace window
 /// has no one left to resend from, so it exits like a completed review.
-fn schedule_held_exit(ctx : ServerContext) -> Unit {
-  ctx.close_notify_seq = ctx.close_notify_seq + 1
-  let seq = ctx.close_notify_seq
+fn schedule_held_exit() -> Unit {
+  held_close_seq.val += 1
+  let seq = held_close_seq.val
   ignore(
     set_timeout(
       fn() {
         if exit_held_id.val.length() > 0 &&
-          ctx.close_notify_seq == seq &&
+          held_close_seq.val == seq &&
           active_servers.iter().all(fn(srv) { srv.active_tabs.length() == 0 }) {
           finish_held_exit("review tab closed while exit was held")
         }
@@ -4662,7 +4668,11 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
   if exit_held_id.val.length() > 0 {
-    schedule_held_exit(ctx)
+    schedule_held_exit()
+    return
+  }
+  if json_parse_string("submitted", body) == "true" {
+    // The tab closed itself after submitting; there is nothing to report.
     return
   }
   schedule_close_notify(ctx, tab_id)

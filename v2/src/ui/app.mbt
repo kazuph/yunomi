@@ -1821,6 +1821,17 @@ fn submit_review(_port : Int) -> Unit {
     hide_submit_modal()
     if pending_decision.val == decision_request_changes {
       submit_in_flight.val = false
+    } else {
+      // An approved tab closes without the usual close report; unregister it
+      // quietly so a review held on another file sees no stale open tab.
+      send_beacon_json(
+        yunomi_request_url("/close"),
+        "{\"tabId\":" +
+        json_encode_string(review_tab_id.val) +
+        ",\"instanceId\":" +
+        json_encode_string(page_instance_id.val) +
+        ",\"submitted\":true}",
+      )
     }
     // A submitted request-for-changes is final for this browser tab too.
     // Loop servers remain alive for `yunomi go`, but the human should not
