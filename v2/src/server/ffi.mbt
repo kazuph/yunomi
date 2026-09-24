@@ -4087,6 +4087,17 @@ extern "js" fn js_pipe(readable : JsValue, writable : JsValue) -> Unit =
   #|(r, w) => r.pipe(w)
 
 ///|
+/// The request's Origin names the host it was sent to. Browsers always send
+/// Origin on POST, so a missing one is refused as well.
+extern "js" fn req_same_origin(req : JsValue) -> Bool =
+  #|(req) => {
+  #|  const origin = req.headers.origin;
+  #|  const host = req.headers.host;
+  #|  if (!origin || !host) return false;
+  #|  try { return new URL(origin).host === host; } catch (_) { return false; }
+  #|}
+
+///|
 /// Get Range header from request (empty string if not present)
 extern "js" fn req_range_header(req : JsValue) -> String =
   #|(req) => req.headers.range || ""

@@ -21,7 +21,7 @@
  * Run: node --experimental-strip-types v2/e2e/notify_undelivered.ts
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
@@ -70,11 +70,11 @@ const calls = (): string[][] => (existsSync(CALLS) ? readFileSync(CALLS, "utf8")
 const prompts = () => calls().filter((c) => c[0] === "agent" && c[1] === "prompt");
 const tmuxCalls = () => calls().filter((c) => c[0] === "tmux");
 
-function startServer(extra: string[] = [], decisionText = "通知の再送を確認する", pauseStdout = false): Promise<{ proc: ChildProcess; port: number; out: () => string; stdout: () => string; exited: Promise<number | null> }> {
+function startServer(extra: string[] = [], decisionText = "通知の再送を確認する", pauseStdout = false, files: string[] = ["REPORT.md"]): Promise<{ proc: ChildProcess; port: number; out: () => string; stdout: () => string; exited: Promise<number | null> }> {
   // decisionText lets a scenario vary the checkbox line.
-  const report = join(WORK, "REPORT.md");
-  writeFileSync(report, `# undelivered\n\n- [ ] ${decisionText}\n`);
-  const proc = spawn(process.execPath, [SERVER_JS, report, "--loop", "--no-open", "--port", "0", "--notify-pane", "p_7", ...extra], {
+  const reports = files.map((name) => join(WORK, name));
+  for (const report of reports) writeFileSync(report, `# undelivered\n\n- [ ] ${decisionText}\n`);
+  const proc = spawn(process.execPath, [SERVER_JS, ...reports, "--loop", "--no-open", "--port", "0", "--notify-pane", "p_7", ...extra], {
     cwd: WORK,
     env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, HERDR_PANE_ID: "", TMUX_PANE: "", YUNOMI_NOTIFY_CMD: "", YUNOMI_LOCK_DIR: join(WORK, "locks"), YUNOMI_REVIEW_DIR: join(WORK, "reviews") },
     stdio: ["ignore", "pipe", "pipe"],
@@ -252,6 +252,22 @@ try {
   const aliveAfterReload = await Promise.race([held.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 2500))]);
   assert(aliveAfterReload, "保留中に再読み込みしても終了せず、再送の一覧を開き直す");
 
+  const locks = () => (existsSync(join(WORK, "locks")) ? readdirSync(join(WORK, "locks")) : []);
+  assert(locks().length > 0, "保留中は二重起動防止のロックを持ったまま", { locks: locks() });
+  const finishUrl = `http://127.0.0.1:${held.port}/notify/finish`;
+  const crossSite = await fetch(finishUrl, { method: "POST", headers: { Origin: "http://127.0.0.1:1" } });
+  const noOrigin = await fetch(finishUrl, { method: "POST" });
+  const crossRetry = await fetch(`http://127.0.0.1:${held.port}/notify/retry`, { method: "POST", headers: { Origin: "http://evil.example", "Content-Type": "application/json" }, body: JSON.stringify({ id: "n1" }) });
+  const aliveAfterForgery = await Promise.race([held.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 800))]);
+  assert(crossSite.status === 403 && noOrigin.status === 403 && crossRetry.status === 403 && aliveAfterForgery, "別のサイト・別ポートからの終了や再送の POST は拒否し、終了しない", { crossSite: crossSite.status, noOrigin: noOrigin.status, crossRetry: crossRetry.status });
+
+  const verdictsBefore = prompts().filter((c) => c[3]?.startsWith("[yunomi] verdict")).length;
+  const resubmit = await page.evaluate(async () => {
+    const r = await fetch("/exit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision: "approve", action: "final_approve", comments: [] }) });
+    return r.text();
+  });
+  assert(/"held":true/.test(resubmit) && prompts().filter((c) => c[3]?.startsWith("[yunomi] verdict")).length === verdictsBefore && (held.stdout().match(/decision: approve/g) ?? []).length === 1, "保留中にもう一度提出しても、判定を二重に記録・通知しない", { resubmit, stdoutApprovals: (held.stdout().match(/decision: approve/g) ?? []).length });
+
   writeFileSync(RECOVERED, "1");
   const verdictRow = heldPanel.locator("[data-notify-id]").filter({ hasText: "[yunomi] verdict" });
   const verdictMessage = await page.evaluate(async () => ((await (await fetch("/notify/undelivered")).json()).items as { message: string }[]).find((i) => i.message.startsWith("[yunomi] verdict"))!.message);
@@ -265,6 +281,7 @@ try {
   await waitUntil(() => page.isClosed() || page.url() === "about:blank", 3000);
   assert(page.isClosed() || page.url() === "about:blank", "再送で終了したら通常の提出と同じくタブを閉じる", { url: page.isClosed() ? "closed" : page.url() });
   assert(/decision: approve/.test(held.stdout()) && !held.stdout().includes("undelivered notification (the agent did not receive it)"), "終了出力には判定を含め、届いた通知は未配送として残さない", { tail: held.stdout().slice(-600) });
+  assert(locks().length === 0, "保留から終了したらロックを外す", { locks: locks() });
 } finally {
   await heldBrowser.close();
   await stop(held.proc);
@@ -289,6 +306,62 @@ try {
 } finally {
   await closingBrowser.close();
   await stop(closing.proc);
+}
+
+// Two files, each on its own port in one process: undelivered ids never
+// collide across files, and a tab of either file keeps a held review alive.
+writeFileSync(CALLS, "");
+rmSync(RECOVERED, { force: true });
+const multi = await startServer([], undefined, false, ["A.md", "B.md"]);
+await waitUntil(() => (multi.out().match(/serving B\.md at http:\/\/127\.0\.0\.1:\d+/) ?? []).length > 0, 8000);
+const portOf = (name: string) => Number(multi.out().match(new RegExp(`serving ${name.replace(".", "\\.")} at http://127\\.0\\.0\\.1:(\\d+)`))![1]);
+const portA = portOf("A.md");
+const portB = portOf("B.md");
+const multiBrowser = await chromium.launch();
+try {
+  const first = await multiBrowser.newPage();
+  await first.goto(`http://127.0.0.1:${portA}/`, { waitUntil: "domcontentloaded" });
+  await first.locator(".task-decision-checkbox").first().click();
+  await first.locator("#notify-undelivered").waitFor({ state: "visible", timeout: 8000 });
+  await first.locator("#send-and-exit").click();
+  await first.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  await first.locator("#modal-approve").click();
+  await waitUntil(() => first.isClosed() || first.url() === "about:blank", 5000);
+
+  const second = await multiBrowser.newPage();
+  await second.goto(`http://127.0.0.1:${portB}/`, { waitUntil: "domcontentloaded" });
+  await second.locator("#send-and-exit").click();
+  await second.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  await second.locator("#modal-approve").click();
+  const secondPanel = second.locator("#notify-undelivered-panel");
+  await secondPanel.locator(".notify-undelivered-finish").waitFor({ state: "visible", timeout: 8000 });
+  const ids = async (port: number) => ((await (await fetch(`http://127.0.0.1:${port}/notify/undelivered`)).json()).items as { id: string }[]).map((i) => i.id);
+  const idsA = await ids(portA);
+  const idsB = await ids(portB);
+  assert(idsA.length >= 1 && idsB.length === 1 && !idsB.some((id) => idsA.includes(id)), "複数ファイルでも未配送の通知 ID は重ならない", { idsA, idsB });
+
+  const verdictsHeld = prompts().filter((c) => c[3]?.startsWith("[yunomi] verdict")).length;
+  const again = await (await fetch(`http://127.0.0.1:${portA}/exit`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision: "approve", action: "final_approve", comments: [] }) })).text();
+  assert(/"held":true/.test(again) && prompts().filter((c) => c[3]?.startsWith("[yunomi] verdict")).length === verdictsHeld, "保留中に別ファイルからもう一度提出しても、判定を二重に記録・通知しない", { again, before: verdictsHeld, after: prompts().filter((c) => c[3]?.startsWith("[yunomi] verdict")).length });
+
+  // Another file's tab is still open when the held file's last tab closes.
+  const reopened = await multiBrowser.newPage();
+  await reopened.goto(`http://127.0.0.1:${portA}/`, { waitUntil: "domcontentloaded" });
+  await second.goto("about:blank");
+  const aliveWithOtherTab = await Promise.race([multi.exited.then(() => false), new Promise((r) => setTimeout(() => r(true), 3000))]);
+  assert(aliveWithOtherTab, "保留中に一方のファイルのタブを閉じても、別ファイルのタブが開いていれば終了しない");
+
+  writeFileSync(RECOVERED, "1");
+  const back = await multiBrowser.newPage();
+  await back.goto(`http://127.0.0.1:${portB}/`, { waitUntil: "domcontentloaded" });
+  const backPanel = back.locator("#notify-undelivered-panel");
+  await backPanel.locator(".notify-undelivered-retry").first().waitFor({ state: "visible", timeout: 8000 });
+  await backPanel.locator(".notify-undelivered-retry").first().click();
+  const code = await Promise.race([multi.exited, new Promise((r) => setTimeout(() => r("timeout"), 8000))]);
+  assert(code === 0 && multi.stdout().includes("[yunomi] undelivered notification (the agent did not receive it):\n[yunomi] decision A.md:3"), "保留中の判定を再送して届いたら、別ファイルに未配送が残っていても終了し、残りは全文を出力する", { code, tail: multi.stdout().slice(-500) });
+} finally {
+  await multiBrowser.close();
+  await stop(multi.proc);
 }
 
 // Herdr upgraded while the review is open: a resend re-checks the contract.

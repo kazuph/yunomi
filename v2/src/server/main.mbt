@@ -22,7 +22,6 @@ struct ServerContext {
   /// Notifications the launching agent never received, kept until a resend
   /// delivers them so the human can see and recover the loss.
   undelivered : Array[UndeliveredNotify]
-  mut undelivered_seq : Int
   /// Bumped on every change so a tab can drop a list older than one it shows.
   mut undelivered_version : Int
 }
@@ -67,6 +66,11 @@ let expected_count : Ref[Int] = Ref(0)
 /// from the page; delivering it, confirming the exit, or closing the last tab
 /// ends the process.
 let exit_held_id : Ref[String] = Ref("")
+
+///|
+/// Undelivered ids are unique across every file of the process, so the held
+/// verdict can be found without also naming its file.
+let undelivered_seq : Ref[Int] = Ref(0)
 
 ///|
 /// Per-process id announced over SSE so reused-port tabs can self-reload
@@ -174,8 +178,8 @@ fn deliver_notify(
   )
   if err.length() > 0 {
     console_error(failure_prefix + err)
-    ctx.undelivered_seq += 1
-    let id = "n" + ctx.undelivered_seq.to_string()
+    undelivered_seq.val += 1
+    let id = "n" + undelivered_seq.val.to_string()
     ctx.undelivered.push({
       id,
       message: msg,
@@ -289,6 +293,14 @@ fn hold_exit(ctx : ServerContext, verdict_id : String) -> Unit {
 }
 
 ///|
+/// A held review still owns its locks (a restart must find it running);
+/// they go only when the process really ends.
+fn finish_held_exit(reason : String) -> Unit {
+  cleanup_server_locks()
+  exit_process(reason, 0)
+}
+
+///|
 fn exit_held_delivered() -> Bool {
   if exit_held_id.val.length() == 0 {
     return false
@@ -314,8 +326,8 @@ fn schedule_held_exit(ctx : ServerContext) -> Unit {
       fn() {
         if exit_held_id.val.length() > 0 &&
           ctx.close_notify_seq == seq &&
-          ctx.active_tabs.length() == 0 {
-          exit_process("review tab closed while exit was held", 0)
+          active_servers.iter().all(fn(srv) { srv.active_tabs.length() == 0 }) {
+          finish_held_exit("review tab closed while exit was held")
         }
       },
       close_notify_grace_ms,
@@ -2500,7 +2512,6 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     pending_close_notify: {},
     close_notify_seq: 0,
     undelivered: [],
-    undelivered_seq: 0,
     undelivered_version: 0,
   }
   active_servers.push(ctx)
@@ -2573,7 +2584,6 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     pending_close_notify: {},
     close_notify_seq: 0,
     undelivered: [],
-    undelivered_seq: 0,
     undelivered_version: 0,
   }
 }
@@ -3288,6 +3298,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   } else if share_mode.val && http_method == "POST" {
     res_write_head(res, 405, "application/json")
     res_end(res, "{\"ok\":false,\"error\":\"read_only_share\"}")
+  } else if http_method == "POST" &&
+    (path == "/notify/retry" || path == "/notify/finish") &&
+    !req_same_origin(req) {
+    // Resending and ending a held review are page actions; refuse a POST
+    // another site (or another localhost port) makes on the human's behalf.
+    res_write_head(res, 403, "application/json")
+    res_end(res, "{\"ok\":false,\"error\":\"cross_origin\"}")
   } else if http_method == "POST" && path == "/notify/retry" {
     read_body(req, fn(body) {
       let (found, delivered, err) = retry_undelivered(
@@ -3304,7 +3321,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         if exiting {
           res_on_finish(res, fn() {
             ignore(
-              set_timeout(fn() { exit_process("all reviews submitted", 0) }, 30),
+              set_timeout(fn() { finish_held_exit("all reviews submitted") }, 30),
             )
           })
         }
@@ -3331,7 +3348,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       res_on_finish(res, fn() {
         ignore(
           set_timeout(
-            fn() { exit_process("exit confirmed with undelivered verdict", 0) },
+            fn() { finish_held_exit("exit confirmed with undelivered verdict") },
             30,
           ),
         )
@@ -3596,6 +3613,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "POST" && path == "/exit" {
     read_body(req, fn(body) {
+      // Already submitted and waiting on the verdict's delivery: a repeated
+      // submit must not record or notify the verdict a second time.
+      if exit_held_id.val.length() > 0 {
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"held\":true}")
+        return
+      }
       if ctx.file_path != "<stdin>" &&
         ctx.is_loop &&
         json_parse_string("decision", body) == "approve" &&
@@ -4433,18 +4457,16 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
         review_json_hint(ctx) +
         " (if launched via `herdr run`, read `herdr job log <job>` first)",
       )
-      cleanup_live_log()
       for srv in active_servers {
         if srv.file_path != "<stdin>" {
           unwatch_file(srv.file_path)
-          js_remove_file_lock(lock_dir(), srv.file_path)
         }
-        remove_lock(srv.port)
       }
       if verdict_undelivered.length() > 0 {
         hold_exit(ctx, verdict_undelivered)
         return false
       }
+      cleanup_server_locks()
       return true
     }
     return false
@@ -4517,18 +4539,16 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       review_json_hint(ctx) +
       " (if launched via `herdr run`, read `herdr job log <job>` first)",
     )
-    cleanup_live_log()
     for srv in active_servers {
       if srv.file_path != "<stdin>" {
         unwatch_file(srv.file_path)
-        js_remove_file_lock(lock_dir(), srv.file_path)
       }
-      remove_lock(srv.port)
     }
     if verdict_undelivered.length() > 0 {
       hold_exit(ctx, verdict_undelivered)
       return false
     }
+    cleanup_server_locks()
     true
   } else {
     false

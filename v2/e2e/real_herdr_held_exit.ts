@@ -86,10 +86,14 @@ try {
   log(`yunomi: ${spawnSync(process.execPath, [serverJs, "--version"], { encoding: "utf8" }).stdout.trim()} port=${port}`);
 
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1100, height: 600 } });
+  const context = await browser.newContext({ viewport: { width: 1100, height: 600 }, ...(process.env.RECORD_VIDEO ? { recordVideo: { dir: process.env.RECORD_VIDEO, size: { width: 1100, height: 600 } } } : {}) });
+  const page = await context.newPage();
+  const pause = (ms: number) => (process.env.RECORD_VIDEO ? sleep(ms) : Promise.resolve());
   await page.goto(`http://127.0.0.1:${port}/`);
+  await pause(800);
   await page.locator("#send-and-exit").click();
   await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
+  await pause(1000);
   await page.locator("#modal-approve").click();
   const panel = page.locator("#notify-undelivered-panel");
   await panel.locator(".notify-undelivered-finish").waitFor({ state: "visible", timeout: 10000 });
@@ -100,10 +104,13 @@ try {
   const whileBlocked = received();
   log(`agent received while blocked=${JSON.stringify(whileBlocked)}`);
 
+  await pause(2000);
   const idle = herdr("pane", "report-agent", pane, "--source", "yunomi-check", "--agent", "pi", "--state", "idle");
   log(`report idle exit=${idle.status}`);
   await panel.locator(".notify-undelivered-retry").first().click();
   const code = await Promise.race([exited, sleep(10000).then(() => "timeout")]);
+  await pause(1000);
+  await context.close();
   await browser.close();
   const expected = verdict.split("\n");
   for (let i = 0; i < 100 && received().length < expected.length; i++) await sleep(100);
