@@ -600,6 +600,8 @@ pub fn init_app() -> Unit {
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
   install_conversation_unread(get_yunomi_storage_scope())
+  // Notifications that never reached the launching agent (header counter).
+  install_notify_undelivered(@core.icon_svg_request_changes)
   install_chat_markdown_helpers()
   install_typing_tracker()
   // Setup SSE for live reload
@@ -1798,6 +1800,17 @@ fn submit_review(_port : Int) -> Unit {
       show_toast("Resolve all open threads before approving")
       return
     }
+    if response.contains("\"held\":true") {
+      // Submitted, but the verdict did not reach the agent: the server keeps
+      // running and the undelivered list offers resend or exit. The tab
+      // stays and must report a later close so the held server can end.
+      hide_submit_modal()
+      ls_remove(get_storage_key())
+      submit_in_flight.val = false
+      close_report_sent.val = false
+      refresh_notify_undelivered()
+      return
+    }
     // Hide the Submit Review dialog explicitly instead of relying solely
     // on the tab itself going away — window_close() is refused by real
     // browsers for tabs they didn't script-open (which is how yunomi opens
@@ -1808,6 +1821,17 @@ fn submit_review(_port : Int) -> Unit {
     hide_submit_modal()
     if pending_decision.val == decision_request_changes {
       submit_in_flight.val = false
+    } else {
+      // An approved tab closes without the usual close report; unregister it
+      // quietly so a review held on another file sees no stale open tab.
+      send_beacon_json(
+        yunomi_request_url("/close"),
+        "{\"tabId\":" +
+        json_encode_string(review_tab_id.val) +
+        ",\"instanceId\":" +
+        json_encode_string(page_instance_id.val) +
+        ",\"submitted\":true}",
+      )
     }
     // A submitted request-for-changes is final for this browser tab too.
     // Loop servers remain alive for `yunomi go`, but the human should not
@@ -2047,6 +2071,9 @@ fn setup_sse(_port : Int) -> Unit {
     apply_comment_reply_event(get_yunomi_storage_scope(), sse_event_data(e))
   })
   sse_on(es, "decision", fn(e) { apply_task_decision_event(sse_event_data(e)) })
+  sse_on(es, "notify-undelivered", fn(e) {
+    render_notify_undelivered_json(sse_event_data(e))
+  })
   sse_on(es, "comment", fn(e) { apply_live_comment_event(sse_event_data(e)) })
   sse_on(es, "send-now", fn(e) {
     mark_send_now_event(sse_event_data(e))
@@ -2077,6 +2104,9 @@ fn setup_sse(_port : Int) -> Unit {
     if reconnected || !review_loop_state_loaded.val {
       load_review_loop_state()
     }
+    // Resync on every (re)connect: a failure between the first fetch and
+    // this subscription would otherwise never reach this tab.
+    refresh_notify_undelivered()
   })
   sse_on_error_status(es, fn() {
     set_sse_status(
@@ -3856,7 +3886,10 @@ fn keyboard_shortcuts_blocked() -> Bool {
   }
   let active = get_active_element()
   let tag = get_tag_name(active)
-  tag == "INPUT" || tag == "TEXTAREA" || tag == "SELECT"
+  tag == "INPUT" ||
+  tag == "TEXTAREA" ||
+  tag == "SELECT" ||
+  active_in_notify_undelivered()
 }
 
 ///|

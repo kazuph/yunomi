@@ -187,6 +187,9 @@ fn build_page_start(
     "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
   )
   buf.write_string(
+    "<span class=\"notify-undelivered-anchor\"><button type=\"button\" class=\"notify-undelivered\" id=\"notify-undelivered\" title=\"Notifications that did not reach the agent\" aria-label=\"Undelivered agent notifications\" aria-expanded=\"false\" aria-controls=\"notify-undelivered-panel\" hidden>0</button><div class=\"notify-undelivered-panel\" id=\"notify-undelivered-panel\" role=\"group\" aria-label=\"Undelivered agent notifications\" hidden></div><span class=\"notify-undelivered-live\" id=\"notify-undelivered-live\" role=\"status\" aria-live=\"polite\"></span></span>",
+  )
+  buf.write_string(
     "<button type=\"button\" class=\"conversation-unresolved\" id=\"conversation-unresolved\" title=\"Unresolved comments\" aria-label=\"Jump to next unresolved comment\" hidden>0</button>",
   )
   buf.write_string(
@@ -292,6 +295,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
     "<div class=\"image-preview-list\" id=\"submit-image-preview\"></div>",
   )
   buf.write_string("</div>")
+  buf.write_string(
+    "<div class=\"submit-undelivered\" id=\"submit-undelivered\" role=\"group\" aria-labelledby=\"submit-undelivered-message\" hidden><span class=\"submit-undelivered-message\" id=\"submit-undelivered-message\"></span><div class=\"submit-undelivered-list\" id=\"submit-undelivered-list\"></div></div>",
+  )
   buf.write_string(
     "<div class=\"approve-blocked-reason\" id=\"approve-blocked-reason\" role=\"status\"><span class=\"approve-blocked-message\"></span><button type=\"button\" id=\"review-unresolved-action\">Review unresolved item</button></div>",
   )

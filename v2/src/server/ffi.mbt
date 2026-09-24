@@ -95,6 +95,30 @@ extern "js" fn process_exit(code : Int) -> Unit =
   #|(code) => process.exit(code)
 
 ///|
+/// Write to stdout and return only once every byte is in the pipe/file, so a
+/// following `process.exit` cannot drop it (stdout pipes are asynchronous on
+/// macOS). Retries while a non-blocking pipe is full, for at most 30 s so a
+/// reader that never drains cannot keep the process from exiting.
+extern "js" fn write_stdout_sync(text : String) -> Unit =
+  #|(text) => {
+  #|  const fs = process.getBuiltinModule("node:fs");
+  #|  const bytes = Buffer.from(text, "utf8");
+  #|  const deadline = Date.now() + 30000;
+  #|  let offset = 0;
+  #|  while (offset < bytes.length) {
+  #|    try {
+  #|      offset += fs.writeSync(1, bytes, offset);
+  #|    } catch (err) {
+  #|      if (err && err.code === "EAGAIN" && Date.now() < deadline) {
+  #|        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+  #|        continue;
+  #|      }
+  #|      return;
+  #|    }
+  #|  }
+  #|}
+
+///|
 extern "js" fn process_pid() -> Int =
   #|() => process.pid
 
@@ -995,7 +1019,15 @@ fn json_encode_value(s : String) -> String {
       '\n' => buf.write_string("\\n")
       '\r' => buf.write_string("\\r")
       '\t' => buf.write_string("\\t")
-      _ => buf.write_char(ch)
+      _ =>
+        if ch.to_int() < 0x20 {
+          let hex = "0123456789abcdef"
+          buf.write_string("\\u00")
+          buf.write_char(hex[ch.to_int() / 16].unsafe_to_char())
+          buf.write_char(hex[ch.to_int() % 16].unsafe_to_char())
+        } else {
+          buf.write_char(ch)
+        }
     }
   }
   buf.write_char('"')
@@ -3706,10 +3738,11 @@ fn spawn_sync_status(cmd : String, args : Array[String]) -> String {
 
 ///|
 /// Herdr delivery contract, resolved once per process from the installed
-/// binary's own help text. Upstream ogulcancelik/herdr and the kazuph fork
-/// both expose `herdr agent send <target> <text>` (text + Enter into the
-/// target pane); only the fork additionally exposes the durable mailbox
-/// `herdr send <to> <text> --room R`. Values: "" (unresolved), "agent-send",
+/// binary's own help text. Upstream herdrdev/herdr (0.7.5+, which removed
+/// `agent send`) and the kazuph fork (0.2.5+) both expose
+/// `herdr agent prompt <target> <text>` (text + Enter into the target agent);
+/// only the fork additionally exposes the durable mailbox
+/// `herdr send <to> <text> --room R`. Values: "" (unresolved), "agent-prompt",
 /// "send-room", or "unsupported:<reason>".
 let herdr_notify_contract : Ref[String] = Ref("")
 
@@ -3724,7 +3757,8 @@ fn resolve_herdr_notify_contract(want_room : Bool) -> String {
   } else if want_room {
     let help = spawn_sync_result_args(herdr, ["send", "--help"])
     let contract = help.1 + "\n" + help.2
-    if contract.contains("herdr send <to> <text>") &&
+    if help.0 == 0 &&
+      contract.contains("herdr send <to> <text>") &&
       contract.contains("--room") {
       "send-room"
     } else {
@@ -3733,10 +3767,10 @@ fn resolve_herdr_notify_contract(want_room : Bool) -> String {
   } else {
     let help = spawn_sync_result_args(herdr, ["agent", "help"])
     let contract = help.1 + "\n" + help.2
-    if contract.contains("herdr agent send ") {
-      "agent-send"
+    if help.0 == 0 && contract.contains("herdr agent prompt ") {
+      "agent-prompt"
     } else {
-      "unsupported:installed herdr does not expose `herdr agent send <target> <text>`"
+      "unsupported:installed herdr does not expose `herdr agent prompt <target> <text>`; update Herdr (upstream 0.7.5+ or kazuph fork 0.2.5+)"
     }
   }
   herdr_notify_contract.val = resolved
@@ -3757,7 +3791,7 @@ fn send_herdr_notification(
   if contract == "send-room" {
     spawn_sync_status(herdr, ["send", notify_pane, msg, "--room", notify_room])
   } else {
-    spawn_sync_status(herdr, ["agent", "send", notify_pane, msg])
+    spawn_sync_status(herdr, ["agent", "prompt", notify_pane, msg])
   }
 }
 
@@ -4051,6 +4085,17 @@ extern "js" fn res_write_head_range(
 /// Pipe a readable stream to a writable stream
 extern "js" fn js_pipe(readable : JsValue, writable : JsValue) -> Unit =
   #|(r, w) => r.pipe(w)
+
+///|
+/// The request's Origin names the host it was sent to. Browsers always send
+/// Origin on POST, so a missing one is refused as well.
+extern "js" fn req_same_origin(req : JsValue) -> Bool =
+  #|(req) => {
+  #|  const origin = req.headers.origin;
+  #|  const host = req.headers.host;
+  #|  if (!origin || !host) return false;
+  #|  try { return new URL(origin).host === host; } catch (_) { return false; }
+  #|}
 
 ///|
 /// Get Range header from request (empty string if not present)
