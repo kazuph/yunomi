@@ -112,6 +112,7 @@ try {
   await input.fill('Right cell only'); await input.press('Control+Enter');
   await page.waitForFunction(() => Array.from(document.querySelectorAll('.review-loop-thread-line')).some(el => el.textContent?.includes('Right cell only')));
   assert.equal(requests.filter(r => r.text === 'Right cell only').length, 1);
+  assert.equal(await page.locator('.review-loop-inline').filter({ hasText: 'Right cell only' }).locator('.review-loop-comment > .review-loop-quote').textContent(), 'repeated');
   console.log('PASS: formatted text selection, cancel, identical table text retains column, Ctrl+Enter sends once');
 
   await page.locator('#md-preview tbody tr td:nth-child(1)').click();

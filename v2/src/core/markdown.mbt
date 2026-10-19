@@ -2137,3 +2137,12 @@ pub fn build_markdown_html(
   )
   buf.to_string()
 }
+
+///|
+/// Comments share document blocks and inline rendering, but have no document frontmatter.
+pub fn parse_comment_markdown(input : String) -> String {
+  let lines = split_to_lines(input)
+  let definitions = collect_markdown_definitions(lines)
+  render_markdown_lines(lines, references=definitions.0, footnotes=definitions.1) +
+    render_footnotes(definitions.1, definitions.0)
+}

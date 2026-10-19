@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.6.7 - 2026-10-19
+
+### Fixed
+
+- Cell comment cards, live events, notifications, and final output show the selected cell text and column while preserving source quotes for anchoring.
+- Comments use the document Markdown renderer with safe HTML and isolated source attributes.
+- Image files can be dropped into inline comments, replies, and chat using the existing attachment workflow.
+- Global chat starts collapsed unless the reviewer saved an expanded preference.
+
 ## v2.6.2 - 2026-09-04
 
 ### Changed

@@ -890,10 +890,21 @@ fn build_css() -> String {
     #|.review-loop-conversation-message.is-agent { margin-right: 16px; }
     #|.review-loop-conversation-message > p,
     #|.review-loop-conversation-message > .review-loop-markdown { margin: 0; color: var(--text); font-size: 12px; line-height: 1.55; overflow-wrap: anywhere; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown { white-space: normal; font-size: 12px; line-height: 1.55; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown :is(h1,h2,h3,h4,h5,h6) { margin: 0.4em 0 0.2em; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown p { margin: 0.3em 0; line-height: 1.5; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown pre { margin: 4px 0 0; padding: 8px; max-height: 160px; overflow: auto; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; white-space: pre-wrap; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown pre code { padding: 0; background: none; font-size: inherit; line-height: inherit; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown table { min-width: 100%; width: auto; border-collapse: collapse; border: none; background: transparent; margin: 12px 0 16px; }
+    #|:is(#md-preview, #review-loop-panel, #comment-list) .review-loop-markdown :is(th,td) { padding: 10px 16px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; overflow-wrap: anywhere; width: auto; white-space: normal; }
     #|.review-loop-markdown strong { font-weight: 700; }
     #|.review-loop-markdown em { font-style: italic; }
     #|.review-loop-markdown code { font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.92em; background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
-    #|.review-loop-markdown ul { margin: 4px 0 0; padding-left: 1.2em; }
+    #|.review-loop-markdown ul, .review-loop-markdown ol { margin: 4px 0 0; padding-left: 1.5em; }
+    #|.review-loop-markdown ul { list-style-type: disc; }
+    #|.review-loop-markdown ol { list-style-type: decimal; }
+    #|.review-loop-markdown li { display: list-item; list-style: inherit; }
+    #|.review-loop-markdown img { max-width: 100%; height: auto; }
     #|.review-loop-markdown a { color: var(--accent); }
     #|.review-loop-markdown-code { margin: 4px 0 0; padding: 8px; max-height: 160px; overflow: auto; background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11px; line-height: 1.45; white-space: pre-wrap; }
     #|.review-loop-conversation-image { display: block; width: auto; max-width: 100%; max-height: 180px; margin-top: 3px; border: 1px solid var(--border); border-radius: var(--radius-sm); object-fit: contain; }
@@ -1451,13 +1462,13 @@ fn build_css() -> String {
     #|.md-preview table:not(.frontmatter-table table) colgroup ~ * td {
     #|  width: auto;
     #|}
-    #|.md-preview table:not(.frontmatter-table table) td:has(video),
-    #|.md-preview table:not(.frontmatter-table table) td:has(img) {
+    #|.md-preview table:not(.frontmatter-table table) td:has(video:not(.review-loop-inline *, .yunomi-inline-comment *, .review-loop-markdown *)),
+    #|.md-preview table:not(.frontmatter-table table) td:has(img:not(.review-loop-inline *, .yunomi-inline-comment *, .review-loop-markdown *)) {
     #|  padding: 4px;
     #|  line-height: 0;
     #|}
-    #|.md-preview table:not(.frontmatter-table table) td video,
-    #|.md-preview table:not(.frontmatter-table table) td img {
+    #|.md-preview table:not(.frontmatter-table table) td video:not(.review-loop-inline *, .yunomi-inline-comment *, .review-loop-markdown *),
+    #|.md-preview table:not(.frontmatter-table table) td img:not(.review-loop-inline *, .yunomi-inline-comment *, .review-loop-markdown *) {
     #|  width: 100%;
     #|  max-width: 100%;
     #|  height: auto;
@@ -2598,7 +2609,7 @@ fn build_css() -> String {
     #|  .review-loop-header-badge { max-width: 82px; min-height: 32px; padding: 4px 8px; }
     #|}
     #|/* Mermaid diagram styles */
-    #|.mermaid-container {
+    #|.mermaid-container, .yunomi-comment-diagram {
     #|  position: relative;
     #|  margin: 16px 0;
     #|  background: var(--panel);
@@ -2607,11 +2618,11 @@ fn build_css() -> String {
     #|  padding: 16px;
     #|  overflow: hidden;
     #|}
-    #|.mermaid-container .mermaid {
+    #|.mermaid-container .mermaid, .yunomi-comment-diagram .yunomi-comment-mermaid {
     #|  display: flex;
     #|  justify-content: center;
     #|}
-    #|.mermaid-container .mermaid svg {
+    #|.mermaid-container .mermaid svg, .yunomi-comment-diagram .yunomi-comment-mermaid svg {
     #|  max-width: 100%;
     #|  height: auto;
     #|  cursor: pointer;

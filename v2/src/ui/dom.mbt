@@ -864,62 +864,96 @@ extern "js" fn focus_durable_review_comment(
   #|}
 
 ///|
-/// Chat markdown: unescape literal \\n and render a safe subset (** ` lists).
-extern "js" fn install_chat_markdown_helpers() -> Unit =
-  #|() => {
+/// Comments use the document parser without document anchor attributes.
+fn install_chat_markdown_helpers() -> Unit {
+  install_chat_markdown_renderer(fn(text) { @core.parse_comment_markdown(text) }, @core.comment_display_quote)
+}
+
+///|
+extern "js" fn install_chat_markdown_renderer(
+  render : (String) -> String,
+  display_quote : (String, String, String) -> String,
+) -> Unit =
+  #|(render, displayQuote) => {
   #|  if (window.__yunomiFormatChatMarkdown) return;
-  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
-  #|  const inline = (s) => {
-  #|    let out = esc(s);
-  #|    out = out.replace(/`([^`]+)`/g, "<code>$1</code>");
-  #|    out = out.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
-  #|    out = out.replace(/__([^_]+)__/g, "<strong>$1</strong>");
-  #|    out = out.replace(/(^|[^\*])\*([^*]+)\*/g, "$1<em>$2</em>");
-  #|    out = out.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  #|    return out;
-  #|  };
-  #|  const renderMd = (chunk) => {
-  #|    const lines = String(chunk || "").replace(/^\n+|\n+$/g, "").split("\n");
-  #|    if (lines.length === 1 && lines[0] === "") return "";
-  #|    let html = "";
-  #|    let list = [];
-  #|    const flushList = () => {
-  #|      if (!list.length) return;
-  #|      html += "<ul>" + list.map((item) => "<li>" + inline(item) + "</li>").join("") + "</ul>";
-  #|      list = [];
-  #|    };
-  #|    for (const line of lines) {
-  #|      const bullet = line.match(/^\s*[-*]\s+(.+)$/);
-  #|      if (bullet) { list.push(bullet[1]); continue; }
-  #|      flushList();
-  #|      if (/^\s*$/.test(line)) { html += "<br>"; continue; }
-  #|      const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
-  #|      if (heading) { html += "<strong>" + inline(heading[2]) + "</strong><br>"; continue; }
-  #|      html += inline(line) + "<br>";
-  #|    }
-  #|    flushList();
-  #|    html = html.replace(/(<br>)+$/g, "");
-  #|    return html ? `<div class="review-loop-markdown">${html}</div>` : "";
-  #|  };
-  #|  window.__yunomiFormatChatMarkdown = (raw) => {
-  #|    let text = String(raw ?? "");
+  #|  window.__yunomiCommentDisplayQuote = c => displayQuote(String(c.quote || ""), String(c.value || ""), String(c.element_text || ""));
+  #|  window.__yunomiFormatChatMarkdown = raw => {
+  #|    const text = String(raw ?? "").replace(/\r\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
   #|    if (!text) return "";
-  #|    text = text.replace(/\r\n/g, "\n").replace(/\\n/g, "\n").replace(/\\t/g, "\t");
-  #|    const blocks = [];
-  #|    const fenceRe = /```([^\n]*)\n?([\s\S]*?)```/g;
-  #|    let last = 0;
-  #|    let m;
-  #|    while ((m = fenceRe.exec(text))) {
-  #|      if (m.index > last) blocks.push({ type: "md", text: text.slice(last, m.index) });
-  #|      blocks.push({ type: "code", text: m[2].replace(/\n$/, "") });
-  #|      last = m.index + m[0].length;
+  #|    const template = document.createElement("template");
+  #|    template.innerHTML = render(text);
+  #|    for (const el of template.content.querySelectorAll("*")) {
+  #|      el.classList.remove("md-heading-toggle");
+  #|      for (const name of ["href", "src"]) {
+  #|        if (!el.hasAttribute(name)) continue;
+  #|        const raw = el.getAttribute(name);
+  #|        try {
+  #|          const protocol = new URL(raw, document.baseURI).protocol;
+  #|          const imageData = name === "src" && el.tagName === "IMG" && protocol === "data:" && /^data:image\//i.test(raw.trim());
+  #|          if (!["http:", "https:", "mailto:"].includes(protocol) && !imageData) el.removeAttribute(name);
+  #|        } catch (_) { el.removeAttribute(name); }
+  #|      }
+  #|      if (el.classList.contains("mermaid")) el.classList.replace("mermaid", "yunomi-comment-mermaid");
+  #|      if (el.classList.contains("mermaid-container")) el.classList.replace("mermaid-container", "yunomi-comment-diagram");
+  #|      for (const attr of Array.from(el.attributes)) {
+  #|        if (attr.name.startsWith("data-source-") || attr.name.startsWith("data-heading-") || ["data-row", "data-col", "data-end-row", "data-end-col"].includes(attr.name)) el.removeAttribute(attr.name);
+  #|      }
   #|    }
-  #|    if (last < text.length) blocks.push({ type: "md", text: text.slice(last) });
-  #|    if (blocks.length === 0) blocks.push({ type: "md", text });
-  #|    return blocks.map((b) => b.type === "code"
-  #|      ? `<pre class="review-loop-markdown-code"><code>${esc(b.text)}</code></pre>`
-  #|      : renderMd(b.text)).join("");
+  #|    // Preserve the comment editor's visible line breaks without changing document rendering.
+  #|    const walker = document.createTreeWalker(template.content, NodeFilter.SHOW_TEXT);
+  #|    const multiline = [];
+  #|    while (walker.nextNode()) {
+  #|      const node = walker.currentNode;
+  #|      if (node.textContent.includes("\n") && node.parentElement?.closest("p") && !node.parentElement.closest("pre,code")) multiline.push(node);
+  #|    }
+  #|    for (const node of multiline) {
+  #|      const fragment = document.createDocumentFragment();
+  #|      node.textContent.split("\n").forEach((line, index) => {
+  #|        if (index) fragment.appendChild(document.createElement("br"));
+  #|        fragment.appendChild(document.createTextNode(line));
+  #|      });
+  #|      node.replaceWith(fragment);
+  #|    }
+  #|    template.content.querySelectorAll(".heading-toggle-icon").forEach(el => el.remove());
+  #|    template.content.querySelectorAll("pre").forEach(el => el.classList.add("review-loop-markdown-code"));
+  #|    if (typeof hljs !== "undefined") {
+  #|      template.content.querySelectorAll("pre code").forEach(block => {
+  #|        if (block.closest(".yunomi-comment-diagram,.yunomi-comment-mermaid")) return;
+  #|        hljs.highlightElement(block);
+  #|      });
+  #|    }
+  #|    return `<div class="review-loop-markdown">${template.innerHTML.replace(/<br\s*\/>/g, "<br>")}</div>`;
   #|  };
+  #|  let diagrams = Promise.resolve();
+  #|  const renderDiagrams = (force = false) => {
+  #|    const theme = document.documentElement.getAttribute("data-theme") || "light";
+  #|    for (const node of document.querySelectorAll(".review-loop-markdown .yunomi-comment-mermaid")) {
+  #|      if (!force && node.dataset.commentTheme === theme) continue;
+  #|      node.dataset.commentTheme = theme;
+  #|      diagrams = diagrams.then(async () => {
+  #|        if (!node.isConnected || typeof mermaid === "undefined") { delete node.dataset.commentTheme; return; }
+  #|        node.removeAttribute("data-processed");
+  #|        node.textContent = node.getAttribute("data-source") || "";
+  #|        try { await mermaid.parse(node.textContent); await mermaid.run({ nodes: [node] }); }
+  #|        catch (error) {
+  #|          node.replaceChildren();
+  #|          const message = document.createElement("pre");
+  #|          message.className = "yunomi-comment-mermaid-error";
+  #|          message.textContent = `Mermaid: ${error.message || String(error)}`;
+  #|          node.appendChild(message);
+  #|        }
+  #|      });
+  #|    }
+  #|    return diagrams;
+  #|  };
+  #|  window.__yunomiRenderCommentDiagrams = renderDiagrams;
+  #|  new MutationObserver(() => renderDiagrams()).observe(document.body, { childList: true, subtree: true });
+  #|  new MutationObserver(() => renderDiagrams(true)).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  #|  renderDiagrams();
+  #|  const fileDrag = event => Array.from(event.dataTransfer?.types || []).includes("Files");
+  #|  for (const type of ["dragover", "drop"]) document.addEventListener(type, event => {
+  #|    if (fileDrag(event)) event.preventDefault();
+  #|  });
   #|}
 
 ///|
@@ -1216,6 +1250,12 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        reader.readAsDataURL(file);
   #|      };
   #|      picker?.addEventListener("change", () => readImage(picker.files?.[0]));
+  #|      editor?.addEventListener("drop", event => {
+  #|        const file = Array.from(event.dataTransfer?.files || []).find(file => file.type.startsWith("image/"));
+  #|        if (!file) return;
+  #|        event.preventDefault();
+  #|        readImage(file);
+  #|      });
   #|      editor?.addEventListener("paste", (event) => {
   #|        const item = Array.from(event.clipboardData?.items || []).find(entry => String(entry.type || "").startsWith("image/"));
   #|        if (!item) return;
@@ -1286,7 +1326,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const resolveAction = `<div class="review-loop-thread-actions">${resolve}</div>`;
   #|    const replyForm = c.status === "resolved" ? "" : conversationForm(c.id, "/reply-comment", t.replyPlaceholder, t.reply);
   #|    const state = c.status === "resolved" ? `<span class="review-loop-status-check" aria-label="${esc(t.resolved)}">✓</span>` : `<span class="review-loop-status-dot" aria-hidden="true"></span>`;
-  #|    const snippet = includeSnippet ? snippetHtml(c) : (c.quote ? `<blockquote class="review-loop-quote">${esc(c.quote)}</blockquote>` : "");
+  #|    const displayQuote = window.__yunomiCommentDisplayQuote(c);
+  #|    const snippet = includeSnippet ? snippetHtml(c) : (displayQuote ? `<blockquote class="review-loop-quote">${esc(displayQuote)}</blockquote>` : "");
   #|    const number = options.number ? `<span class="review-loop-card-number" aria-label="${esc(String(options.number))}">${esc(String(options.number))}</span>` : state;
   #|    const imageAlt = String(c.target || "").match(/^image \(alt="([^"]*)"/)?.[1] || "";
   #|    const file = options.fileLabel || (Number(c.col || 0) > 0
@@ -1448,10 +1489,9 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const jumpIcon = `<svg class="lucide lucide-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>`;
   #|  const summaryHtml = `<section class="review-loop-conversation" data-review-comment-id="${esc(activeRoundThread ? activeRoundThread.id : "")}"><div class="review-loop-conversation-scroller"><div class="review-loop-conversation-stream">${timelineMessages.map(timelineMessage).join("")}</div><button type="button" class="review-loop-jump-latest" title="${esc(t.jumpLatest)}" aria-label="${esc(t.jumpLatest)}">${jumpIcon}</button></div>${replyForm}</section>`;
   #|  const sidebarStorageKey = `yunomi:review-loop-sidebar:${String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current")}`;
-  #|  // The chat remains available even before the first review message. Only an
-  #|  // explicit minimize action may reduce it to the message-circle button.
+  #|  // Open only when the reviewer explicitly saved the expanded preference.
   #|  const storedSidebar = localStorage.getItem(sidebarStorageKey);
-  #|  const collapsed = storedSidebar === "collapsed";
+  #|  const collapsed = storedSidebar !== "expanded";
   #|  panel.classList.toggle("review-loop-sidebar-collapsed", collapsed);
   #|  const toggleTitle = collapsed ? t.expandTitle : t.collapseTitle;
   #|  // Lucide message-circle v0.468.0 (ISC), used as the compact chat control.
@@ -1725,12 +1765,18 @@ extern "js" fn show_inline_comment_editor(
   #|  section.querySelector("#save-comment")?.addEventListener("click", () => onSave());
   #|  section.querySelector("#send-now-comment")?.addEventListener("click", () => onSend());
   #|  const picker = section.querySelector(".review-loop-reply-file");
-  #|  picker?.addEventListener("change", () => {
-  #|    const file = picker.files?.[0];
+  #|  const readImage = file => {
   #|    if (!file || !String(file.type || "").startsWith("image/")) return;
   #|    const reader = new FileReader();
   #|    reader.onload = () => onImage(String(reader.result || ""));
   #|    reader.readAsDataURL(file);
+  #|  };
+  #|  picker?.addEventListener("change", () => readImage(picker.files?.[0]));
+  #|  section.querySelector("#comment-input")?.addEventListener("drop", event => {
+  #|    const file = Array.from(event.dataTransfer?.files || []).find(file => file.type.startsWith("image/"));
+  #|    if (!file) return;
+  #|    event.preventDefault();
+  #|    readImage(file);
   #|  });
   #|}
 
@@ -2565,7 +2611,7 @@ extern "js" fn install_preview_comment_buttons(
   #|      if (target.classList?.contains("mermaid-container")) attachCopyButton(host, "diagram");
   #|    }
   #|    for (const pre of preview.querySelectorAll("pre")) {
-  #|      if (pre.closest?.(".mermaid-container,#review-loop-panel,.yunomi-inline-comment,.review-loop-markdown-code")) continue;
+  #|      if (pre.closest?.(".mermaid-container,#review-loop-panel,.yunomi-inline-comment,.review-loop-markdown")) continue;
   #|      pre.classList.add("yunomi-copyable");
   #|      attachCopyButton(pre, "code");
   #|    }
@@ -3222,4 +3268,35 @@ extern "js" fn history_attachment_html(json : String) -> String =
   #|  const entry = JSON.parse(json);
   #|  const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"}[c]));
   #|  return (entry.summaryAttachments || []).map(ref => `<img class="review-loop-conversation-image" alt="Attached image" src="${esc(ref)}" />`).join("");
+  #|}
+
+///|
+/// Native edge scrolling must not extend a horizontal selection to the line end.
+extern "js" fn install_preview_selection_scroll_guard() -> Unit =
+  #|() => {
+  #|  const preview = document.querySelector("#md-preview");
+  #|  const pane = preview?.closest(".md-left");
+  #|  if (!pane) return;
+  #|  let drag = null;
+  #|  preview.addEventListener("mousedown", event => {
+  #|    drag = null;
+  #|    if (event.button !== 0 || event.detail !== 1 || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.target.closest(".yunomi-inline-comment,.review-loop-inline,input,textarea,button,a")) return;
+  #|    const caret = document.caretRangeFromPoint(event.clientX, event.clientY);
+  #|    const rect = caret?.getBoundingClientRect();
+  #|    if (caret?.startContainer.nodeType === Node.TEXT_NODE && rect?.height) drag = { top: rect.top, bottom: rect.bottom, startX: event.clientX, x: event.clientX, y: event.clientY, scrollTop: pane.scrollTop, scrollLeft: pane.scrollLeft };
+  #|  });
+  #|  document.addEventListener("mousemove", event => { if (drag) { drag.x = event.clientX; drag.y = event.clientY; } });
+  #|  const correctSelection = () => {
+  #|    if (!drag || drag.x === drag.startX || (pane.scrollTop === drag.scrollTop && pane.scrollLeft === drag.scrollLeft) || drag.y < drag.top || drag.y > drag.bottom) return;
+  #|    const selection = window.getSelection();
+  #|    if (!selection?.rangeCount || selection.isCollapsed || selection.anchorNode?.nodeType !== Node.TEXT_NODE || !preview.contains(selection.anchorNode) || !preview.contains(selection.focusNode)) return;
+  #|    const anchor = document.createRange();
+  #|    anchor.setStart(selection.anchorNode, selection.anchorOffset);
+  #|    anchor.collapse(true);
+  #|    const rect = anchor.getBoundingClientRect();
+  #|    const caret = document.caretRangeFromPoint(drag.x, rect.top + rect.height / 2);
+  #|    if (caret?.startContainer === selection.anchorNode) selection.extend(caret.startContainer, caret.startOffset);
+  #|  };
+  #|  pane.addEventListener("scroll", correctSelection);
+  #|  document.addEventListener("mouseup", () => { correctSelection(); drag = null; });
   #|}

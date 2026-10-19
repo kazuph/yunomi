@@ -451,13 +451,11 @@ async function scenarioTabCloseWaitsForExplicitSubmit(
     await page.waitForSelector(".yunomi-restore-toast", { timeout: 5000 });
     const restored = await page.locator('.question-card[data-qid="q-freetext"] .q-answer').inputValue();
     assert(restored === ABANDONED_TEXT, "close前の下書きは再訪時に復元できる", { restored });
-    // The questions overlay intercepts pointer events while it is visible;
-    // dismiss it and wait for it to actually hide before pressing Submit.
-    const overlay = page.locator("#yunomi-questions-overlay");
-    if (await overlay.evaluate((el) => el.classList.contains("visible")).catch(() => false)) {
-      await page.locator("#yunomi-questions-close").click();
-      await page.waitForSelector("#yunomi-questions-overlay.visible", { state: "hidden", timeout: 5000 });
-    }
+    // An unresolved question auto-opens even when its draft answer is restored.
+    // Wait for that deferred opening before dismissing it through the normal UI.
+    await page.waitForSelector("#yunomi-questions-overlay.visible", { timeout: 5000 });
+    await page.locator("#yunomi-questions-close").click();
+    await page.waitForSelector("#yunomi-questions-overlay.visible", { state: "hidden", timeout: 5000 });
     await page.locator("#send-and-exit").click();
     await page.waitForSelector("#submit-modal.visible", { timeout: 5000 });
     const exitPromise = waitForExit(proc);

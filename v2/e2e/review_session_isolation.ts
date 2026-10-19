@@ -161,6 +161,11 @@ async function uiHasText(port: number, marker: string, path = "/"): Promise<bool
     await installEvaluateNamePolyfill(page);
     await page.goto(`http://127.0.0.1:${port}${path}`, { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#review-loop-panel, .review-loop-sidebar", { timeout: 8000 }).catch(() => {});
+    const panel = page.locator("#review-loop-panel");
+    if (await panel.evaluate(el => el.classList.contains("review-loop-sidebar-collapsed"))) {
+      await panel.locator(".review-loop-sidebar-toggle").click();
+    }
+    await page.waitForFunction(() => !document.querySelector("#review-loop-panel")?.classList.contains("review-loop-sidebar-collapsed"));
     await page.waitForFunction((text) => document.body.innerText.includes(text), marker, { timeout: 4000 }).catch(() => {});
     const body = await page.locator("body").innerText();
     return body.includes(marker);
