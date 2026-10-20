@@ -3156,6 +3156,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       }
       let attachment_ref = save_conversation_image(ctx, id, image)
       if ctx.file_path != "<stdin>" {
+        let previous_review = if author == "human" {
+          read_file_safe(review_json_path_for_file(ctx.file_path))
+        } else {
+          ""
+        }
         reply_review_comment(ctx.file_path, id, text, author, attachment_ref)
         if author == "human" {
           let round = current_review_round(ctx.file_path)
@@ -3180,6 +3185,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             id +
             " round=" +
             round.to_string() +
+            reply_notification_context(
+              previous_review,
+              id,
+              review_json_path_for_file(ctx.file_path),
+            ) +
             "\nhuman: " +
             @core.expand_notify_escapes(text) +
             attachment_line +

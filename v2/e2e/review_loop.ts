@@ -1114,6 +1114,9 @@ async function main(): Promise<void> {
         left: box(".md-left"),
         right: box(".md-right"),
         layout: box(".md-layout"),
+        mediaSidebar: box("#media-sidebar"),
+        mediaSidebarClass: document.querySelector("#media-sidebar")?.className,
+        mediaThumbs: document.querySelectorAll("#media-sidebar .media-sidebar-thumb").length,
         bodyScrollWidth: document.body.scrollWidth,
         viewportWidth: window.innerWidth,
       };
