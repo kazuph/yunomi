@@ -594,13 +594,13 @@ pub fn init_app() -> Unit {
   }
   // Setup paste handler for image attachment
   setup_paste_handler()
+  install_chat_markdown_helpers()
   // Check for saved comments and show recovery modal if present
   check_recovery()
   // Register the tab so the server can tell reload from close.
   setup_close_detection(port)
   // Unread cues for agent replies (header counter, chat dot, bell).
   install_conversation_unread(get_yunomi_storage_scope())
-  install_chat_markdown_helpers()
   install_typing_tracker()
   // Setup SSE for live reload
   setup_sse(port)
@@ -608,6 +608,12 @@ pub fn init_app() -> Unit {
 
 ///|
 let quiet_refresh_pending : Ref[Bool] = Ref(false)
+
+///|
+let preview_selection_pointer_down : Ref[Bool] = Ref(false)
+
+///|
+let preview_selection_pending : Ref[Bool] = Ref(false)
 
 ///|
 let quiet_refresh_requested_at : Ref[Double] = Ref(0.0)
@@ -648,7 +654,9 @@ fn request_quiet_refresh() -> Unit {
 ///|
 fn schedule_quiet_refresh() -> Unit {
   let waited = now_ms() - quiet_refresh_requested_at.val
-  if user_typing_recently(900) && waited < 6000.0 {
+  if preview_selection_pointer_down.val ||
+    preview_selection_pending.val ||
+    (user_typing_recently(900) && waited < 6000.0) {
     ignore(set_timeout(fn() { schedule_quiet_refresh() }, 300))
     return
   }
@@ -658,6 +666,11 @@ fn schedule_quiet_refresh() -> Unit {
 ///|
 fn perform_quiet_refresh() -> Unit {
   fetch_get(yunomi_request_url("/"), fn(html) {
+    // A gesture can start after the request. Do not detach its native anchor.
+    if preview_selection_pointer_down.val || preview_selection_pending.val {
+      schedule_quiet_refresh()
+      return
+    }
     quiet_refresh_pending.val = false
     if html.length() == 0 || html == "[]" || !html.contains("md-preview") {
       full_reload()
@@ -3946,10 +3959,18 @@ fn setup_comment_keyboard_shortcuts() -> Unit {
 ///|
 /// Setup preview mouseup handler for text selection → range comment
 fn setup_preview_mouseup() -> Unit {
+  install_preview_selection_scroll_guard()
   let preview = query("#md-preview")
   if is_null(preview) {
     return
   }
+  on(preview, "mousedown", fn(e) {
+    if get_event_button(e) == 0 {
+      preview_selection_pointer_down.val = true
+    }
+  })
+  on_doc("mouseup", fn(_e) { preview_selection_pointer_down.val = false })
+  on_window("blur", fn(_e) { preview_selection_pointer_down.val = false })
   on(preview, "mouseup", fn(e) {
     let mouse_target = event_target(e)
     if !is_null(
@@ -3959,9 +3980,11 @@ fn setup_preview_mouseup() -> Unit {
       ) {
       return
     }
+    preview_selection_pending.val = true
     ignore(
       set_timeout(
         fn() {
+          preview_selection_pending.val = false
           let sel = window_get_selection()
           if is_null(sel) || selection_is_collapsed(sel) {
             return

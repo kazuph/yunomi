@@ -510,7 +510,11 @@ try {
     await page.locator("#pill-comments").click();
     await page.waitForSelector(".comment-list:not(.collapsed)", { state: "visible" });
   }
-  await page.waitForTimeout(150);
+  await page.waitForFunction(() => {
+    const panel = document.querySelector<HTMLElement>(".comment-list");
+    const trigger = document.querySelector<HTMLElement>("#pill-comments");
+    return panel && trigger && Math.abs(panel.getBoundingClientRect().right - trigger.getBoundingClientRect().right) <= 1;
+  });
   const expandedLayout = await page.evaluate(() => {
     const panel = document.querySelector<HTMLElement>(".comment-list");
     const trigger = document.querySelector<HTMLElement>("#pill-comments");

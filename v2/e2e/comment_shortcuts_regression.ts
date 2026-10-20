@@ -312,7 +312,11 @@ async function main(): Promise<void> {
     const headingCount = await headingTarget.count();
     assert(headingCount === 1, "枠線を検証するMarkdown見出しが一意に存在する", { headingCount });
     await headingTarget.click();
-    await page.waitForTimeout(200);
+    await page.waitForFunction(() => {
+      const highlighted = document.querySelector('.md-preview .preview-highlight');
+      const color = highlighted ? getComputedStyle(highlighted).backgroundColor : '';
+      return color && color !== 'rgba(0, 0, 0, 0)' && color !== 'transparent';
+    });
     const headingSelection = await selectedState(page);
     assert(
       headingSelection.previewText.length > 0 &&

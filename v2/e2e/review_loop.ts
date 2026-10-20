@@ -256,6 +256,8 @@ async function main(): Promise<void> {
     const currentRoundPage = await currentRoundBrowser.newPage({ viewport: { width: 1280, height: 900 } });
     await installEvaluateNamePolyfill(currentRoundPage);
     await currentRoundPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await currentRoundPage.waitForSelector("#review-loop-panel .review-loop-sidebar-toggle");
+    if (await currentRoundPage.locator("#review-loop-panel").evaluate(el => el.classList.contains("review-loop-sidebar-collapsed"))) await currentRoundPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
     await currentRoundPage.waitForSelector("#review-loop-panel .review-loop-conversation[data-review-comment-id='r-1']", { timeout: 10000 });
     assert.match(
       await currentRoundPage.locator("#review-loop-panel .review-loop-conversation").textContent() || "",
@@ -315,6 +317,8 @@ async function main(): Promise<void> {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await installEvaluateNamePolyfill(page);
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("#review-loop-panel .review-loop-sidebar-toggle");
+    if (await page.locator("#review-loop-panel").evaluate(el => el.classList.contains("review-loop-sidebar-collapsed"))) await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
     await page.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
     await page.waitForSelector(".review-loop-inline", { timeout: 10000 });
     assert.equal(await page.locator("#send-and-exit").textContent(), "Submit", "the primary action uses the requested Submit label without review");
@@ -624,6 +628,8 @@ async function main(): Promise<void> {
       const editorLayoutPage = await editorLayoutContext.newPage();
     await installEvaluateNamePolyfill(editorLayoutPage);
       await editorLayoutPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+      await editorLayoutPage.waitForSelector("#review-loop-panel .review-loop-sidebar-toggle");
+      if (await editorLayoutPage.locator("#review-loop-panel").evaluate(el => el.classList.contains("review-loop-sidebar-collapsed"))) await editorLayoutPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
       await editorLayoutPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       await editorLayoutPage.waitForSelector("#media-sidebar:not(.hidden)", { state: "visible", timeout: 10000 });
       await editorLayoutPage.locator("#md-preview ol > li[data-source-line]").filter({ hasText: "Ordered next" }).click();
@@ -1108,6 +1114,9 @@ async function main(): Promise<void> {
         left: box(".md-left"),
         right: box(".md-right"),
         layout: box(".md-layout"),
+        mediaSidebar: box("#media-sidebar"),
+        mediaSidebarClass: document.querySelector("#media-sidebar")?.className,
+        mediaThumbs: document.querySelectorAll("#media-sidebar .media-sidebar-thumb").length,
         bodyScrollWidth: document.body.scrollWidth,
         viewportWidth: window.innerWidth,
       };
@@ -1241,6 +1250,8 @@ async function main(): Promise<void> {
           state: "attached",
           timeout: 10000,
         });
+        assert.equal(await portraitPage.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 1, `portrait ${deviceWidth}px starts with chat collapsed`);
+        await portraitPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
         const portraitLayout = await portraitPage.evaluate(() => {
           const rect = (selector: string) => {
             const element = document.querySelector<HTMLElement>(selector);
@@ -1281,7 +1292,7 @@ async function main(): Promise<void> {
         assert.equal(portraitLayout.sidebar?.display, "grid", `portrait ${deviceWidth}px keeps the minimized review chat visible`);
         assert.ok(
           (portraitLayout.sidebar?.right ?? 0) - (portraitLayout.sidebar?.left ?? 0) > 40,
-          `portrait ${deviceWidth}px starts with the persistent chat expanded instead of hiding its editor behind the compact control`,
+          `portrait ${deviceWidth}px shows the conversation after pressing the open button`,
         );
         assert.equal(portraitLayout.conversation?.display, "flex", `portrait ${deviceWidth}px keeps the global conversation visible`);
         assert.equal(portraitLayout.chatEditor?.display, "block", `portrait ${deviceWidth}px keeps the global reply editor visible`);
@@ -1316,7 +1327,7 @@ async function main(): Promise<void> {
             background: panel ? getComputedStyle(panel).backgroundColor : "",
           };
         });
-        assert.equal(openConversation.collapsed, false, `portrait ${deviceWidth}px keeps the persistent chat expanded on first render`);
+        assert.equal(openConversation.collapsed, false, `portrait ${deviceWidth}px keeps the conversation expanded after opening`);
         assert.equal(openConversation.display, "grid", `portrait ${deviceWidth}px opens the saved review conversation`);
         assert.equal(openConversation.hasConversation, true, `portrait ${deviceWidth}px keeps the persisted conversation readable`);
         assert.notEqual(openConversation.background, "transparent", `portrait ${deviceWidth}px conversation has a reading surface`);
@@ -1475,6 +1486,8 @@ async function main(): Promise<void> {
       const jaPage = await jaContext.newPage();
     await installEvaluateNamePolyfill(jaPage);
       await jaPage.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+      await jaPage.waitForSelector("#review-loop-panel .review-loop-sidebar-toggle");
+      if (await jaPage.locator("#review-loop-panel").evaluate(el => el.classList.contains("review-loop-sidebar-collapsed"))) await jaPage.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
       await jaPage.waitForSelector("#review-loop-panel .review-loop-conversation", { timeout: 10000 });
       const jaSidebarText = await jaPage.locator("#review-loop-panel").first().textContent();
       assert.match(jaSidebarText || "", /🍵/, "chat title stays icon-only in a Japanese browser");
@@ -1786,7 +1799,9 @@ async function main(): Promise<void> {
     // An empty review still exposes the persistent global conversation entry
     // point, so the reviewer can start talking before any comment exists.
     await page.waitForSelector("#review-loop-panel .review-loop-details", { timeout: 10000 });
-    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 0, "an empty review keeps the conversation visible");
+    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 1, "an empty review starts collapsed");
+    await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
+    assert.equal(await page.locator("#review-loop-panel.review-loop-sidebar-collapsed").count(), 0, "opening an empty review exposes the conversation");
     assert.equal(await page.locator("#review-loop-panel .review-loop-conversation .review-loop-reply-form:visible").count(), 1, "an empty review exposes the global chat reply form");
     assert.ok(
       await page.evaluate(() => document.querySelector("#review-loop-panel")!.getBoundingClientRect().width) > 64,

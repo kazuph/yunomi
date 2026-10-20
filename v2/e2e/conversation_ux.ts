@@ -131,6 +131,8 @@ async function main(): Promise<void> {
     });
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
     await page.waitForSelector(".mermaid-container .mermaid svg", { timeout: 15000 });
+    await page.waitForSelector("#review-loop-panel .review-loop-sidebar-toggle");
+    await page.locator("#review-loop-panel .review-loop-sidebar-toggle").click();
     await page.waitForSelector("#review-loop-panel .review-loop-reply-form", { timeout: 10000 });
     await page.locator("#sse-status").hover();
     await page.waitForFunction(() => {

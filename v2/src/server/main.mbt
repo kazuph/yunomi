@@ -3156,6 +3156,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       }
       let attachment_ref = save_conversation_image(ctx, id, image)
       if ctx.file_path != "<stdin>" {
+        let previous_review = if author == "human" {
+          read_file_safe(review_json_path_for_file(ctx.file_path))
+        } else {
+          ""
+        }
         reply_review_comment(ctx.file_path, id, text, author, attachment_ref)
         if author == "human" {
           let round = current_review_round(ctx.file_path)
@@ -3180,6 +3185,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             id +
             " round=" +
             round.to_string() +
+            reply_notification_context(
+              previous_review,
+              id,
+              review_json_path_for_file(ctx.file_path),
+            ) +
             "\nhuman: " +
             @core.expand_notify_escapes(text) +
             attachment_line +
@@ -3764,15 +3774,19 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
     save_comment_image(ctx, safe_attachment_name_component(key) + "-root-" + gen_instance_id() + "." + extract_base64_ext(image), image)
   } else { "" }
   let target = json_parse_string("target", body)
-  let source_quote = comment_quote_for_row(ctx, line)
+  let source = if ctx.file_path == "<stdin>" { ctx.source_text } else { decode_file(ctx.file_path, encoding_override.val) }
+  let source_lines = @core.split_to_lines(source)
+  let source_quote = if line > 0 && line <= source_lines.length() { source_lines[line - 1].trim().to_owned() } else { "" }
   let selected_quote = json_parse_string("quote", body)
-  let quote = if selected_quote.length() > 0 {
+  let quote = notification_quote(if selected_quote.length() > 0 {
     selected_quote
-  } else if source_quote.length() > 0 {
-    source_quote
   } else {
-    notification_quote(target)
-  }
+    @core.comment_display_quote(
+      if source_quote.length() > 0 { source_quote } else { target },
+      json_parse_string("value", body),
+      json_parse_string("element_text", body),
+    )
+  })
   buf.write_string(",\"quote\":")
   buf.write_string(json_encode_value(quote))
   if target.length() > 0 {
@@ -3825,6 +3839,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       ctx.filename +
       ":" +
       line.to_string() +
+      (if col.length() > 0 && col != "0" && (json_parse_string("value", body).has_prefix("Markdown table cell") || json_parse_string("element_text", body).has_prefix("Markdown table cell")) { " col=" + col } else { "" }) +
       " id=" +
       id +
       " round=" +

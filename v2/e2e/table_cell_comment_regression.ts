@@ -212,9 +212,12 @@ async function main(): Promise<void> {
       "画像の鉛筆にはhoverで表示するCSS規則が配信される",
       { hoverRulePresent },
     );
-    await paragraphButton.focus();
+    await hostForHover.locator(":scope > .yunomi-comment-button").focus();
     // The opacity transition is 0.12s; wait past it before sampling.
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => {
+      const button = document.activeElement;
+      return !!button?.matches('.yunomi-comment-button') && getComputedStyle(button).opacity === '1';
+    });
     const paragraphOpacityFocus = await paragraphButton.evaluate(
       (button) => getComputedStyle(button).opacity,
     );
@@ -488,6 +491,19 @@ async function main(): Promise<void> {
       "send nowボタンとCmd/Ctrl+Enterの両方で画像名・Markdown行・列を表示して各セルへ独立して残る",
       imageCommentState,
     );
+    for (const [index, alt] of ["Before", "After"].entries()) {
+      const quote = imageCells.nth(index).locator(".review-loop-comment > .review-loop-quote");
+      assert((await quote.textContent()) === `画像「${alt}」`, "送信後の画像セル引用は画像名だけを示す", await quote.textContent());
+    }
+    const reloadPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await reloadPage.goto(page.url());
+    await reloadPage.reload();
+    for (const alt of ["Before", "After"]) {
+      const thread = reloadPage.locator('.review-loop-inline').filter({hasText:`表の画像「${alt}」`});
+      await thread.locator('.review-loop-quote').waitFor();
+      assert((await thread.locator('.review-loop-quote').textContent()) === `画像「${alt}」`, "再読込後も画像セルの引用を維持する");
+    }
+    await reloadPage.close();
     const durableReview = JSON.parse(
       readFileSync(join(REVIEW_DIR, "review.json"), "utf8"),
     );
