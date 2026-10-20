@@ -1,6 +1,10 @@
 # Changelog
 
-## v2.6.7 - 2026-10-19
+## v2.6.7 - 2026-10-20
+
+### Added
+
+- Human reply notifications include the thread location (file, line, and table column), its display quote, and up to the ten earlier messages of that thread, oldest first. Existing notification lines are unchanged.
 
 ### Fixed
 
