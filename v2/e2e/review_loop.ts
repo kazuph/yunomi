@@ -1121,6 +1121,9 @@ async function main(): Promise<void> {
         viewportWidth: window.innerWidth,
       };
     });
+    // The document image and inline reply attachment must both reach the rail.
+    await page.waitForSelector("#media-sidebar:not(.hidden)", { state: "visible", timeout: 10000 });
+    await page.waitForFunction(() => document.querySelectorAll("#media-sidebar .media-sidebar-thumb").length === 2, undefined, { timeout: 10000 });
     await settleLayout();
     const layoutBeforeMinimize = await layoutWidths();
     const inlineWidthsBeforeMinimize = await page.evaluate(() =>

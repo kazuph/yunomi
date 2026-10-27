@@ -145,8 +145,8 @@ async function main() {
     );
 
     assertLine(
-      /\[yunomi\] request_changes received; full summary\/comments: .*review\.json \(if launched via `herdr run`, read `herdr job log <job>` first\); next: fix the review items, then run `npx yunomi go`/.test(out.get()),
-      "request_changes-received log names review.json and the exact next command (`npx yunomi go`)",
+      /\[yunomi\] request_changes received; full summary\/comments: .*review\.json \(if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first\); next: fix the review items, then run `npx yunomi go`/.test(out.get()),
+      "request_changes-received log names review.json, both runtime logs, and the exact next command (`npx yunomi go`)",
       { serverOutput: out.get() },
     );
 

@@ -323,3 +323,59 @@ npm run prepack
 ## ライセンス
 
 MIT
+
+## ikesuへの通知
+
+通知経路は `IKESU_PANE_ID`、または `ikesu pane current` が成功するikesu環境を
+先に確かめ、次にHerdr、最後に検証済みtmuxペインを使います。
+`ikesu pane get "$PANE_ID"` で対象を検証し、フォーカス中のペインから推測しません。
+
+```bash
+PANE_ID="$(printenv IKESU_PANE_ID || true)"
+if [ -z "$PANE_ID" ] && command -v ikesu >/dev/null 2>&1; then
+  if PANE_ID="$(ikesu pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+fi
+if [ -n "$PANE_ID" ]; then
+  ikesu pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+  YUNOMI_ROUTE=ikesu
+else
+  PANE_ID="$(printenv HERDR_PANE_ID || true)"
+  if [ -z "$PANE_ID" ] && command -v herdr >/dev/null 2>&1; then
+    if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+  fi
+  if [ -n "$PANE_ID" ]; then
+    herdr pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    YUNOMI_ROUTE=herdr
+  elif [ -n "$(printenv TMUX || true)" ] && [ -n "$(printenv TMUX_PANE || true)" ]; then
+    TMUX_PANE_ID="$(printenv TMUX_PANE)"
+    test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+    YUNOMI_ROUTE=tmux
+  else
+    echo "no proven yunomi notification route" >&2
+    exit 1
+  fi
+fi
+```
+
+`YUNOMI_ROUTE=ikesu` のとき、Codexは次のコマンドで起動します。
+
+```bash
+ikesu run --label yunomi --cwd /absolute/path/to/repo -- \
+  npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"
+```
+
+Claude Codeでは `npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"` を
+`run_in_background: true` で起動し、そのBashバックグラウンドタスクの出力を読みます。
+Codexは `ikesu run` の完了通知後に `ikesu log <job>` を読みます。
+`--notify-ikesu-pane` はikesu専用、`--notify-pane` はHerdr専用、
+`--notify-tmux-pane` はtmux専用です。ikesuへの配送は `ikesu agent prompt`、
+`--notify-room R` 指定時は `ikesu send <pane> <text> --room R` を使います。
+部屋を指定した場合、送信先のHerdrとikesuすべてで対応を起動前に確認します。
+古い版向けの代替送信は行いません。
+
+送り先の引数を指定しない場合、`IKESU_PANE_ID` があればikesuだけに送り、
+外側から引き継いだHerdrやtmuxの送り先は無視します。送り先の引数を指定した場合、
+ikesuの環境変数から送り先を追加せず、従来のHerdr/tmux環境変数の扱いを保ちます。
+`YUNOMI_NOTIFY_CMD` は全配送経路に優先し、イベントごとに1回だけ実行します。
+届かなかった経路だけを未配送一覧から再送でき、最終判定が届くまで終了を保留します
+（未配送での終了を明示したとき、または最後のタブを閉じたときは終了します）。

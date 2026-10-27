@@ -14,11 +14,29 @@ struct ServerContext {
   mut decision_source_change_pending : Bool
   is_loop : Bool
   notify_pane : String
+  notify_ikesu_pane : String
   notify_tmux_pane : String
   notify_room : String
   /// tab_id -> sequence of the close whose notification is still in its grace window
   pending_close_notify : Map[String, Int]
   mut close_notify_seq : Int
+  /// Notifications the launching agent never received, kept until a resend
+  /// delivers them so the human can see and recover the loss.
+  undelivered : Array[UndeliveredNotify]
+  /// Bumped on every change so a tab can drop a list older than one it shows.
+  mut undelivered_version : Int
+}
+
+///|
+struct UndeliveredNotify {
+  id : String
+  message : String
+  mut error : String
+  at : String
+  /// Only the routes that failed; a resend never repeats a delivered route.
+  mut herdr_pane : String
+  mut ikesu_pane : String
+  mut tmux_pane : String
 }
 
 ///|
@@ -45,6 +63,24 @@ let last_mux_submit_status : Ref[String] = Ref("")
 let expected_count : Ref[Int] = Ref(0)
 
 ///|
+/// Id of the final verdict notification the agent did not receive. While set,
+/// the finished review keeps its process alive so the human can resend it
+/// from the page; delivering it, confirming the exit, or closing the last tab
+/// ends the process.
+let exit_held_id : Ref[String] = Ref("")
+
+///|
+/// Undelivered ids are unique across every file of the process, so the held
+/// verdict can be found without also naming its file.
+let undelivered_seq : Ref[Int] = Ref(0)
+
+///|
+/// One grace window for the whole process: each close of any file's tab
+/// restarts it, so an earlier close cannot end a review whose other tab is
+/// in the middle of a reload.
+let held_close_seq : Ref[Int] = Ref(0)
+
+///|
 /// Per-process id announced over SSE so reused-port tabs can self-reload
 let server_instance_id : Ref[String] = Ref("")
 
@@ -59,6 +95,9 @@ let loop_mode : Ref[Bool] = Ref(false)
 
 ///|
 let notify_pane_arg : Ref[String] = Ref("")
+
+///|
+let notify_ikesu_pane_arg : Ref[String] = Ref("")
 
 ///|
 let notify_tmux_pane_arg : Ref[String] = Ref("")
@@ -98,23 +137,54 @@ let share_token : Ref[String] = Ref("")
 let vim_keys_enabled : Ref[Bool] = Ref(true)
 
 ///|
-fn resolve_notify_pane() -> String {
-  if notify_pane_arg.val.length() > 0 {
-    notify_pane_arg.val
-  } else {
-    get_env_var("HERDR_PANE_ID")
+fn resolve_notify_targets(
+  herdr_arg : String,
+  ikesu_arg : String,
+  tmux_arg : String,
+  ikesu_env : String,
+  herdr_env : String,
+  tmux_env : String,
+) -> (String, String, String) {
+  let explicit = herdr_arg.length() + ikesu_arg.length() + tmux_arg.length() > 0
+  if !explicit && ikesu_env.length() > 0 {
+    return ("", ikesu_env, "")
   }
+  let herdr = if herdr_arg.length() > 0 { herdr_arg } else { herdr_env }
+  let tmux = if tmux_arg.length() > 0 {
+    tmux_arg
+  } else if herdr.length() == 0 {
+    tmux_env
+  } else {
+    ""
+  }
+  (herdr, ikesu_arg, tmux)
+}
+
+///|
+fn notify_targets() -> (String, String, String) {
+  resolve_notify_targets(
+    notify_pane_arg.val,
+    notify_ikesu_pane_arg.val,
+    notify_tmux_pane_arg.val,
+    get_env_var("IKESU_PANE_ID"),
+    get_env_var("HERDR_PANE_ID"),
+    get_env_var("TMUX_PANE"),
+  )
+}
+
+///|
+fn resolve_notify_pane() -> String {
+  notify_targets().0
+}
+
+///|
+fn resolve_notify_ikesu_pane() -> String {
+  notify_targets().1
 }
 
 ///|
 fn resolve_notify_tmux_pane() -> String {
-  if notify_tmux_pane_arg.val.length() > 0 {
-    notify_tmux_pane_arg.val
-  } else if resolve_notify_pane().length() == 0 {
-    get_env_var("TMUX_PANE")
-  } else {
-    ""
-  }
+  notify_targets().2
 }
 
 ///|
@@ -128,16 +198,252 @@ fn review_url(ctx : ServerContext) -> String {
 }
 
 ///|
-fn notify_reviewer(ctx : ServerContext, msg : String) -> Unit {
-  let err = send_notify_message(
+fn notify_reviewer(ctx : ServerContext, msg : String) -> String {
+  deliver_notify(ctx, msg, "[yunomi] notify failed: ")
+}
+
+///|
+/// Send one notification to the launching agent. A failure is logged as
+/// before and also kept in `ctx.undelivered`, which every open tab sees, so
+/// the loss is visible and the same message can be resent later.
+/// Returns the id the failed notification is kept under, or "" once delivered.
+fn deliver_notify(
+  ctx : ServerContext,
+  msg : String,
+  failure_prefix : String,
+) -> String {
+  let (err, herdr_pane, ikesu_pane, tmux_pane) = send_notify_routes(
+    ctx,
     ctx.notify_pane,
+    ctx.notify_ikesu_pane,
     ctx.notify_tmux_pane,
-    ctx.notify_room,
     msg,
   )
   if err.length() > 0 {
-    console_error("[yunomi] notify failed: " + err)
+    console_error(failure_prefix + err)
+    undelivered_seq.val += 1
+    let id = "n" + undelivered_seq.val.to_string()
+    ctx.undelivered.push({
+      id,
+      message: msg,
+      error: err,
+      at: iso_now(),
+      herdr_pane,
+      ikesu_pane,
+      tmux_pane,
+    })
+    broadcast_undelivered(ctx)
+    id
+  } else {
+    ""
   }
+}
+
+///|
+/// Deliver `msg` to each given route separately and report which ones failed
+/// as (error, failed Herdr pane, failed ikesu pane, failed tmux pane). `YUNOMI_NOTIFY_CMD`
+/// replaces all routes with one command, so it fails or succeeds as a whole.
+fn send_notify_routes(
+  ctx : ServerContext,
+  herdr_pane : String,
+  ikesu_pane : String,
+  tmux_pane : String,
+  msg : String,
+) -> (String, String, String, String) {
+  if get_env_var("YUNOMI_NOTIFY_CMD").length() > 0 {
+    let err = send_notify_message(
+      herdr_pane,
+      ikesu_pane,
+      tmux_pane,
+      ctx.notify_room,
+      msg,
+    )
+    return if err.length() > 0 {
+      (err, herdr_pane, ikesu_pane, tmux_pane)
+    } else {
+      ("", "", "", "")
+    }
+  }
+  let herdr_err = if herdr_pane.length() > 0 {
+    send_notify_message(herdr_pane, "", "", ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  let ikesu_err = if ikesu_pane.length() > 0 {
+    send_notify_message("", ikesu_pane, "", ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  let tmux_err = if tmux_pane.length() > 0 {
+    send_notify_message("", "", tmux_pane, ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  (
+    [herdr_err, ikesu_err, tmux_err].filter(fn(e) { e.length() > 0 }).join("; "),
+    if herdr_err.length() > 0 {
+      herdr_pane
+    } else {
+      ""
+    },
+    if ikesu_err.length() > 0 {
+      ikesu_pane
+    } else {
+      ""
+    },
+    if tmux_err.length() > 0 {
+      tmux_pane
+    } else {
+      ""
+    },
+  )
+}
+
+///|
+fn undelivered_json(ctx : ServerContext) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("{\"version\":")
+  buf.write_string(ctx.undelivered_version.to_string())
+  buf.write_string(",\"held\":")
+  buf.write_string(
+    if !share_mode.val && exit_held_id.val.length() > 0 {
+      "true"
+    } else {
+      "false"
+    },
+  )
+  buf.write_string(",\"items\":[")
+  if !share_mode.val {
+    for i, item in ctx.undelivered {
+      if i > 0 {
+        buf.write_char(',')
+      }
+      let mut summary = ""
+      for line in item.message.split("\n") {
+        summary = line.to_owned()
+        break
+      }
+      buf.write_string("{\"id\":")
+      buf.write_string(json_encode_value(item.id))
+      buf.write_string(",\"summary\":")
+      buf.write_string(json_encode_value(summary))
+      buf.write_string(",\"message\":")
+      buf.write_string(json_encode_value(item.message))
+      buf.write_string(",\"error\":")
+      buf.write_string(json_encode_value(item.error))
+      buf.write_string(",\"at\":")
+      buf.write_string(json_encode_value(item.at))
+      buf.write_char('}')
+    }
+  }
+  buf.write_string("]}")
+  buf.to_string()
+}
+
+///|
+fn broadcast_undelivered(ctx : ServerContext) -> Unit {
+  ctx.undelivered_version += 1
+  let data = undelivered_json(ctx)
+  for client in ctx.sse_clients {
+    sse_send(client, "notify-undelivered", data)
+  }
+}
+
+///|
+/// The final verdict did not reach the agent: keep serving the finished
+/// review instead of exiting so the page can resend it.
+fn hold_exit(ctx : ServerContext, verdict_id : String) -> Unit {
+  exit_held_id.val = verdict_id
+  console_error(
+    "[yunomi] exit held: the agent did not receive the final verdict; resend it or exit from the review page",
+  )
+  broadcast_undelivered(ctx)
+}
+
+///|
+/// A held review still owns its locks (a restart must find it running);
+/// they go only when the process really ends.
+fn finish_held_exit(reason : String) -> Unit {
+  cleanup_server_locks()
+  exit_process(reason, 0)
+}
+
+///|
+fn exit_held_delivered() -> Bool {
+  if exit_held_id.val.length() == 0 {
+    return false
+  }
+  for ctx in active_servers {
+    for item in ctx.undelivered {
+      if item.id == exit_held_id.val {
+        return false
+      }
+    }
+  }
+  true
+}
+
+///|
+/// A held review whose last tab stays closed past the reload grace window
+/// has no one left to resend from, so it exits like a completed review.
+fn schedule_held_exit() -> Unit {
+  held_close_seq.val += 1
+  let seq = held_close_seq.val
+  ignore(
+    set_timeout(
+      fn() {
+        if exit_held_id.val.length() > 0 &&
+          held_close_seq.val == seq &&
+          active_servers.iter().all(fn(srv) { srv.active_tabs.length() == 0 }) {
+          finish_held_exit("review tab closed while exit was held")
+        }
+      },
+      close_notify_grace_ms,
+    ),
+  )
+}
+
+///|
+/// Resend a kept notification by id. Only stored messages can be resent, so
+/// a request can never make yunomi deliver text it did not produce itself.
+/// Returns (found, delivered, error).
+fn retry_undelivered(ctx : ServerContext, id : String) -> (Bool, Bool, String) {
+  let mut index = -1
+  for i, item in ctx.undelivered {
+    if item.id == id {
+      index = i
+    }
+  }
+  if index < 0 {
+    return (false, false, "")
+  }
+  let item = ctx.undelivered[index]
+  // The Herdr contract is resolved once per process; a Herdr upgraded since
+  // the failure must be looked at again instead of refusing from the cache.
+  if herdr_notify_contract.val.has_prefix("unsupported:") {
+    herdr_notify_contract.val = ""
+  }
+  if ikesu_notify_contract.val.has_prefix("unsupported:") {
+    ikesu_notify_contract.val = ""
+  }
+  let (err, herdr_pane, ikesu_pane, tmux_pane) = send_notify_routes(
+    ctx,
+    item.herdr_pane,
+    item.ikesu_pane,
+    item.tmux_pane,
+    item.message,
+  )
+  if err.length() > 0 {
+    console_error("[yunomi] notify retry failed: " + err)
+    item.error = err
+    item.herdr_pane = herdr_pane
+    item.ikesu_pane = ikesu_pane
+    item.tmux_pane = tmux_pane
+  } else {
+    ignore(ctx.undelivered.remove(index))
+  }
+  broadcast_undelivered(ctx)
+  (true, err.length() == 0, err)
 }
 
 ///|
@@ -253,6 +559,17 @@ fn log_session_event(message : String) -> Unit {
 
 ///|
 fn exit_process(reason : String, code : Int) -> Unit {
+  // Whatever the launching agent never received leaves with the process, so
+  // print it in full: the agent reads this output when yunomi exits.
+  for ctx in active_servers {
+    for item in ctx.undelivered {
+      write_stdout_sync(
+        "[yunomi] undelivered notification (the agent did not receive it):\n" +
+        item.message +
+        "\n",
+      )
+    }
+  }
   console_error("[YUNOMI_EXIT] " + reason + " code=" + code.to_string())
   process_exit(code)
 }
@@ -596,6 +913,11 @@ fn main {
       if i < args.length() {
         notify_pane_arg.val = args[i]
       }
+    } else if arg == "--notify-ikesu-pane" {
+      i = i + 1
+      if i < args.length() {
+        notify_ikesu_pane_arg.val = args[i]
+      }
     } else if arg == "--notify-tmux-pane" {
       i = i + 1
       if i < args.length() {
@@ -648,18 +970,27 @@ fn main {
   // --notify-room needs the durable mailbox contract; prove it before any
   // server or browser tab exists so a missing contract fails closed here.
   if resolve_notify_room().length() > 0 {
-    if resolve_notify_pane().length() == 0 {
+    if resolve_notify_pane().length() == 0 &&
+      resolve_notify_ikesu_pane().length() == 0 {
       console_error(
-        "[yunomi] --notify-room requires --notify-pane (or HERDR_PANE_ID)",
+        "[yunomi] --notify-room requires --notify-pane or --notify-ikesu-pane (or their pane environment variables)",
       )
-      exit_process("notify-room without herdr pane", 1)
+      exit_process("notify-room without herdr or ikesu pane", 1)
     }
-    let contract = resolve_herdr_notify_contract(true)
-    if contract.has_prefix("unsupported:") {
-      console_error(
-        "[yunomi] " + contract.substring(start="unsupported:".length()),
-      )
-      exit_process("notify-room contract unsupported", 1)
+    let contracts : Array[String] = []
+    if resolve_notify_pane().length() > 0 {
+      contracts.push(resolve_herdr_notify_contract(true))
+    }
+    if resolve_notify_ikesu_pane().length() > 0 {
+      contracts.push(resolve_ikesu_notify_contract(true))
+    }
+    for contract in contracts {
+      if contract.has_prefix("unsupported:") {
+        console_error(
+          "[yunomi] " + contract.substring(start="unsupported:".length()),
+        )
+        exit_process("notify-room contract unsupported", 1)
+      }
     }
   }
   server_instance_id.val = gen_instance_id()
@@ -1011,8 +1342,9 @@ fn print_usage() -> Unit {
     #|  --no-vim          Disable Vim-style review keybindings
     #|  --loop            Keep serving after request_changes; exit only on approve
     #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
+    #|  --notify-ikesu-pane id  Send live comments/verdicts to an ikesu agent pane
     #|  --notify-tmux-pane id  Send live comments/verdicts to a tmux pane
-    #|  --notify-room name  Deliver Herdr notifications as durable mail (herdr send --room)
+    #|  --notify-room name  Deliver Herdr/ikesu notifications as durable mail (send --room)
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -1555,27 +1887,50 @@ fn print_skill_doc_text() -> String {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Resolve and validate the notification route at runtime. Prefer Herdr;
+    #|3. Resolve and validate the notification route at runtime. Prefer ikesu, then Herdr;
     #|   otherwise use the current tmux pane. `HERDR_PANE_ID` is the
     #|   authoritative pane identity on every Herdr (upstream exports `p_N`,
     #|   the kazuph fork accepts `p_N`, `pN`, and `%N`); `herdr pane current`
     #|   is a fork-only fallback for shells that lost the variable:
     #|
     #|   ```bash
-    #|   PANE_ID="$HERDR_PANE_ID"
-    #|   [ -n "$PANE_ID" ] || PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"
-    #|   if [ -n "$PANE_ID" ] && herdr pane get "$PANE_ID" >/dev/null 2>&1; then
-    #|     YUNOMI_ROUTE=herdr
-    #|   elif [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ]; then
-    #|     TMUX_PANE_ID="$TMUX_PANE"
-    #|     test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = \
-    #|       "$TMUX_PANE_ID" || exit 1
-    #|     YUNOMI_ROUTE=tmux
+    #|   PANE_ID="$(printenv IKESU_PANE_ID || true)"
+    #|   if [ -z "$PANE_ID" ] && command -v ikesu >/dev/null 2>&1; then
+    #|     if PANE_ID="$(ikesu pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+    #|   fi
+    #|   if [ -n "$PANE_ID" ]; then
+    #|     ikesu pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    #|     YUNOMI_ROUTE=ikesu
     #|   else
-    #|     echo "no proven yunomi notification route" >&2
-    #|     exit 1
+    #|     PANE_ID="$(printenv HERDR_PANE_ID || true)"
+    #|     if [ -z "$PANE_ID" ] && command -v herdr >/dev/null 2>&1; then
+    #|       if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+    #|     fi
+    #|     if [ -n "$PANE_ID" ]; then
+    #|       herdr pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    #|       YUNOMI_ROUTE=herdr
+    #|     elif [ -n "$(printenv TMUX || true)" ] && [ -n "$(printenv TMUX_PANE || true)" ]; then
+    #|       TMUX_PANE_ID="$(printenv TMUX_PANE)"
+    #|       test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+    #|       YUNOMI_ROUTE=tmux
+    #|     else
+    #|       echo "no proven yunomi notification route" >&2
+    #|       exit 1
+    #|     fi
     #|   fi
     #|   ```
+    #|
+    #|   If `YUNOMI_ROUTE=ikesu`, Codex must use:
+    #|
+    #|   ```bash
+    #|   ikesu run --label yunomi --cwd /absolute/path/to/repo -- \
+    #|     npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"
+    #|   ```
+    #|
+    #|   For Claude Code on ikesu, use `run_in_background: true` with
+    #|   `npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`.
+    #|   Codex reads `ikesu log <job>` after its job completes; Claude Code
+    #|   reads the output of that Bash background task after it completes.
     #|
     #|   If `YUNOMI_ROUTE=herdr`, Codex must use `herdr run` so both live
     #|   input and process completion return to the launching pane:
@@ -1603,16 +1958,32 @@ fn print_skill_doc_text() -> String {
     #|   with a guessed pane, or after route validation fails. Fail closed
     #|   instead. Do not run `open` after launch; yunomi opens the browser itself.
     #|
-    #|   `--notify-pane` is Herdr-only and `--notify-tmux-pane` is tmux-only.
+    #|   `--notify-ikesu-pane` is ikesu-only, `--notify-pane` is Herdr-only,
+    #|   and `--notify-tmux-pane` is tmux-only.
     #|   Yunomi validates the exact target and uses the selected runtime's own
     #|   command to submit each comment, verdict, decision, and close event.
-    #|   On Herdr the common contract is `herdr agent send <pane> <text>`
-    #|   (present upstream and in the fork). Add `--notify-room <room>` only on
+    #|   On ikesu use `ikesu agent prompt <pane> <text>`; with `--notify-room`
+    #|   use `ikesu send <pane> <text> --room R`. No older-version fallback.
+    #|   With no explicit pane arguments, `IKESU_PANE_ID` selects only ikesu,
+    #|   suppressing inherited Herdr/tmux targets. Explicit arguments do not
+    #|   add an implicit ikesu target; legacy Herdr/tmux environment rules remain.
+    #|   Room startup checks every selected Herdr/ikesu mailbox contract.
+    #|   `YUNOMI_NOTIFY_CMD` overrides every delivery route once per event.
+    #|   On Herdr the common contract is `herdr agent prompt <pane> <text>`
+    #|   (upstream 0.7.5+ and kazuph fork 0.2.5+). Add `--notify-room <room>` only on
     #|   a Herdr that exposes the durable mailbox `herdr send <to> <text> --room`;
     #|   yunomi then queues every event as mail instead of typing into the
     #|   pane, and refuses to start if that contract is missing.
     #|   A browser reload or navigation is not a close: yunomi waits 1.5 s and
     #|   only reports `tab closed` when the tab did not re-register.
+    #|   A notification the agent cannot take (upstream Herdr refuses with
+    #|   `agent_blocked` while you wait at an approval dialog, or
+    #|   `agent_not_ready` when you are not the pane's foreground process)
+    #|   stays in the human's undelivered counter for resend; any still
+    #|   undelivered when yunomi exits is printed in full to its output.
+    #|   If the final verdict itself is refused, yunomi keeps running after
+    #|   the human submits and exits once the human resends it (you then
+    #|   receive it as usual) or exits without delivering.
     #|   Fail closed if delivery is unproven.
     #|   `yunomi share` is the explicit read-only exception.
     #|4. If the human submits `request_changes`, the server stays alive.
@@ -1687,7 +2058,8 @@ fn print_skill_doc_text() -> String {
     #|
     #|The instant the human presses it, yunomi (a) rewrites the source
     #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
-    #|agent through the installed Herdr's `agent send` contract (or
+    #|agent through ikesu `agent prompt` (or `ikesu send --room`), or
+    #|through the installed Herdr's `agent prompt` contract (or
     #|`herdr send --room` when `--notify-room` is set), or through
     #|`tmux send-keys`, and (c) records the decision
     #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
@@ -1735,7 +2107,7 @@ fn print_skill_doc_text() -> String {
     #|delivery channel:
     #|
     #|```text
-    #|[yunomi] request_changes received; full summary/comments: .yunomi/reviews/<branch>/review.json (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`
+    #|[yunomi] request_changes received; full summary/comments: .yunomi/reviews/<branch>/review.json (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`
     #|```
     #|
     #|## Verdict schema (stdout YAML, printed when the human submits)
@@ -1803,6 +2175,7 @@ fn print_skill_doc_text() -> String {
     #|
     #|```bash
     #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--notify-room <room>] [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> --loop --notify-ikesu-pane <proven-ikesu-pane-id> [--notify-room <room>]
     #|yunomi <file...> --loop --notify-tmux-pane <proven-tmux-pane-id>
     #|yunomi go              # start the next round for this branch
     #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
@@ -1831,7 +2204,7 @@ fn print_skill_doc_text() -> String {
     #|description: >-
     #|  Serve finished work to the human as a browsable report for interactive
     #|  review and approval. Writable reviews must use --loop and a
-    #|  runtime-validated notification route. Fail closed when neither Herdr nor
+    #|  runtime-validated notification route. Fail closed when neither ikesu, Herdr nor
     #|  a validated tmux pane is proven. yunomi share is the read-only exception.
     #|---
     #|```
@@ -1840,7 +2213,8 @@ fn print_skill_doc_text() -> String {
     #|- Codex/agents: ~/.agents/skills/yunomi/SKILL.md
     #|- Project-local alternative: .claude/skills/yunomi/SKILL.md
     #|
-    #|From then on, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
+    #|On ikesu, use `ikesu run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`.
+    #|On Herdr, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
     #|after resolving and validating a Herdr pane. In pure tmux, use `--loop`
     #|with `--notify-tmux-pane "$TMUX_PANE_ID"` after validating that pane.
     #|Use `npx yunomi go` after each fix round.
@@ -2255,10 +2629,13 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_ikesu_pane: resolve_notify_ikesu_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
     close_notify_seq: 0,
+    undelivered: [],
+    undelivered_version: 0,
   }
   active_servers.push(ctx)
   expected_count.val = 1
@@ -2325,10 +2702,13 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_ikesu_pane: resolve_notify_ikesu_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
     close_notify_seq: 0,
+    undelivered: [],
+    undelivered_version: 0,
   }
 }
 
@@ -3033,11 +3413,72 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     }
     res_write_head(res, 200, "application/json")
     res_end(res, state_json)
+  } else if http_method == "GET" && path == "/notify/undelivered" {
+    res_set_header(res, "Cache-Control", "no-store")
+    res_write_head(res, 200, "application/json")
+    res_end(res, undelivered_json(ctx))
   } else if http_method == "GET" && url.has_prefix("/video-timeline?") {
     handle_video_timeline(ctx, url, res)
   } else if share_mode.val && http_method == "POST" {
     res_write_head(res, 405, "application/json")
     res_end(res, "{\"ok\":false,\"error\":\"read_only_share\"}")
+  } else if http_method == "POST" &&
+    (path == "/notify/retry" || path == "/notify/finish") &&
+    !req_same_origin(req) {
+    // Resending and ending a held review are page actions; refuse a POST
+    // another site (or another localhost port) makes on the human's behalf.
+    res_write_head(res, 403, "application/json")
+    res_end(res, "{\"ok\":false,\"error\":\"cross_origin\"}")
+  } else if http_method == "POST" && path == "/notify/retry" {
+    read_body(req, fn(body) {
+      let (found, delivered, err) = retry_undelivered(
+        ctx,
+        json_parse_string("id", body),
+      )
+      if !found {
+        res_write_head(res, 404, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"not_found\"}")
+      } else {
+        // Delivering the held verdict completes the review's exit.
+        let exiting = delivered && exit_held_delivered()
+        res_write_head(res, 200, "application/json")
+        if exiting {
+          res_on_finish(res, fn() {
+            ignore(
+              set_timeout(fn() { finish_held_exit("all reviews submitted") }, 30),
+            )
+          })
+        }
+        res_end(
+          res,
+          "{\"ok\":true,\"delivered\":" +
+          (if delivered { "true" } else { "false" }) +
+          ",\"exiting\":" +
+          (if exiting { "true" } else { "false" }) +
+          ",\"error\":" +
+          json_encode_value(err) +
+          "}",
+        )
+      }
+    })
+  } else if http_method == "POST" && path == "/notify/finish" {
+    // Exit a held review without delivering: the undelivered text still
+    // leaves in full through the exit output.
+    if exit_held_id.val.length() == 0 {
+      res_write_head(res, 409, "application/json")
+      res_end(res, "{\"ok\":false,\"error\":\"not_held\"}")
+    } else {
+      res_write_head(res, 200, "application/json")
+      res_on_finish(res, fn() {
+        ignore(
+          set_timeout(
+            fn() { finish_held_exit("exit confirmed with undelivered verdict") },
+            30,
+          ),
+        )
+      })
+      res_end(res, "{\"ok\":true}")
+    }
   } else if http_method == "POST" && path == "/session/open" {
     read_body(req, fn(body) {
       handle_session_open(ctx, body)
@@ -3179,7 +3620,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
           } else {
             ""
           }
-          notify_reviewer(
+          ignore(notify_reviewer(
             ctx,
             "[yunomi] conversation reply id=" +
             id +
@@ -3197,7 +3638,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             id +
             " <text>\nurl=" +
             review_url(ctx),
-          )
+          ))
         }
       }
       res_write_head(res, 200, "application/json")
@@ -3272,7 +3713,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       } else {
         ""
       }
-      notify_reviewer(
+      ignore(notify_reviewer(
         ctx,
         "[yunomi] global comment id=" +
         id +
@@ -3285,7 +3726,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         id +
         " <text>\nurl=" +
         review_url(ctx),
-      )
+      ))
       res_write_head(res, 200, "application/json")
       res_end(res, "{\"ok\":true,\"id\":" + json_encode_value(id) + "}")
       for mux_ctx in active_servers {
@@ -3306,6 +3747,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     })
   } else if http_method == "POST" && path == "/exit" {
     read_body(req, fn(body) {
+      // Already submitted and waiting on the verdict's delivery: a repeated
+      // submit must not record or notify the verdict a second time.
+      if exit_held_id.val.length() > 0 {
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"held\":true}")
+        return
+      }
       if ctx.file_path != "<stdin>" &&
         ctx.is_loop &&
         json_parse_string("decision", body) == "approve" &&
@@ -3318,6 +3766,11 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       if last_mux_submit_status.val == "stale" {
         res_write_head(res, 409, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"stale_generation\"}")
+        return
+      }
+      if exit_held_id.val.length() > 0 {
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"held\":true}")
         return
       }
       res_write_head(res, 200, "application/json")
@@ -3662,15 +4115,7 @@ fn notify_decision(
     quote_line +
     "\nurl=" +
     decision_url(ctx)
-  let err = send_notify_message(
-    ctx.notify_pane,
-    ctx.notify_tmux_pane,
-    ctx.notify_room,
-    msg,
-  )
-  if err.length() > 0 {
-    console_error("yunomi decision: notify failed: " + err)
-  }
+  ignore(deliver_notify(ctx, msg, "yunomi decision: notify failed: "))
 }
 
 ///|
@@ -3831,7 +4276,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       ""
     }
     let quote_line = format_notification_quote(quote)
-    notify_reviewer(
+    ignore(notify_reviewer(
       ctx,
       "[yunomi] " +
       label +
@@ -3851,7 +4296,7 @@ fn handle_comment(ctx : ServerContext, body : String) -> Unit {
       (if attachment.length() > 0 { "\nattachment: " + path_join(review_dir_for_file(ctx.file_path), attachment) } else { "" }) +
       "\nurl=" +
       review_url(ctx),
-    )
+    ))
   }
   // Notify SSE clients about the comment event
   for client in ctx.sse_clients {
@@ -4124,7 +4569,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "Received review for \{ctx.filename} (\{comments.length()} comments)",
     )
-    notify_reviewer(
+    let verdict_undelivered = notify_reviewer(
       ctx,
       verdict_notify_message(
         ctx,
@@ -4139,7 +4584,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       console_log(
         "[yunomi] request_changes received; full summary/comments: " +
         review_json_hint(ctx) +
-        " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
+        " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`",
       )
       return false
     }
@@ -4149,16 +4594,18 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       console_log(
         "[yunomi] review complete; full summary/comments: " +
         review_json_hint(ctx) +
-        " (if launched via `herdr run`, read `herdr job log <job>` first)",
+        " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first)",
       )
-      cleanup_live_log()
       for srv in active_servers {
         if srv.file_path != "<stdin>" {
           unwatch_file(srv.file_path)
-          js_remove_file_lock(lock_dir(), srv.file_path)
         }
-        remove_lock(srv.port)
       }
+      if verdict_undelivered.length() > 0 {
+        hold_exit(ctx, verdict_undelivered)
+        return false
+      }
+      cleanup_server_locks()
       return true
     }
     return false
@@ -4201,7 +4648,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
   console_log(
     "Received review for \{ctx.filename} (\{comments.length()} comments)",
   )
-  notify_reviewer(
+  let verdict_undelivered = notify_reviewer(
     ctx,
     verdict_notify_message(
       ctx,
@@ -4219,7 +4666,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "[yunomi] request_changes received; full summary/comments: " +
       review_json_hint(ctx) +
-      " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
+      " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`",
     )
     false
   } else if all_results.length() >= expected_count.val {
@@ -4229,16 +4676,18 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "[yunomi] review complete; full summary/comments: " +
       review_json_hint(ctx) +
-      " (if launched via `herdr run`, read `herdr job log <job>` first)",
+      " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first)",
     )
-    cleanup_live_log()
     for srv in active_servers {
       if srv.file_path != "<stdin>" {
         unwatch_file(srv.file_path)
-        js_remove_file_lock(lock_dir(), srv.file_path)
       }
-      remove_lock(srv.port)
     }
+    if verdict_undelivered.length() > 0 {
+      hold_exit(ctx, verdict_undelivered)
+      return false
+    }
+    cleanup_server_locks()
     true
   } else {
     false
@@ -4247,7 +4696,9 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
 
 ///|
 fn handle_session_open(ctx : ServerContext, body : String) -> Unit {
-  if ctx.finished {
+  // A held review is finished but still served; its tabs keep registering
+  // so a reload is not mistaken for the last tab closing.
+  if ctx.finished && exit_held_id.val.length() == 0 {
     log_session_event("ignored open for finished context file=\{ctx.filename}")
     return
   }
@@ -4295,7 +4746,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
             log_session_event(
               "close notify file=\{ctx.filename} tab=\{tab_id} active=\{ctx.active_tabs.length()}",
             )
-            notify_reviewer(
+            ignore(notify_reviewer(
               ctx,
               "[yunomi] tab closed " +
               ctx.filename +
@@ -4303,7 +4754,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
               tab_id +
               " active=" +
               ctx.active_tabs.length().to_string(),
-            )
+            ))
           }
           _ =>
             log_session_event(
@@ -4318,7 +4769,7 @@ fn schedule_close_notify(ctx : ServerContext, tab_id : String) -> Unit {
 
 ///|
 fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
-  if ctx.finished {
+  if ctx.finished && exit_held_id.val.length() == 0 {
     log_session_event("ignored close for finished context file=\{ctx.filename}")
     return
   }
@@ -4349,6 +4800,14 @@ fn handle_session_close(ctx : ServerContext, body : String) -> Unit {
   log_session_event(
     "close file=\{ctx.filename} tab=\{tab_id} instance=\{instance_id} active=\{ctx.active_tabs.length()} draft_len=\{draft.length()}",
   )
+  if exit_held_id.val.length() > 0 {
+    schedule_held_exit()
+    return
+  }
+  if json_parse_string("submitted", body) == "true" {
+    // The tab closed itself after submitting; there is nothing to report.
+    return
+  }
   schedule_close_notify(ctx, tab_id)
   // Closing or navigating away only unregisters the tab. The browser has
   // already persisted this draft to localStorage; only an explicit /exit
@@ -4428,7 +4887,7 @@ fn handle_video_timeline(
     json_encode_value(video_path) +
     ", \"-vf\", \"select='gt(scene," +
     scene_threshold +
-    ")',showinfo,scale=160:-1\", \"-vsync\", \"vfr\", \"-q:v\", \"5\", " +
+    ")',showinfo,scale=160:-1\", \"-fps_mode\", \"vfr\", \"-q:v\", \"5\", " +
     json_encode_value(path_join(tmp_dir, "scene_%04d.jpg")) +
     "]",
   )

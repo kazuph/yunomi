@@ -2,22 +2,38 @@
 
 ## 開発・テスト時のサーバー起動
 
-yunomiを起動する前に通知経路を実行時に取得・検証する。Herdrを先に試し、失敗した時だけ検証済みtmux adapterを評価する。
+yunomiを起動する前に通知経路を実行時に取得・検証する。IKESU_PANE_ID または ikesu pane current で ikesu を先に確かめ、次に Herdr、次に検証済みtmux adapterを評価する。
 
 ```bash
-if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')" &&
-   herdr pane get "$PANE_ID" >/dev/null 2>&1; then
-  YUNOMI_ROUTE=herdr
-elif [ -n "${TMUX:-}" ] && [ -n "${YUNOMI_NOTIFY_CMD:-}" ]; then
-  TMUX_PANE_ID="$(tmux display-message -p '#{pane_id}')" || exit 1
-  test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
-  YUNOMI_ROUTE=tmux
+PANE_ID="$(printenv IKESU_PANE_ID || true)"
+if [ -z "$PANE_ID" ] && command -v ikesu >/dev/null 2>&1; then
+  if PANE_ID="$(ikesu pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+fi
+if [ -n "$PANE_ID" ]; then
+  ikesu pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+  YUNOMI_ROUTE=ikesu
 else
-  echo "no proven yunomi notification route" >&2
-  exit 1
+  PANE_ID="$(printenv HERDR_PANE_ID || true)"
+  if [ -z "$PANE_ID" ] && command -v herdr >/dev/null 2>&1; then
+    if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+  fi
+  if [ -n "$PANE_ID" ]; then
+    herdr pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    YUNOMI_ROUTE=herdr
+  elif [ -n "$(printenv TMUX || true)" ] && [ -n "$(printenv TMUX_PANE || true)" ] && [ -n "$(printenv YUNOMI_NOTIFY_CMD || true)" ]; then
+    TMUX_PANE_ID="$(printenv TMUX_PANE)"
+    test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+    YUNOMI_ROUTE=tmux
+  else
+    echo "no proven yunomi notification route" >&2
+    exit 1
+  fi
 fi
 ```
 
+- ikesu経路では `--loop --notify-ikesu-pane "$PANE_ID"` を必ず指定する。Codexは `ikesu run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`、Claude Codeは同じyunomi引数で `run_in_background: true` を使う。Codexはジョブ終了後に `ikesu log <job>` を読む。Claude Codeは起動したBashバックグラウンドタスクの出力を読む。
+- ikesuは `ikesu agent prompt`、部屋指定時は `ikesu send <pane> <text> --room R`。古い版向け代替送信はしない。`--notify-room` は実際に送るHerdr/ikesu全側の対応を起動前に確認する。
+- 引数なしの `IKESU_PANE_ID` はikesuのみを選び、漏れたHerdr/tmux環境を無視する。明示引数があればikesu環境を追加せず、従来のHerdr/tmux環境規則を保つ。`YUNOMI_NOTIFY_CMD` は全経路に優先し1回だけ実行する。
 - Herdr経路の書込み可能レビューは、自分で確認する場合もユーザーにレビューさせる場合も、必ず `--loop --notify-pane "$PANE_ID"` を付ける。
 - 純tmux経路は、事前検証済みの `YUNOMI_NOTIFY_CMD` が設定されている場合だけ `--loop` で起動する。`yunomi share` はread-only例外。
 - Claude CodeはBashツールの `run_in_background: true` で起動し、exitを検知する。

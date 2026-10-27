@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.6.8 - 2026-10-27
+
+### Fixed
+
+- Video timeline scene extraction now uses `-fps_mode vfr` (FFmpeg 5.1+) instead of the removed `-vsync vfr`, restoring thumbnails on FFmpeg 9.
+
+- Herdr delivery now uses `herdr agent prompt <pane> <text>`, the command shared by upstream herdr 0.7.5+ (which removed `agent send`) and the kazuph fork 0.2.5+, so comments, verdicts, decisions, and close events reach the launching agent on upstream Herdr again. An older Herdr that only has `agent send` gets a named `notify failed` message asking for an update instead of a silent fallback. `--notify-room` keeps using the fork's durable `herdr send --room`.
+
+### Added
+
+- `--notify-ikesu-pane` delivers through `ikesu agent prompt`, or `ikesu send --room` with `--notify-room`. Without explicit pane arguments, `IKESU_PANE_ID` selects ikesu alone. Failed ikesu deliveries use the existing undelivered list, route-specific retry, and final-verdict exit hold.
+
+- Notifications that never reach the launching agent — for example when upstream Herdr refuses delivery because the agent is waiting at an approval dialog (`agent_blocked`) or is not the pane's foreground process (`agent_not_ready`) — are no longer only a server log line. The header shows an orange counter; its panel lists each lost message with the reason and a resend control that re-delivers the exact original message once the agent can take it. Resend accepts only messages yunomi stored, and the list survives a reload.
+- The Submit dialog lists notifications that have not reached the agent, each with its resend control, so they can be delivered before approving.
+- When the final verdict itself does not reach the agent, yunomi no longer exits: the review is saved, the tab stays open with the undelivered list, and yunomi exits once the verdict is resent successfully, when the human chooses "Exit without delivering", or when the last tab closes. Anything still undelivered at exit is printed in full to yunomi's output.
+
 ## v2.6.7 - 2026-10-20
 
 ### Added
