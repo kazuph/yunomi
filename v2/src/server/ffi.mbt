@@ -2748,6 +2748,37 @@ extern "js" fn review_comment_is_replyable(json : String, id : String) -> Bool =
   #|}
 
 ///|
+/// The parts of one stored thread that a resolve notification names, as
+/// "line\tround\tscope\tquote\ttext" (tabs and newlines inside the quote and
+/// text are kept as-is after the fourth tab); "" when the thread is unknown.
+extern "js" fn review_comment_notice_fields(json : String, id : String) -> String =
+  #|(json, id) => {
+  #|  try {
+  #|    const review = JSON.parse(json || "{}");
+  #|    const c = (review.comments || []).find(c => c && c.id === id);
+  #|    if (!c) return "";
+  #|    const quote = String(c.quote || c.value || "").split(/\r?\n/, 1)[0];
+  #|    return [Number(c.line || 0), Number(c.round || 1), String(c.scope || ""), quote.replace(/\t/g, " "), String(c.text || "")].join("\t");
+  #|  } catch (_) {
+  #|    return "";
+  #|  }
+  #|}
+
+///|
+/// True when the latest round already holds a request-changes verdict and is
+/// waiting for the agent to start the next round with `yunomi go`.
+extern "js" fn review_round_awaiting_go(json : String) -> Bool =
+  #|(json) => {
+  #|  try {
+  #|    const rounds = (JSON.parse(json || "{}").rounds) || [];
+  #|    const current = rounds.reduce((a, b) => (Number(b?.round || 0) > Number(a?.round || 0) ? b : a), rounds[0]);
+  #|    return !!current && !!current.submitted_at && current.decision === "request_changes";
+  #|  } catch (_) {
+  #|    return false;
+  #|  }
+  #|}
+
+///|
 extern "js" fn review_can_create_global_comment(json : String) -> Bool =
   #|(json) => {
   #|  try {

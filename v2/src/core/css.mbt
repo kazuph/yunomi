@@ -706,6 +706,25 @@ fn build_css() -> String {
     #|.pill strong { color: var(--accent-strong); font-weight: 700; }
     #|.review-loop-header-badge { display: none; align-items: center; max-width: 220px; min-height: 30px; padding: 4px 10px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel); color: var(--muted); font-size: 12px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     #|.review-loop-header-badge.ready { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-strong); }
+    #|button.review-loop-header-badge { font-family: inherit; cursor: pointer; }
+    #|button.review-loop-header-badge:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.review-thread-list { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 56px); right: 16px; z-index: 60; width: min(380px, calc(100vw - 32px)); max-height: 60vh; overflow-y: auto; padding: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+    #|.review-thread-list section + section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    #|.review-thread-list h4 { margin: 2px 4px 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+    #|.review-thread-list ul { margin: 0; padding: 0; list-style: none; }
+    #|.review-thread-list-item { display: flex; justify-content: flex-start; align-items: flex-start; gap: 8px; width: 100%; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+    #|.review-thread-list-item:hover, .review-thread-list-item:focus-visible { background: var(--accent-soft); outline: none; }
+    #|.review-thread-list-item.is-resolved { color: var(--muted); }
+    #|.review-thread-list-mark { flex: 0 0 auto; color: var(--accent); font-size: 11px; line-height: 20px; }
+    #|.review-thread-list-item.is-resolved .review-thread-list-mark { color: var(--muted); }
+    #|.review-thread-list-body { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+    #|.review-thread-list-quote, .review-thread-list-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #|.review-thread-list-quote { color: var(--muted); font-size: 12px; }
+    #|.review-thread-list-empty { margin: 0 4px 4px; color: var(--muted); font-size: 12px; }
+    #|.review-loop-reveal-close { margin-left: 8px; min-width: 28px; min-height: 28px; border: 1px solid var(--border); border-radius: 50%; background: var(--panel); color: var(--muted); font: inherit; cursor: pointer; }
+    #|.review-loop-reveal-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    #|.review-loop-inline .review-loop-comment.is-resolved { opacity: .8; }
+    #|.submit-round-submitted { margin: 0 0 10px; padding: 8px 10px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); color: var(--accent-strong); font-size: 13px; }
     #|/* Unresolved comments sit immediately left of the unread (red) counter.
     #|   ID selectors beat `header button { min-height: 34px }`, which otherwise
     #|   stretched these into vertical ovals. */

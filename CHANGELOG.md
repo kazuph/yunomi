@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.6.9 - 2026-10-27
+
+### Fixed
+
+- The same verdict sent again in a round that already requested changes (for example by clicking again before the tab leaves) is no longer recorded and notified a second time; the server answers `already_submitted`. A different submit in that round still replaces the request as before. The Submit dialog now says the round is already submitted and that submitting again replaces it, and a second click while a submit is in flight is ignored.
+
+### Added
+
+- Resolving a thread notifies the launching agent (`[yunomi] resolved <file>:<line> id=… round=…` with the quoted line and the thread's first comment), through the same routes and undelivered/resend list as comments.
+- The round badge in the header is now a button that opens a list of open and resolved threads. Choosing a resolved thread shows it read-only at its line until closed with ×; the list works with the keyboard (arrow keys, Enter, Escape).
+
 ## v2.6.8 - 2026-10-27
 
 ### Fixed

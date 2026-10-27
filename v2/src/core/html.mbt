@@ -184,7 +184,7 @@ fn build_page_start(
     "<span class=\"comments-popover-anchor\"><button class=\"pill\" id=\"pill-comments\" title=\"Unsubmitted comment drafts\" style=\"display:none\">Drafts <strong id=\"comment-count\">0</strong></button></span>",
   )
   buf.write_string(
-    "<span class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"AI review loop status\">Round</span>",
+    "<button type=\"button\" class=\"review-loop-header-badge\" id=\"review-loop-header-badge\" title=\"Review threads\" aria-haspopup=\"true\" aria-expanded=\"false\" aria-controls=\"review-thread-list\">Round</button><div class=\"review-thread-list\" id=\"review-thread-list\" role=\"region\" aria-label=\"Review threads\" hidden></div>",
   )
   buf.write_string(
     "<span class=\"notify-undelivered-anchor\"><button type=\"button\" class=\"notify-undelivered\" id=\"notify-undelivered\" title=\"Notifications that did not reach the agent\" aria-label=\"Undelivered agent notifications\" aria-expanded=\"false\" aria-controls=\"notify-undelivered-panel\" hidden>0</button><div class=\"notify-undelivered-panel\" id=\"notify-undelivered-panel\" role=\"group\" aria-label=\"Undelivered agent notifications\" hidden></div><span class=\"notify-undelivered-live\" id=\"notify-undelivered-live\" role=\"status\" aria-live=\"polite\"></span></span>",
@@ -266,6 +266,9 @@ fn build_submit_modal(buf : StringBuilder) -> Unit {
   buf.write_string("<h3>Submit</h3>")
   buf.write_string(
     "<div class=\"review-loop-submit-state\" id=\"review-loop-submit-state\"></div>",
+  )
+  buf.write_string(
+    "<div class=\"submit-round-submitted\" id=\"submit-round-submitted\" role=\"status\" hidden></div>",
   )
   buf.write_string("<p class=\"modal-summary\" id=\"modal-summary\"></p>")
   buf.write_string(

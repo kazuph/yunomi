@@ -100,6 +100,11 @@ let notify_pane_arg : Ref[String] = Ref("")
 let notify_ikesu_pane_arg : Ref[String] = Ref("")
 
 ///|
+/// File, round, and exact body of the last submit in loop mode, to recognize
+/// the same verdict sent again in the same round.
+let last_round_submit : Ref[String] = Ref("")
+
+///|
 let notify_tmux_pane_arg : Ref[String] = Ref("")
 
 ///|
@@ -195,6 +200,50 @@ fn review_url(ctx : ServerContext) -> String {
     bind_host.val
   }
   "http://\{host}:\{ctx.port}"
+}
+
+///|
+/// Tell the launching agent that the human resolved a thread, so it does not
+/// keep working on it. Uses the same delivery (and undelivered list) as a
+/// comment.
+fn notify_thread_resolved(
+  ctx : ServerContext,
+  review_json : String,
+  id : String,
+) -> Unit {
+  let fields = review_comment_notice_fields(review_json, id)
+  if fields.length() == 0 {
+    return
+  }
+  let parts : Array[String] = []
+  for part in fields.split("\t") {
+    parts.push(part.to_string())
+  }
+  if parts.length() < 5 {
+    return
+  }
+  let text = parts[4:].iter().map(fn(s) { s.to_string() }).collect().join("\t")
+  let location = if parts[2] == "round" {
+    ctx.filename + " global"
+  } else {
+    ctx.filename + ":" + parts[0]
+  }
+  ignore(
+    notify_reviewer(
+      ctx,
+      "[yunomi] resolved " +
+      location +
+      " id=" +
+      id +
+      " round=" +
+      parts[1] +
+      format_notification_quote(parts[3]) +
+      "\nthread: " +
+      @core.expand_notify_escapes(text) +
+      "\nurl=" +
+      review_url(ctx),
+    ),
+  )
 }
 
 ///|
@@ -2084,6 +2133,19 @@ fn print_skill_doc_text() -> String {
     #|Do not trust the line number alone: use the quoted source line to
     #|re-identify the target before changing it.
     #|
+    #|When the human resolves a thread, stop working on it. The `thread:` line
+    #|is the comment that opened it:
+    #|
+    #|```text
+    #|[yunomi] resolved REPORT.md:12 id=c-probe round=2
+    #|> The source line the human pointed at
+    #|thread: The explanation needs evidence.
+    #|url=http://127.0.0.1:5599
+    #|```
+    #|
+    #|After a request-changes verdict, the same verdict sent again in that round
+    #|is ignored; a different one replaces it. Run `npx yunomi go` after fixing.
+    #|
     #|Submit (verdict) notifications carry the summary the same way.
     #|`comments=0` does not mean "no feedback" — read the `human:` line:
     #|
@@ -3551,10 +3613,6 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         review_comment_is_replyable(review_json, id)
       if should_resolve {
         resolve_review_comment(ctx.file_path, id)
-      }
-      res_write_head(res, 200, "application/json")
-      res_end(res, "{\"ok\":true}")
-      if should_resolve {
         let audiences = if is_round_thread { active_servers } else { [ctx] }
         for audience in audiences {
           for client in audience.sse_clients {
@@ -3565,7 +3623,12 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
             )
           }
         }
+        // After the tabs see the resolve, tell the agent; the response then
+        // means the notification has already been attempted.
+        notify_thread_resolved(ctx, review_json, id)
       }
+      res_write_head(res, 200, "application/json")
+      res_end(res, "{\"ok\":true}")
     })
   } else if http_method == "POST" && path == "/reply-comment" {
     read_body(req, fn(body) {
@@ -3754,6 +3817,33 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         res_end(res, "{\"ok\":true,\"held\":true}")
         return
       }
+      // The same verdict submitted again in a round that already requested
+      // changes (a repeated click before the tab leaves) is not recorded or
+      // sent twice. A different submit in that round is a replacement and
+      // goes through as before.
+      let round_submit_key = if ctx.file_path != "<stdin>" &&
+        ctx.is_loop &&
+        !review_mux_mode.val {
+        ctx.file_path +
+        "\n" +
+        current_review_round(ctx.file_path).to_string() +
+        "\n" +
+        body
+      } else {
+        ""
+      }
+      if round_submit_key.length() > 0 &&
+        round_submit_key == last_round_submit.val &&
+        review_round_awaiting_go(
+          read_file_safe(review_json_path_for_file(ctx.file_path)),
+        ) {
+        log_session_event(
+          "ignored repeated submit for already submitted round file=\{ctx.filename}",
+        )
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"already_submitted\":true}")
+        return
+      }
       if ctx.file_path != "<stdin>" &&
         ctx.is_loop &&
         json_parse_string("decision", body) == "approve" &&
@@ -3763,6 +3853,9 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         return
       }
       let should_exit = handle_submit(ctx, body)
+      if round_submit_key.length() > 0 {
+        last_round_submit.val = round_submit_key
+      }
       if last_mux_submit_status.val == "stale" {
         res_write_head(res, 409, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"stale_generation\"}")
