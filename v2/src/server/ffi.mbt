@@ -3796,6 +3796,74 @@ fn send_herdr_notification(
 }
 
 ///|
+let ikesu_notify_contract : Ref[String] = Ref("")
+
+///|
+fn ikesu_help_supported(status : Int, help : String, want_room : Bool) -> Bool {
+  if status != 0 {
+    return false
+  }
+  if want_room {
+    help.contains("ikesu send <to> <text>") && help.contains("--room")
+  } else {
+    help.contains("ikesu agent prompt ")
+  }
+}
+
+///|
+fn resolve_ikesu_notify_contract(want_room : Bool) -> String {
+  if ikesu_notify_contract.val.length() > 0 {
+    return ikesu_notify_contract.val
+  }
+  let ikesu = resolve_command("ikesu")
+  let contract = if ikesu.length() == 0 {
+    "unsupported:ikesu command not found"
+  } else {
+    let help = spawn_sync_result_args(
+      ikesu,
+      if want_room {
+        ["send", "--help"]
+      } else {
+        ["agent", "help"]
+      },
+    )
+    if ikesu_help_supported(help.0, help.1 + "\n" + help.2, want_room) {
+      if want_room {
+        "send-room"
+      } else {
+        "agent-prompt"
+      }
+    } else if want_room {
+      "unsupported:installed ikesu does not expose `ikesu send <to> <text> --room`; update ikesu or drop --notify-room"
+    } else {
+      "unsupported:installed ikesu does not expose `ikesu agent prompt <target> <text>`; update ikesu"
+    }
+  }
+  ikesu_notify_contract.val = contract
+  contract
+}
+
+///|
+fn send_ikesu_notification(
+  pane : String,
+  room : String,
+  msg : String,
+) -> String {
+  let contract = resolve_ikesu_notify_contract(room.length() > 0)
+  if contract.has_prefix("unsupported:") {
+    return contract.substring(start="unsupported:".length())
+  }
+  spawn_sync_status(
+    resolve_command("ikesu"),
+    if contract == "send-room" {
+      ["send", pane, msg, "--room", room]
+    } else {
+      ["agent", "prompt", pane, msg]
+    },
+  )
+}
+
+///|
 fn send_tmux_notification(notify_pane : String, msg : String) -> String {
   let tmux = resolve_command("tmux")
   if tmux.length() == 0 {
@@ -3822,6 +3890,7 @@ fn send_tmux_notification(notify_pane : String, msg : String) -> String {
 ///|
 fn send_notify_message(
   notify_pane : String,
+  notify_ikesu_pane : String,
   notify_tmux_pane : String,
   notify_room : String,
   msg : String,
@@ -3841,6 +3910,12 @@ fn send_notify_message(
   let errors : Array[String] = []
   if notify_pane.length() > 0 {
     let err = send_herdr_notification(notify_pane, notify_room, msg)
+    if err.length() > 0 {
+      errors.push(err)
+    }
+  }
+  if notify_ikesu_pane.length() > 0 {
+    let err = send_ikesu_notification(notify_ikesu_pane, notify_room, msg)
     if err.length() > 0 {
       errors.push(err)
     }

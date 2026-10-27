@@ -385,6 +385,9 @@ async function verifyContextBoundRoutes(): Promise<void> {
     check(!(await exitedWithin(server.proc, 250)), "an identical retry is side-effect idempotent");
     const reviewAfterRetry = JSON.parse(readFileSync(join(repo.reviewDir, "review.json"), "utf8"));
     check(reviewAfterRetry.comments.filter((entry: { text?: string }) => entry.text === "second submitted comment").length === 1, "an identical mux retry does not duplicate persisted comments");
+    // Every SSE assertion is complete; stop the probes before normal server exit.
+    firstSse.close();
+    secondSse.close();
     check((await request(server.port, "/exit?f=0", { ...submit, summary: "first summary" })).status === 200, "the remaining first file submits once");
     check(await exitedWithin(server.proc, 3_000), "the process exits only after both distinct files submit");
     const yaml = server.output();

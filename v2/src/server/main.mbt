@@ -14,6 +14,7 @@ struct ServerContext {
   mut decision_source_change_pending : Bool
   is_loop : Bool
   notify_pane : String
+  notify_ikesu_pane : String
   notify_tmux_pane : String
   notify_room : String
   /// tab_id -> sequence of the close whose notification is still in its grace window
@@ -34,6 +35,7 @@ struct UndeliveredNotify {
   at : String
   /// Only the routes that failed; a resend never repeats a delivered route.
   mut herdr_pane : String
+  mut ikesu_pane : String
   mut tmux_pane : String
 }
 
@@ -95,6 +97,9 @@ let loop_mode : Ref[Bool] = Ref(false)
 let notify_pane_arg : Ref[String] = Ref("")
 
 ///|
+let notify_ikesu_pane_arg : Ref[String] = Ref("")
+
+///|
 let notify_tmux_pane_arg : Ref[String] = Ref("")
 
 ///|
@@ -132,23 +137,54 @@ let share_token : Ref[String] = Ref("")
 let vim_keys_enabled : Ref[Bool] = Ref(true)
 
 ///|
-fn resolve_notify_pane() -> String {
-  if notify_pane_arg.val.length() > 0 {
-    notify_pane_arg.val
-  } else {
-    get_env_var("HERDR_PANE_ID")
+fn resolve_notify_targets(
+  herdr_arg : String,
+  ikesu_arg : String,
+  tmux_arg : String,
+  ikesu_env : String,
+  herdr_env : String,
+  tmux_env : String,
+) -> (String, String, String) {
+  let explicit = herdr_arg.length() + ikesu_arg.length() + tmux_arg.length() > 0
+  if !explicit && ikesu_env.length() > 0 {
+    return ("", ikesu_env, "")
   }
+  let herdr = if herdr_arg.length() > 0 { herdr_arg } else { herdr_env }
+  let tmux = if tmux_arg.length() > 0 {
+    tmux_arg
+  } else if herdr.length() == 0 {
+    tmux_env
+  } else {
+    ""
+  }
+  (herdr, ikesu_arg, tmux)
+}
+
+///|
+fn notify_targets() -> (String, String, String) {
+  resolve_notify_targets(
+    notify_pane_arg.val,
+    notify_ikesu_pane_arg.val,
+    notify_tmux_pane_arg.val,
+    get_env_var("IKESU_PANE_ID"),
+    get_env_var("HERDR_PANE_ID"),
+    get_env_var("TMUX_PANE"),
+  )
+}
+
+///|
+fn resolve_notify_pane() -> String {
+  notify_targets().0
+}
+
+///|
+fn resolve_notify_ikesu_pane() -> String {
+  notify_targets().1
 }
 
 ///|
 fn resolve_notify_tmux_pane() -> String {
-  if notify_tmux_pane_arg.val.length() > 0 {
-    notify_tmux_pane_arg.val
-  } else if resolve_notify_pane().length() == 0 {
-    get_env_var("TMUX_PANE")
-  } else {
-    ""
-  }
+  notify_targets().2
 }
 
 ///|
@@ -176,9 +212,10 @@ fn deliver_notify(
   msg : String,
   failure_prefix : String,
 ) -> String {
-  let (err, herdr_pane, tmux_pane) = send_notify_routes(
+  let (err, herdr_pane, ikesu_pane, tmux_pane) = send_notify_routes(
     ctx,
     ctx.notify_pane,
+    ctx.notify_ikesu_pane,
     ctx.notify_tmux_pane,
     msg,
   )
@@ -192,6 +229,7 @@ fn deliver_notify(
       error: err,
       at: iso_now(),
       herdr_pane,
+      ikesu_pane,
       tmux_pane,
     })
     broadcast_undelivered(ctx)
@@ -203,37 +241,61 @@ fn deliver_notify(
 
 ///|
 /// Deliver `msg` to each given route separately and report which ones failed
-/// as (error, failed Herdr pane, failed tmux pane). `YUNOMI_NOTIFY_CMD`
-/// replaces both routes with one command, so it fails or succeeds as a whole.
+/// as (error, failed Herdr pane, failed ikesu pane, failed tmux pane). `YUNOMI_NOTIFY_CMD`
+/// replaces all routes with one command, so it fails or succeeds as a whole.
 fn send_notify_routes(
   ctx : ServerContext,
   herdr_pane : String,
+  ikesu_pane : String,
   tmux_pane : String,
   msg : String,
-) -> (String, String, String) {
+) -> (String, String, String, String) {
   if get_env_var("YUNOMI_NOTIFY_CMD").length() > 0 {
-    let err = send_notify_message(herdr_pane, tmux_pane, ctx.notify_room, msg)
+    let err = send_notify_message(
+      herdr_pane,
+      ikesu_pane,
+      tmux_pane,
+      ctx.notify_room,
+      msg,
+    )
     return if err.length() > 0 {
-      (err, herdr_pane, tmux_pane)
+      (err, herdr_pane, ikesu_pane, tmux_pane)
     } else {
-      ("", "", "")
+      ("", "", "", "")
     }
   }
   let herdr_err = if herdr_pane.length() > 0 {
-    send_notify_message(herdr_pane, "", ctx.notify_room, msg)
+    send_notify_message(herdr_pane, "", "", ctx.notify_room, msg)
+  } else {
+    ""
+  }
+  let ikesu_err = if ikesu_pane.length() > 0 {
+    send_notify_message("", ikesu_pane, "", ctx.notify_room, msg)
   } else {
     ""
   }
   let tmux_err = if tmux_pane.length() > 0 {
-    send_notify_message("", tmux_pane, ctx.notify_room, msg)
+    send_notify_message("", "", tmux_pane, ctx.notify_room, msg)
   } else {
     ""
   }
-  let errors = [herdr_err, tmux_err].filter(fn(e) { e.length() > 0 })
   (
-    errors.join("; "),
-    if herdr_err.length() > 0 { herdr_pane } else { "" },
-    if tmux_err.length() > 0 { tmux_pane } else { "" },
+    [herdr_err, ikesu_err, tmux_err].filter(fn(e) { e.length() > 0 }).join("; "),
+    if herdr_err.length() > 0 {
+      herdr_pane
+    } else {
+      ""
+    },
+    if ikesu_err.length() > 0 {
+      ikesu_pane
+    } else {
+      ""
+    },
+    if tmux_err.length() > 0 {
+      tmux_pane
+    } else {
+      ""
+    },
   )
 }
 
@@ -361,9 +423,13 @@ fn retry_undelivered(ctx : ServerContext, id : String) -> (Bool, Bool, String) {
   if herdr_notify_contract.val.has_prefix("unsupported:") {
     herdr_notify_contract.val = ""
   }
-  let (err, herdr_pane, tmux_pane) = send_notify_routes(
+  if ikesu_notify_contract.val.has_prefix("unsupported:") {
+    ikesu_notify_contract.val = ""
+  }
+  let (err, herdr_pane, ikesu_pane, tmux_pane) = send_notify_routes(
     ctx,
     item.herdr_pane,
+    item.ikesu_pane,
     item.tmux_pane,
     item.message,
   )
@@ -371,6 +437,7 @@ fn retry_undelivered(ctx : ServerContext, id : String) -> (Bool, Bool, String) {
     console_error("[yunomi] notify retry failed: " + err)
     item.error = err
     item.herdr_pane = herdr_pane
+    item.ikesu_pane = ikesu_pane
     item.tmux_pane = tmux_pane
   } else {
     ignore(ctx.undelivered.remove(index))
@@ -846,6 +913,11 @@ fn main {
       if i < args.length() {
         notify_pane_arg.val = args[i]
       }
+    } else if arg == "--notify-ikesu-pane" {
+      i = i + 1
+      if i < args.length() {
+        notify_ikesu_pane_arg.val = args[i]
+      }
     } else if arg == "--notify-tmux-pane" {
       i = i + 1
       if i < args.length() {
@@ -898,18 +970,27 @@ fn main {
   // --notify-room needs the durable mailbox contract; prove it before any
   // server or browser tab exists so a missing contract fails closed here.
   if resolve_notify_room().length() > 0 {
-    if resolve_notify_pane().length() == 0 {
+    if resolve_notify_pane().length() == 0 &&
+      resolve_notify_ikesu_pane().length() == 0 {
       console_error(
-        "[yunomi] --notify-room requires --notify-pane (or HERDR_PANE_ID)",
+        "[yunomi] --notify-room requires --notify-pane or --notify-ikesu-pane (or their pane environment variables)",
       )
-      exit_process("notify-room without herdr pane", 1)
+      exit_process("notify-room without herdr or ikesu pane", 1)
     }
-    let contract = resolve_herdr_notify_contract(true)
-    if contract.has_prefix("unsupported:") {
-      console_error(
-        "[yunomi] " + contract.substring(start="unsupported:".length()),
-      )
-      exit_process("notify-room contract unsupported", 1)
+    let contracts : Array[String] = []
+    if resolve_notify_pane().length() > 0 {
+      contracts.push(resolve_herdr_notify_contract(true))
+    }
+    if resolve_notify_ikesu_pane().length() > 0 {
+      contracts.push(resolve_ikesu_notify_contract(true))
+    }
+    for contract in contracts {
+      if contract.has_prefix("unsupported:") {
+        console_error(
+          "[yunomi] " + contract.substring(start="unsupported:".length()),
+        )
+        exit_process("notify-room contract unsupported", 1)
+      }
     }
   }
   server_instance_id.val = gen_instance_id()
@@ -1261,8 +1342,9 @@ fn print_usage() -> Unit {
     #|  --no-vim          Disable Vim-style review keybindings
     #|  --loop            Keep serving after request_changes; exit only on approve
     #|  --notify-pane id  Send live comments/verdicts to a Herdr agent pane
+    #|  --notify-ikesu-pane id  Send live comments/verdicts to an ikesu agent pane
     #|  --notify-tmux-pane id  Send live comments/verdicts to a tmux pane
-    #|  --notify-room name  Deliver Herdr notifications as durable mail (herdr send --room)
+    #|  --notify-room name  Deliver Herdr/ikesu notifications as durable mail (send --room)
     #|  -e, --encoding <enc>  Force encoding (e.g. shift-jis, euc-jp)
     #|  --skill           Print the skill document for AI agents
     #|  -h, --help        Show help
@@ -1805,27 +1887,50 @@ fn print_skill_doc_text() -> String {
     #|1. Finish the work: implement, test, and collect evidence
     #|   (screenshots, test output, logs, screen recordings).
     #|2. Write REPORT.md (rules below).
-    #|3. Resolve and validate the notification route at runtime. Prefer Herdr;
+    #|3. Resolve and validate the notification route at runtime. Prefer ikesu, then Herdr;
     #|   otherwise use the current tmux pane. `HERDR_PANE_ID` is the
     #|   authoritative pane identity on every Herdr (upstream exports `p_N`,
     #|   the kazuph fork accepts `p_N`, `pN`, and `%N`); `herdr pane current`
     #|   is a fork-only fallback for shells that lost the variable:
     #|
     #|   ```bash
-    #|   PANE_ID="$HERDR_PANE_ID"
-    #|   [ -n "$PANE_ID" ] || PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"
-    #|   if [ -n "$PANE_ID" ] && herdr pane get "$PANE_ID" >/dev/null 2>&1; then
-    #|     YUNOMI_ROUTE=herdr
-    #|   elif [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ]; then
-    #|     TMUX_PANE_ID="$TMUX_PANE"
-    #|     test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = \
-    #|       "$TMUX_PANE_ID" || exit 1
-    #|     YUNOMI_ROUTE=tmux
+    #|   PANE_ID="$(printenv IKESU_PANE_ID || true)"
+    #|   if [ -z "$PANE_ID" ] && command -v ikesu >/dev/null 2>&1; then
+    #|     if PANE_ID="$(ikesu pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+    #|   fi
+    #|   if [ -n "$PANE_ID" ]; then
+    #|     ikesu pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    #|     YUNOMI_ROUTE=ikesu
     #|   else
-    #|     echo "no proven yunomi notification route" >&2
-    #|     exit 1
+    #|     PANE_ID="$(printenv HERDR_PANE_ID || true)"
+    #|     if [ -z "$PANE_ID" ] && command -v herdr >/dev/null 2>&1; then
+    #|       if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+    #|     fi
+    #|     if [ -n "$PANE_ID" ]; then
+    #|       herdr pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    #|       YUNOMI_ROUTE=herdr
+    #|     elif [ -n "$(printenv TMUX || true)" ] && [ -n "$(printenv TMUX_PANE || true)" ]; then
+    #|       TMUX_PANE_ID="$(printenv TMUX_PANE)"
+    #|       test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+    #|       YUNOMI_ROUTE=tmux
+    #|     else
+    #|       echo "no proven yunomi notification route" >&2
+    #|       exit 1
+    #|     fi
     #|   fi
     #|   ```
+    #|
+    #|   If `YUNOMI_ROUTE=ikesu`, Codex must use:
+    #|
+    #|   ```bash
+    #|   ikesu run --label yunomi --cwd /absolute/path/to/repo -- \
+    #|     npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"
+    #|   ```
+    #|
+    #|   For Claude Code on ikesu, use `run_in_background: true` with
+    #|   `npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`.
+    #|   Codex reads `ikesu log <job>` after its job completes; Claude Code
+    #|   reads the output of that Bash background task after it completes.
     #|
     #|   If `YUNOMI_ROUTE=herdr`, Codex must use `herdr run` so both live
     #|   input and process completion return to the launching pane:
@@ -1853,9 +1958,17 @@ fn print_skill_doc_text() -> String {
     #|   with a guessed pane, or after route validation fails. Fail closed
     #|   instead. Do not run `open` after launch; yunomi opens the browser itself.
     #|
-    #|   `--notify-pane` is Herdr-only and `--notify-tmux-pane` is tmux-only.
+    #|   `--notify-ikesu-pane` is ikesu-only, `--notify-pane` is Herdr-only,
+    #|   and `--notify-tmux-pane` is tmux-only.
     #|   Yunomi validates the exact target and uses the selected runtime's own
     #|   command to submit each comment, verdict, decision, and close event.
+    #|   On ikesu use `ikesu agent prompt <pane> <text>`; with `--notify-room`
+    #|   use `ikesu send <pane> <text> --room R`. No older-version fallback.
+    #|   With no explicit pane arguments, `IKESU_PANE_ID` selects only ikesu,
+    #|   suppressing inherited Herdr/tmux targets. Explicit arguments do not
+    #|   add an implicit ikesu target; legacy Herdr/tmux environment rules remain.
+    #|   Room startup checks every selected Herdr/ikesu mailbox contract.
+    #|   `YUNOMI_NOTIFY_CMD` overrides every delivery route once per event.
     #|   On Herdr the common contract is `herdr agent prompt <pane> <text>`
     #|   (upstream 0.7.5+ and kazuph fork 0.2.5+). Add `--notify-room <room>` only on
     #|   a Herdr that exposes the durable mailbox `herdr send <to> <text> --room`;
@@ -1945,7 +2058,8 @@ fn print_skill_doc_text() -> String {
     #|
     #|The instant the human presses it, yunomi (a) rewrites the source
     #|Markdown in place as `- [x]` or `- [ ]`, (b) notifies the launching AI
-    #|agent through the installed Herdr's `agent prompt` contract (or
+    #|agent through ikesu `agent prompt` (or `ikesu send --room`), or
+    #|through the installed Herdr's `agent prompt` contract (or
     #|`herdr send --room` when `--notify-room` is set), or through
     #|`tmux send-keys`, and (c) records the decision
     #|in `.yunomi/reviews/<branch>/review.json`. This is useful for a binary
@@ -1993,7 +2107,7 @@ fn print_skill_doc_text() -> String {
     #|delivery channel:
     #|
     #|```text
-    #|[yunomi] request_changes received; full summary/comments: .yunomi/reviews/<branch>/review.json (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`
+    #|[yunomi] request_changes received; full summary/comments: .yunomi/reviews/<branch>/review.json (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`
     #|```
     #|
     #|## Verdict schema (stdout YAML, printed when the human submits)
@@ -2061,6 +2175,7 @@ fn print_skill_doc_text() -> String {
     #|
     #|```bash
     #|yunomi <file...> --loop --notify-pane <proven-herdr-pane-id> [--notify-room <room>] [--port n] [--host addr] [--no-open] [-e encoding]
+    #|yunomi <file...> --loop --notify-ikesu-pane <proven-ikesu-pane-id> [--notify-room <room>]
     #|yunomi <file...> --loop --notify-tmux-pane <proven-tmux-pane-id>
     #|yunomi go              # start the next round for this branch
     #|yunomi reply <comment-id> '<text>'  # add an agent reply to a thread
@@ -2089,7 +2204,7 @@ fn print_skill_doc_text() -> String {
     #|description: >-
     #|  Serve finished work to the human as a browsable report for interactive
     #|  review and approval. Writable reviews must use --loop and a
-    #|  runtime-validated notification route. Fail closed when neither Herdr nor
+    #|  runtime-validated notification route. Fail closed when neither ikesu, Herdr nor
     #|  a validated tmux pane is proven. yunomi share is the read-only exception.
     #|---
     #|```
@@ -2098,7 +2213,8 @@ fn print_skill_doc_text() -> String {
     #|- Codex/agents: ~/.agents/skills/yunomi/SKILL.md
     #|- Project-local alternative: .claude/skills/yunomi/SKILL.md
     #|
-    #|From then on, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
+    #|On ikesu, use `ikesu run --label yunomi --cwd /absolute/path/to/repo -- npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`.
+    #|On Herdr, use `npx yunomi REPORT.md --loop --notify-pane "$PANE_ID"`
     #|after resolving and validating a Herdr pane. In pure tmux, use `--loop`
     #|with `--notify-tmux-pane "$TMUX_PANE_ID"` after validating that pane.
     #|Use `npx yunomi go` after each fix round.
@@ -2513,6 +2629,7 @@ fn start_stdin_server(content : String, port : Int, no_open : Bool) -> Unit {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_ikesu_pane: resolve_notify_ikesu_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
@@ -2585,6 +2702,7 @@ fn create_file_context(file_path : String, port : Int) -> ServerContext {
     decision_source_change_pending: false,
     is_loop: loop_mode.val,
     notify_pane: resolve_notify_pane(),
+    notify_ikesu_pane: resolve_notify_ikesu_pane(),
     notify_tmux_pane: resolve_notify_tmux_pane(),
     notify_room: resolve_notify_room(),
     pending_close_notify: {},
@@ -4466,7 +4584,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       console_log(
         "[yunomi] request_changes received; full summary/comments: " +
         review_json_hint(ctx) +
-        " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
+        " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`",
       )
       return false
     }
@@ -4476,7 +4594,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
       console_log(
         "[yunomi] review complete; full summary/comments: " +
         review_json_hint(ctx) +
-        " (if launched via `herdr run`, read `herdr job log <job>` first)",
+        " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first)",
       )
       for srv in active_servers {
         if srv.file_path != "<stdin>" {
@@ -4548,7 +4666,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "[yunomi] request_changes received; full summary/comments: " +
       review_json_hint(ctx) +
-      " (if launched via `herdr run`, read `herdr job log <job>` first); next: fix the review items, then run `npx yunomi go`",
+      " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first); next: fix the review items, then run `npx yunomi go`",
     )
     false
   } else if all_results.length() >= expected_count.val {
@@ -4558,7 +4676,7 @@ fn handle_submit(ctx : ServerContext, body : String) -> Bool {
     console_log(
       "[yunomi] review complete; full summary/comments: " +
       review_json_hint(ctx) +
-      " (if launched via `herdr run`, read `herdr job log <job>` first)",
+      " (if launched via `herdr run`, read `herdr job log <job>` first; via `ikesu run`, read `ikesu log <job>` first)",
     )
     for srv in active_servers {
       if srv.file_path != "<stdin>" {
@@ -4769,7 +4887,7 @@ fn handle_video_timeline(
     json_encode_value(video_path) +
     ", \"-vf\", \"select='gt(scene," +
     scene_threshold +
-    ")',showinfo,scale=160:-1\", \"-vsync\", \"vfr\", \"-q:v\", \"5\", " +
+    ")',showinfo,scale=160:-1\", \"-fps_mode\", \"vfr\", \"-q:v\", \"5\", " +
     json_encode_value(path_join(tmp_dir, "scene_%04d.jpg")) +
     "]",
   )

@@ -87,15 +87,18 @@ function startServer(extra: string[] = [], decisionText = "通知の再送を確
   proc.stdout!.on("data", (d: string) => { stdout += d; });
   const exited = new Promise<number | null>((r) => proc.on("exit", (code) => r(code)));
   return new Promise((resolve, reject) => {
+    let listening = false;
     const onData = (d: Buffer) => {
       out += String(d);
       const m = out.match(/http:\/\/127\.0\.0\.1:(\d+)/);
-      if (m) resolve({ proc, port: Number(m[1]), out: () => out, stdout: () => stdout, exited });
+      if (m && !listening) {
+        listening = true;
+        resolve({ proc, port: Number(m[1]), out: () => out, stdout: () => stdout, exited });
+        // Model a slow reader only after the URL; port-search logs come first.
+        if (pauseStdout) proc.stdout!.pause();
+      }
     };
     proc.stdout!.on("data", onData); proc.stderr!.on("data", onData);
-    // Stand in for a launching agent that drains yunomi's stdout slowly:
-    // after the URL is known the test pauses reading and resumes it later.
-    if (pauseStdout) proc.stdout!.once("data", () => proc.stdout!.pause());
     setTimeout(() => reject(new Error(`server start timeout\n${out}`)), 10000);
   });
 }
@@ -313,7 +316,7 @@ try {
 writeFileSync(CALLS, "");
 rmSync(RECOVERED, { force: true });
 const multi = await startServer([], undefined, false, ["A.md", "B.md"]);
-await waitUntil(() => (multi.out().match(/serving B\.md at http:\/\/127\.0\.0\.1:\d+/) ?? []).length > 0, 8000);
+await waitUntil(() => ["A", "B"].every((name) => new RegExp(`serving ${name}\\.md at http://127\\.0\\.0\\.1:\\d+`).test(multi.out())), 8000);
 const portOf = (name: string) => Number(multi.out().match(new RegExp(`serving ${name.replace(".", "\\.")} at http://127\\.0\\.0\\.1:(\\d+)`))![1]);
 const portA = portOf("A.md");
 const portB = portOf("B.md");

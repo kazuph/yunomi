@@ -324,3 +324,57 @@ npm run prepack
 ## License
 
 MIT
+
+## ikesu notification route
+
+Resolve the current route in this order: `IKESU_PANE_ID` or a successful
+`ikesu pane current`, then Herdr, then a validated tmux pane. Validate ikesu
+with `ikesu pane get "$PANE_ID"`; never guess from the focused pane.
+
+```bash
+PANE_ID="$(printenv IKESU_PANE_ID || true)"
+if [ -z "$PANE_ID" ] && command -v ikesu >/dev/null 2>&1; then
+  if PANE_ID="$(ikesu pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+fi
+if [ -n "$PANE_ID" ]; then
+  ikesu pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+  YUNOMI_ROUTE=ikesu
+else
+  PANE_ID="$(printenv HERDR_PANE_ID || true)"
+  if [ -z "$PANE_ID" ] && command -v herdr >/dev/null 2>&1; then
+    if PANE_ID="$(herdr pane current 2>/dev/null | jq -er '.result.pane.pane_id')"; then :; else PANE_ID=""; fi
+  fi
+  if [ -n "$PANE_ID" ]; then
+    herdr pane get "$PANE_ID" >/dev/null 2>&1 || exit 1
+    YUNOMI_ROUTE=herdr
+  elif [ -n "$(printenv TMUX || true)" ] && [ -n "$(printenv TMUX_PANE || true)" ]; then
+    TMUX_PANE_ID="$(printenv TMUX_PANE)"
+    test "$(tmux display-message -p -t "$TMUX_PANE_ID" '#{pane_id}')" = "$TMUX_PANE_ID" || exit 1
+    YUNOMI_ROUTE=tmux
+  else
+    echo "no proven yunomi notification route" >&2
+    exit 1
+  fi
+fi
+```
+
+When `YUNOMI_ROUTE=ikesu`, Codex launches:
+
+```bash
+ikesu run --label yunomi --cwd /absolute/path/to/repo -- \
+  npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"
+```
+
+For Claude Code, run `npx yunomi REPORT.md --loop --notify-ikesu-pane "$PANE_ID"`
+with `run_in_background: true` and read that Bash background task's output on completion.
+Codex reads `ikesu log <job>` after the `ikesu run` job completes.
+`--notify-ikesu-pane` is ikesu-only; `--notify-pane` remains Herdr-only and
+`--notify-tmux-pane` remains tmux-only. ikesu uses `ikesu agent prompt`; adding
+`--notify-room R` uses `ikesu send <pane> <text> --room R` and checks every
+selected Herdr/ikesu mailbox contract before startup. No older-version fallback.
+Without explicit pane arguments `IKESU_PANE_ID` selects only ikesu, ignoring
+inherited Herdr/tmux identities. With explicit arguments ikesu is not added
+implicitly; existing Herdr/tmux environment rules remain. `YUNOMI_NOTIFY_CMD`
+overrides all delivery routes and runs once per event. Failed routes can be
+resent from the undelivered list; the final verdict holds exit until delivered
+(or explicitly discarded / the last tab closes).
