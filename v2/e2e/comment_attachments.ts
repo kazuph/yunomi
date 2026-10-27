@@ -178,6 +178,7 @@ for (const fixture of fixtures) {
     }
     if (fixture.name === 'text.txt') {
       const chat = page.locator('#review-loop-panel');
+      if (await chat.evaluate(el => el.classList.contains('review-loop-sidebar-collapsed'))) await chat.locator('.review-loop-sidebar-toggle').click();
       for (const text of ['Global root image', 'Global reply image']) {
         await chat.locator('input[type=file]').setInputFiles(file);
         await chat.locator('.review-loop-reply-preview img').waitFor();
@@ -225,6 +226,7 @@ for (const fixture of fixtures) {
         for (const size of [chunk.length, 1024]) for (let i = 0; ; i++) { try { localStorage.setItem('quota-fixture-' + size + '-' + i, chunk.slice(0, size)); } catch (_) { break; } }
       });
       const chat = page.locator('#review-loop-panel');
+      if (await chat.evaluate(el => el.classList.contains('review-loop-sidebar-collapsed'))) await chat.locator('.review-loop-sidebar-toggle').click();
       await chat.locator('input[type=file]').setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: readFileSync(new URL('../../assets/screenshot-comment-dialog.png', import.meta.url)) });
       await chat.locator('.review-loop-reply-preview img').waitFor();
       await page.locator('#yunomi-draft-storage-error').waitFor();
