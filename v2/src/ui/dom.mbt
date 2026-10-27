@@ -1036,6 +1036,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // so the reviewer always has somewhere to start talking.
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
   #|  const currentRound = Number(round.round || 1);
+  #|  window.__YUNOMI_ROUND_AWAITING_GO__ = round.submitted_at && round.decision === "request_changes" ? currentRound : 0;
   #|  const actionableComments = comments.filter(c => c.scope !== "round");
   #|  window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(actionableComments.map(c => String(c.id || "")).filter(Boolean));
   #|  const roundThreads = comments.filter(c => c.scope === "round");
@@ -1044,6 +1045,17 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // unresolved work that the reviewer cannot resolve from the page.
   #|  const visibleActionableComments = actionableComments.filter(c => !c.unanchored);
   #|  const unresolved = visibleActionableComments.filter(c => c.status !== "resolved");
+  #|  // Resolved threads the reviewer reopened from the thread list stay at
+  #|  // their line, read-only, until closed.
+  #|  const revealedResolved = window.__YUNOMI_REVEALED_RESOLVED__ || (window.__YUNOMI_REVEALED_RESOLVED__ = new Set());
+  #|  window.__YUNOMI_LAST_REVIEW_JSON__ = json;
+  #|  window.__YUNOMI_THREAD_LIST__ = visibleActionableComments.map(c => ({
+  #|    id: String(c.id || ""),
+  #|    resolved: c.status === "resolved",
+  #|    location: `${String(c.file || "").split("/").pop()}:${Number(c.line || 0)}`,
+  #|    quote: window.__yunomiCommentDisplayQuote ? window.__yunomiCommentDisplayQuote(c) : String(c.quote || ""),
+  #|    text: String(c.text || ""),
+  #|  }));
   #|  window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(unresolved.map(c => String(c.id || "")).filter(Boolean));
   #|  window.__YUNOMI_UNRESOLVED_ROUND_IDS__ = new Set(roundThreads.filter(c => c.status !== "resolved").map(c => String(c.id || "")).filter(Boolean));
   #|  // Only anchored unresolved comments drive inline recovery; the fixed panel
@@ -1322,7 +1334,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    };
   #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] }, `${c.id}#root#h`)]
   #|      .concat(replies.map((r, index) => threadLine(r, messageKey(c.id, index, r)))).join("");
-  #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
+  #|    const revealClose = c.status === "resolved" && revealedResolved.has(String(c.id || "")) ? `<button type="button" class="review-loop-reveal-close" data-review-comment-id="${esc(c.id)}" title="Close" aria-label="Close resolved thread">×</button>` : "";
+  #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>${revealClose}` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
   #|    const resolveAction = `<div class="review-loop-thread-actions">${resolve}</div>`;
   #|    const replyForm = c.status === "resolved" ? "" : conversationForm(c.id, "/reply-comment", t.replyPlaceholder, t.reply);
   #|    const state = c.status === "resolved" ? `<span class="review-loop-status-check" aria-label="${esc(t.resolved)}">✓</span>` : `<span class="review-loop-status-dot" aria-hidden="true"></span>`;
@@ -1454,7 +1467,9 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
-  #|  const placementCandidates = unresolved.map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
+  #|  const placementCandidates = visibleActionableComments
+  #|    .filter(c => c.status !== "resolved" || revealedResolved.has(String(c.id || "")))
+  #|    .map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
   #|  const placements = placementCandidates.filter(placement => placement.target);
   #|  placements.sort((a, b) => {
   #|    if (a.target === b.target) return a.order - b.order;
@@ -1817,6 +1832,91 @@ extern "js" fn bind_inline_saved_comments(
 ///|
 extern "js" fn get_review_loop_status_text() -> String =
   #|() => String(window.__YUNOMI_REVIEW_LOOP_STATUS__ || "")
+
+///|
+/// The round badge opens a list of this review's threads, unresolved first,
+/// then resolved. Choosing a resolved thread reveals it read-only at its line
+/// (`rerender` redraws the review with the reveal applied); choosing an open
+/// one moves to it. A revealed thread closes with its × button.
+extern "js" fn install_review_thread_list(rerender : () -> Unit) -> Unit =
+  #|(rerender) => {
+  #|  const badge = document.querySelector("#review-loop-header-badge");
+  #|  const list = document.querySelector("#review-thread-list");
+  #|  if (!badge || !list || badge.__yunomiThreadList) return;
+  #|  badge.__yunomiThreadList = true;
+  #|  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+  #|  const revealed = () => window.__YUNOMI_REVEALED_RESOLVED__ || (window.__YUNOMI_REVEALED_RESOLVED__ = new Set());
+  #|  const close = (restoreFocus) => {
+  #|    list.hidden = true;
+  #|    badge.setAttribute("aria-expanded", "false");
+  #|    if (restoreFocus) badge.focus();
+  #|  };
+  #|  const item = (t) => `<li><button type="button" class="review-thread-list-item${t.resolved ? " is-resolved" : ""}" data-review-comment-id="${esc(t.id)}"><span class="review-thread-list-mark" aria-hidden="true">${t.resolved ? "✓" : "●"}</span><span class="review-thread-list-body"><strong>${esc(t.location)}</strong>${t.quote ? `<span class="review-thread-list-quote">${esc(t.quote)}</span>` : ""}<span class="review-thread-list-text">${esc(t.text)}</span></span></button></li>`;
+  #|  const section = (title, items) => `<section><h4>${esc(title)} (${items.length})</h4>${items.length ? `<ul>${items.map(item).join("")}</ul>` : `<p class="review-thread-list-empty">None</p>`}</section>`;
+  #|  const open = () => {
+  #|    const threads = window.__YUNOMI_THREAD_LIST__ || [];
+  #|    list.innerHTML = section("Open", threads.filter(t => !t.resolved)) + section("Resolved", threads.filter(t => t.resolved));
+  #|    list.hidden = false;
+  #|    badge.setAttribute("aria-expanded", "true");
+  #|    list.querySelector(".review-thread-list-item")?.focus();
+  #|  };
+  #|  const focusThread = (id) => {
+  #|    const card = document.querySelector(`.review-loop-inline .review-loop-comment[data-review-comment-id="${CSS.escape(id)}"]`);
+  #|    if (!card) return;
+  #|    card.scrollIntoView({ block: "center" });
+  #|    card.tabIndex = -1;
+  #|    card.focus({ preventScroll: true });
+  #|  };
+  #|  badge.addEventListener("click", () => (list.hidden ? open() : close(false)));
+  #|  list.addEventListener("click", (event) => {
+  #|    const button = event.target.closest?.(".review-thread-list-item");
+  #|    if (!button) return;
+  #|    const id = button.dataset.reviewCommentId || "";
+  #|    close(false);
+  #|    if (button.classList.contains("is-resolved")) {
+  #|      revealed().add(id);
+  #|      rerender();
+  #|    }
+  #|    focusThread(id);
+  #|  });
+  #|  list.addEventListener("keydown", (event) => {
+  #|    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); return; }
+  #|    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+  #|    const items = Array.from(list.querySelectorAll(".review-thread-list-item"));
+  #|    const index = items.indexOf(document.activeElement);
+  #|    const next = items[(index + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length];
+  #|    if (next) { event.preventDefault(); next.focus(); }
+  #|  });
+  #|  document.addEventListener("click", (event) => {
+  #|    const closeButton = event.target.closest?.(".review-loop-reveal-close");
+  #|    if (closeButton) {
+  #|      revealed().delete(closeButton.dataset.reviewCommentId || "");
+  #|      rerender();
+  #|      return;
+  #|    }
+  #|    if (!list.hidden && !list.contains(event.target) && !badge.contains(event.target)) close(false);
+  #|  });
+  #|}
+
+///|
+/// Keyboard focus on the round badge or inside its thread list: Enter and
+/// arrow keys belong to that control, not to the review shortcuts.
+extern "js" fn active_in_review_thread_list() -> Bool =
+  #|() => !!document.activeElement?.closest?.("#review-loop-header-badge, #review-thread-list")
+
+///|
+extern "js" fn get_last_review_json() -> String =
+  #|() => String(window.__YUNOMI_LAST_REVIEW_JSON__ || "")
+
+///|
+extern "js" fn set_hidden(el : Element, hidden : Bool) -> Unit =
+  #|(el, hidden) => { el.hidden = hidden; }
+
+///|
+/// The current round number when it already requested changes and waits for
+/// the agent's `yunomi go`; 0 otherwise.
+extern "js" fn get_review_round_awaiting_go() -> Int =
+  #|() => Number(window.__YUNOMI_ROUND_AWAITING_GO__ || 0)
 
 ///|
 /// Paste event handler for images

@@ -603,6 +603,13 @@ pub fn init_app() -> Unit {
   install_conversation_unread(get_yunomi_storage_scope())
   // Notifications that never reached the launching agent (header counter).
   install_notify_undelivered(@core.icon_svg_request_changes)
+  // Round badge: list of open and resolved threads.
+  install_review_thread_list(fn() {
+    let json = get_last_review_json()
+    if json.length() > 0 {
+      render_review_state(json)
+    }
+  })
   install_typing_tracker()
   // Setup SSE for live reload
   setup_sse(port)
@@ -749,7 +756,7 @@ fn load_review_loop_state() -> Unit {
   review_loop_state_loading.val = true
   let url = yunomi_request_url("/review-state")
   fetch_get(url, fn(data) {
-    review_loop_unresolved_count.val = render_review_loop_panel_json(data)
+    render_review_state(data)
     restore_reload_scroll_state(reload_scroll_key())
     review_loop_state_loaded.val = true
     review_loop_state_loading.val = false
@@ -1502,6 +1509,60 @@ fn update_comment_indicators() -> Unit {
 }
 
 ///|
+fn update_review_loop_header_badge() -> Unit {
+  let header_badge = query("#review-loop-header-badge")
+  if !is_null(header_badge) {
+    let status_text = get_review_loop_status_text()
+    if status_text.length() > 0 {
+      set_text_content(header_badge, status_text)
+      set_style(header_badge, "display", "inline-flex")
+      if review_loop_unresolved_count.val == 0 {
+        add_class(header_badge, "ready")
+      } else {
+        remove_class(header_badge, "ready")
+      }
+    } else {
+      set_text_content(header_badge, "")
+      set_style(header_badge, "display", "none")
+      remove_class(header_badge, "ready")
+    }
+  }
+}
+
+///|
+/// Render the review state and keep the round badge (the thread list's
+/// entry point) in step with it.
+fn render_review_state(json : String) -> Unit {
+  review_loop_unresolved_count.val = render_review_loop_panel_json(json)
+  update_review_loop_header_badge()
+  update_submit_round_state()
+}
+
+///|
+/// A round that already requested changes waits for the agent's `yunomi go`.
+/// The dialog says so: the same verdict sent again is ignored by the server,
+/// and a different one replaces it. Runs when the dialog opens and whenever
+/// the review state arrives.
+fn update_submit_round_state() -> Unit {
+  let awaiting_round = get_review_round_awaiting_go()
+  let round_submitted = query("#submit-round-submitted")
+  if is_null(round_submitted) {
+    return
+  }
+  if awaiting_round > 0 {
+    set_text_content(
+      round_submitted,
+      "Round " +
+      awaiting_round.to_string() +
+      " is already submitted and waiting for the agent. Submitting again replaces it.",
+    )
+    set_hidden(round_submitted, false)
+  } else {
+    set_hidden(round_submitted, true)
+  }
+}
+
+///|
 fn show_submit_modal() -> Unit {
   let modal = query("#submit-modal")
   let list = query("#modal-summary")
@@ -1580,6 +1641,7 @@ fn show_submit_modal() -> Unit {
       }
     }
   }
+  update_submit_round_state()
   let loop_state = query("#review-loop-submit-state")
   if !is_null(loop_state) {
     let status_text = get_review_loop_status_text()
@@ -1602,23 +1664,7 @@ fn show_submit_modal() -> Unit {
       remove_class(loop_state, "ready")
     }
   }
-  let header_badge = query("#review-loop-header-badge")
-  if !is_null(header_badge) {
-    let status_text = get_review_loop_status_text()
-    if status_text.length() > 0 {
-      set_text_content(header_badge, status_text)
-      set_style(header_badge, "display", "inline-flex")
-      if review_loop_unresolved_count.val == 0 {
-        add_class(header_badge, "ready")
-      } else {
-        remove_class(header_badge, "ready")
-      }
-    } else {
-      set_text_content(header_badge, "")
-      set_style(header_badge, "display", "none")
-      remove_class(header_badge, "ready")
-    }
-  }
+  update_review_loop_header_badge()
   // Show mermaid errors if any
   // Show mermaid errors if any
   let mermaid_error_area = query("#mermaid-error-area")
@@ -1804,9 +1850,23 @@ fn setup_close_detection(port : Int) -> Unit {
 
 ///|
 fn submit_review(_port : Int) -> Unit {
+  // A second click while the first submit is in flight is the same verdict.
+  if submit_in_flight.val {
+    return
+  }
   submit_in_flight.val = true
   let url = yunomi_request_url("/exit")
   fetch_post(url, build_review_payload(), fn(response) {
+    if response == "error" {
+      // A failed request must not leave later clicks ignored.
+      submit_in_flight.val = false
+    }
+    if response.contains("\"already_submitted\":true") {
+      submit_in_flight.val = false
+      hide_submit_modal()
+      show_toast("This round is already submitted")
+      return
+    }
     if response.contains("unresolved_comments") {
       submit_in_flight.val = false
       close_report_sent.val = false
@@ -2065,7 +2125,7 @@ fn setup_sse(_port : Int) -> Unit {
   sse_on(es, "reload", fn(_e) { request_quiet_refresh() })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
-    review_loop_unresolved_count.val = render_review_loop_panel_json(data)
+    render_review_state(data)
     if suppress_next_round_reload.val {
       // A reply only changes the conversation, which is already on screen.
       suppress_next_round_reload.val = false
@@ -2075,9 +2135,7 @@ fn setup_sse(_port : Int) -> Unit {
     }
   })
   sse_on(es, "resolve", fn(e) {
-    review_loop_unresolved_count.val = render_review_loop_panel_json(
-      sse_event_data(e),
-    )
+    render_review_state(sse_event_data(e))
   })
   sse_on(es, "reply", fn(e) {
     suppress_next_round_reload.val = true
@@ -3902,7 +3960,8 @@ fn keyboard_shortcuts_blocked() -> Bool {
   tag == "INPUT" ||
   tag == "TEXTAREA" ||
   tag == "SELECT" ||
-  active_in_notify_undelivered()
+  active_in_notify_undelivered() ||
+  active_in_review_thread_list()
 }
 
 ///|
