@@ -11,6 +11,6 @@ Keep `/do`'s required TDD, preservation, and real-surface verification. Do not w
 3. Fix the shared cause in authorized scope. If the repair needs an unapproved contract change, stop and say so. If the change crosses a function boundary and the structure is not determined, write two or more designs with a shared evaluation and the rejected reasons before editing.
 4. Mutating operations must converge to the same correct state after a retry or a mid-run interrupt. Verify that, or record why this change has no such operation.
 5. Verify on the same surface. The original reproduction now fails to appear. A unit test that never took the failing path is not enough.
-6. Hand `/done` the reproduction, the surviving cause, the callers covered, and the same-surface result.
+6. Hand the final review the reproduction, the surviving cause, the callers covered, and the same-surface result.
 
-Continue into `/done`. Do not treat "Opening a PR" as the end of this playbook. Commit and push stay behind human approval.
+Continue with the rest of `/do`. Do not treat "Opening a PR" as the end of this playbook. A merge stays behind the human decision.

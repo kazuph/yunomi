@@ -1,5 +1,5 @@
 {
-  "description": "yunomi plugin hooks - git wt guard, mock/stub detection, E2E enforcement, commit review reminders, and workflow enforcement",
+  "description": "yunomi plugin hooks - git wt guard and mock/stub detection",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,16 +7,6 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/git-wt-guard.sh",
-            "timeout": 5
-          }
-        ],
-        "matcher": "Bash"
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'if echo \"$CLAUDE_TOOL_INPUT\" | grep -qE \"git commit|git push\"; then echo \"[yunomi-plugin] Reminder: Have you run the /done skill and reviewed with yunomi before committing?\"; fi'",
             "timeout": 5
           }
         ],
@@ -46,16 +36,6 @@
       }
     ],
     "Stop": [],
-    "SubagentStop": [],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks-handlers/completion-checklist.sh"
-          }
-        ]
-      }
-    ]
+    "SubagentStop": []
   }
 }

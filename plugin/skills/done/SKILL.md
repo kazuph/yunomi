@@ -1,17 +1,17 @@
 ---
 name: done
-description: Verify an existing task, remove unnecessary complexity without changing behavior, and carry the evidence through yunomi human review and authorized delivery.
+description: On request, verify an existing task, remove unnecessary complexity without changing behavior, and prepare its evidence for authorized delivery. Serve a yunomi review only when the human explicitly asks for it.
 ---
 
 # Complete and prove the work
 
 Canonical source: `kazuph/yunomi`, `plugin/skills/done/`. Personal skill directories contain identical copies, distributed together with `/do` and `/bucho`.
 
-Use after `/do`, after a `/bucho` implementation lead finishes its work, or when the user requests completion of an existing task. There is one completion standard, with no tiny/full or evidence-only choice. Required checks follow the actual requirements, affected behavior, and repository rules.
+Use only when the user requests `/done` for an existing task. It is not a required step of `/do`, `/bucho`, or the environment's development flow, and that flow takes precedence wherever this skill differs. There is one completion standard, with no tiny/full or evidence-only choice. Required checks follow the actual requirements, affected behavior, and repository rules.
 
 Recover the original request, corrections, decisions, worktree, diff, tests, and evidence. If a piece is missing, inspect the real state rather than guessing or restarting the task from scratch. Do not silently change the request to fit the implementation.
 
-Read the adjacent `/do` verification contract. Resolve and read the applicable `review-code-security`, `review-e2e`, `review-ui-ux`, `report-builder`, and `report-validator` instruction files from the trusted Yunomi plugin/checkout, plus the installed testing, `artifact-proof`, `validate-report`, and `yunomi` skills. Record exact paths. A name in a prompt is not a completed review; missing required instructions/capability must be restored from an authorized local source or reported as a blocker, never silently skipped or downloaded as a new runner. Apply checklists without executing legacy secret-printing commands or violating the current read-only reviewer policy.
+Read the adjacent `/do` verification contract. Resolve and read the applicable `review-code-security`, `review-e2e`, and `review-ui-ux` instruction files from the trusted Yunomi plugin/checkout, plus the installed testing skills. When a yunomi review was requested, also read `report-builder`, `report-validator`, `artifact-proof`, `validate-report`, and `yunomi`. Record exact paths. A name in a prompt is not a completed review; missing required instructions/capability must be restored from an authorized local source or reported as a blocker, never silently skipped or downloaded as a new runner. Apply checklists without executing legacy secret-printing commands or violating the current read-only reviewer policy.
 
 For standalone `/done` as well as a `/do` handoff, read the applicable `webapp-impl`, `backend-impl`, or `mobile-impl` checklist and, for Web UI, `frontend-design`. Verify the inherited implementation/design requirements, including reduced-motion preferences, against the existing user design system and current policy.
 
@@ -29,7 +29,7 @@ Recover the playbook name and exact path from `/do`, or classify a standalone co
 | `authoring-a-skill` | Canonical source and in-scope distributed copies match. Named reviews were not replaced by a generic reminder. |
 | `session-pickup` | Remaining work matches the existing record. The user was not asked to restart the task. |
 
-Then continue with the rest of this skill. Deslop, specialist reviews, diagram, and human approval stay required for work that changed the product or the workflow. A read-only investigation still needs a reviewable answer; it does not need a code deslop.
+Then continue with the rest of this skill. Deslop, specialist reviews, and the human decision stay required for work that changed the product or the workflow. The diagram and the report apply when the human asked for a yunomi review. A read-only investigation still needs a reviewable answer; it does not need a code deslop.
 
 ## Check the requested outcome
 
@@ -39,9 +39,9 @@ Confirm that every changed file belongs to this task, existing work is preserved
 
 Reconcile every unit's verification and corrections with the final diff, domain/state/ownership decisions, and affected callers. Confirm coverage of the shared cause beyond the reported caller. Track implementation, build/runtime verification, evidence, human acceptance, and delivery separately; a checked implementation TODO does not prove the other stages.
 
-## Required diagram before yunomi acceptance
+## Required diagram when a yunomi review is requested
 
-Every yunomi acceptance report must include an explanatory diagram that makes the outcome or change understandable. For an existing-versus-new comparison, align both flows and label/color retained, added, changed, and explicitly retired behavior. Keep essential existing functions and review gates visible. Tables, before/after code, screenshots, or a bare image link alone do not satisfy this requirement; retain them as supporting evidence when needed.
+Skip this section unless the human asked for a yunomi review. Every yunomi acceptance report must include an explanatory diagram that makes the outcome or change understandable. For an existing-versus-new comparison, align both flows and label/color retained, added, changed, and explicitly retired behavior. Keep essential existing functions and review gates visible. Tables, before/after code, screenshots, or a bare image link alone do not satisfy this requirement; retain them as supporting evidence when needed.
 
 Embed the actual diagram in a Markdown table with image syntax. Verify the file exists and the final report references it before launch. After launching yunomi, verify in the browser that the embedded image loads with nonzero natural dimensions before asking for acceptance. Compare required labels with the source-based specification using the runtime's numerical/OCR verification policy; do not claim semantic correctness from visual impression. Generation alone, an HTTP-success page without its image, or opening the separate PNG is not the final display check.
 
@@ -78,7 +78,7 @@ Before recording screenshots/video, confirm that tests reach the requested chang
 
 Complete the environment's required independent reviews, CI, and delivery prerequisites in their required order. Reviewers receive the original request, exact diff, constraints, and evidence. Inspect their findings, fix valid issues, explain disagreements with evidence, and reverify the final state. Model and runtime selection belongs to the environment policy, not to this skill.
 
-Load `herdr-pane-commander` before independent review. Prove the parent pane/workspace/tab, launch the required separate read-only reviewer sessions with the current environment's approved models and read-only flags, and supply the exact diff, applicable specialist instruction files, and evidence. Collect every final response with the validated pane's read command and record findings/dispositions yourself; reviewers must not edit the report. The implementing lead's own checklist pass does not satisfy independent review. Follow the environment's required reviewer count, review timing, and more specific routing policy without reinstating retired Task recipes.
+Load `herdr-pane-commander` (the skill keeps its old name and drives ikesu) before independent review. Prove the parent pane/workspace/tab, launch the required separate read-only reviewer sessions with the current environment's approved models and read-only flags, and supply the exact diff, applicable specialist instruction files, and evidence. Collect every final response through the reviewer's reporting route or the validated pane's read command, and record findings/dispositions yourself; reviewers must not edit the report. The implementing lead's own checklist pass does not satisfy independent review. Follow the environment's required reviewer count, review-round limit, review timing, and more specific routing policy without reinstating retired Task recipes.
 
 The following review responsibilities remain mandatory; use the environment's approved independent reviewer routing and models, not a retired Task-tool launch recipe:
 - Code & Security Review for every project type: type safety, error handling, duplication, OWASP-related risks, XSS/injection, authentication/authorization, and hardcoded or exposed secrets. Use the existing review-code-security instructions.
@@ -86,11 +86,13 @@ The following review responsibilities remain mandatory; use the environment's ap
 - UI/UX Review for affected web/mobile/fullstack UI: WCAG 2.2 AA, keyboard/focus behavior, design consistency, copy, and applicable internationalization. Backend-only work has no UI surface. Use the existing review-ui-ux instructions.
 - The environment's required independent code reviews, with concrete findings and verification of the final changed state.
 
-Read all findings before serving the acceptance report. If any Critical or High finding remains, fix it, rebuild and reverify, and obtain the affected re-review. Do not advance to human acceptance with unresolved Critical/High findings. Retain the complete finding dispositions and review evidence.
+Read all findings before handing the result to the human. If any Critical or High finding remains, fix it, rebuild and reverify, and obtain the affected re-review within the environment's review-round limit. At that limit, confirm the fix with the regular verification and report it as not re-reviewed. Do not advance to human acceptance with unresolved Critical/High findings. Retain the complete finding dispositions and review evidence.
 
 For each finding, fix a valid issue within scope, dismiss it with concrete source/test evidence, or obtain a decision on an unapproved behavior change. Do not blindly apply advice that drops a feature or boundary check. Supply the exact final revision/diff for review. An empty, missing, or unread final response is incomplete review.
 
-## Serve the result with yunomi
+## Serve the result with yunomi when asked
+
+Follow this section only when the human explicitly asked for a yunomi review in this task. Otherwise report the result with its evidence and continue with the environment's pull request and merge decision.
 
 Load the installed `yunomi` skill for the browser-review and notification protocol. If it is missing, the installed yunomi CLI's `--skill` output provides that protocol; do not download a third-party workflow runner. A missing required CLI is a concrete blocker.
 
@@ -114,6 +116,6 @@ Register each original comment and summary as implementation plus verification T
 
 ## Deliver and hand back
 
-After the human approves, finish the authorized commit, push, merge, release, installation, or deployment steps in the repository's required order. Approval to review does not authorize new external side effects. Verify the actual delivered state, and keep implementation, verification, review, and delivery status separate.
+Finish the authorized commit, push, pull request, merge, release, installation, or deployment steps in the repository's required order. A merge still needs the human decision that the environment's flow requires. Approval to review does not authorize new external side effects. Verify the actual delivered state, and keep implementation, verification, review, and delivery status separate.
 
 Keep task-owned services alive while the human needs them. Clean up only resources this task owns and is authorized to remove; preserve evidence and other work. Report the requested outcome, what remains, and the concrete evidence supporting completion.

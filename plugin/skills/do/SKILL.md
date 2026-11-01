@@ -1,15 +1,21 @@
 ---
 name: do
-description: Carry a requested change from understanding and design through implementation, verification, and human approval with yunomi.
+description: Carry a requested change from understanding and design through implementation and verification under the environment's current development flow. Use yunomi only when the human explicitly asks for it.
 ---
 
 # Own the requested outcome
 
 Canonical source: `kazuph/yunomi`, `plugin/skills/do/`. Personal skill directories contain identical distribution copies. Maintain `/do`, `/done`, and `/bucho` together; edit the Yunomi source first.
 
-Use this entry for a new task or to resume one. Keep the same lead responsible through `/done`; the user does not select a tiny/full mode or request the completion phase separately. For explicit delegated execution, use `/bucho`, which assigns this same workflow to an implementation lead.
+Use this entry for a new task or to resume one. Keep the same lead responsible through delivery; the user does not select a tiny/full mode. For explicit delegated execution, use `/bucho`, which assigns this same workflow to an implementation lead.
 
 Read the current task, repository instructions, and existing task state first. User requirements and environment policies take precedence over this skill. Keep the requested behavior, architecture, quality, and scope intact; never offer or deliver a reduced version to save time, cost, or tokens.
+
+## Follow the current development flow
+
+The environment's development flow decides who plans, implements, reviews, commits, and merges. Read it first and follow it wherever this skill differs. In the maintainer's environment it is the standard development flow in `~/dotfiles/claude/CLAUDE.md`. There the parent plans, a Codex `gpt-6.1-terra` medium lead implements and runs the local CI equivalent, and the parent and one read-only reviewer review for at most two rounds. The parent then opens the pull request, and a human decides the merge.
+
+`/done` and yunomi are not steps of that flow. Run `/done` only when the user asks for it. Open a yunomi review only when the human explicitly asks for one in this task. Every yunomi requirement in this skill applies only to such a task.
 
 ## Select the matching procedure
 
@@ -26,13 +32,13 @@ Before planning work, classify the request and read the matching file next to th
 | Resume an in-flight task from an existing record or worktree | `playbooks/session-pickup.md` |
 | None of the above | Write the procedure first in the task record. Do not start implementation until that procedure exists. |
 
-Resolve paths relative to this `SKILL.md`. Investigation is read-only and skips later implementation sections until a different playbook is selected. Other playbooks then continue with the rest of this skill. Hand the chosen name and path to `/done` and, when delegating, to `/bucho`.
+Resolve paths relative to this `SKILL.md`. Investigation is read-only and skips later implementation sections until a different playbook is selected. Other playbooks then continue with the rest of this skill. Hand the chosen name and path to the reviewers, to `/bucho` when delegating, and to `/done` when it runs.
 
 ## Plan the required explanatory diagram
 
-When this task will be served for yunomi acceptance, plan an explanatory diagram as part of the deliverable before implementation. Name what it must explain, its source evidence, and the retained behavior versus requested changes. For a workflow or architecture change, align the existing and proposed flows side by side and label/color the unchanged, added, changed, and explicitly retired parts. Do not present existing capabilities as new.
+When the human has asked for yunomi acceptance of this task, plan an explanatory diagram as part of the deliverable before implementation. Name what it must explain, its source evidence, and the retained behavior versus requested changes. For a workflow or architecture change, align the existing and proposed flows side by side and label/color the unchanged, added, changed, and explicitly retired parts. Do not present existing capabilities as new.
 
-Use the agreed artifact location and reference the diagram from the single report. Follow the current image-generation policy; for Codex infographic/image-like deliverables, use the actual image-generation tool. Code examples, tables, screenshots, and a link to an image do not replace the required embedded explanatory diagram. Hand its path, meaning, and verification status to /done. A missing diagram remains unfinished work.
+Use the agreed artifact location and reference the diagram from the single report. Follow the current image-generation policy; for Codex infographic/image-like deliverables, use the actual image-generation tool. Code examples, tables, screenshots, and a link to an image do not replace the required embedded explanatory diagram. Hand its path, meaning, and verification status to whoever writes the report. A missing diagram remains unfinished work.
 
 ## Preserve existing functionality before adding requirements
 
@@ -48,11 +54,11 @@ Before implementation, obtain Code & Security design advice, E2E advice when tes
 
 Resolve Critical/High design findings before presenting the approach to the user. Confirm the implementation approach with the user before implementation; do not ask again when that approach is already approved. Plan backend/fullstack test-suite coverage reports and mobile Maestro assertions with per-step screenshots alongside the implementation.
 
-For independent design advice, load `herdr-pane-commander`, prove the parent pane/workspace/tab, and start a separate read-only reviewer session using the current environment's approved model and read-only flags. Pass the design, protected contracts, applicable review instructions, and evidence; collect its final response and disposition every finding. The implementing lead's self-application of a checklist does not count as this independent review. Follow any more specific current environment review policy; do not copy obsolete launchers or upstream model defaults.
+For independent design advice, load `herdr-pane-commander` (the skill keeps its old name and drives ikesu), prove the parent pane/workspace/tab, and start a separate read-only reviewer session using the current environment's approved model and read-only flags. Pass the design, protected contracts, applicable review instructions, and evidence; collect its final response and disposition every finding. The implementing lead's self-application of a checklist does not count as this independent review. Follow any more specific current environment review policy; do not copy obsolete launchers or upstream model defaults.
 
 Preserve the t-wada TDD cycle for implementation: write a test expressing the expected behavior, run it and confirm the relevant failure (RED), implement until it passes (GREEN), then refactor while it stays green. Include this obligation when delegating implementation. Add reuse decisions and verifiable implementation units within this process; they do not replace it. If a new requirement conflicts with an existing feature or contract, state the actual conflict and obtain an explicit decision before changing it. Do not infer permission from silence, brevity, deslop, or the absence of an old requirement in the latest prompt.
 
-Include both new-behavior checks and regression checks for existing normal/failure paths and affected shared callers in the implementation plan. Hand this baseline, any explicitly approved changes, and the results to /done. If your change removes an existing function or obligation, restore it and reverify before proceeding.
+Include both new-behavior checks and regression checks for existing normal/failure paths and affected shared callers in the implementation plan. Hand this baseline, any explicitly approved changes, and the results to the final review. If your change removes an existing function or obligation, restore it and reverify before proceeding.
 
 ## Understand before choosing
 
@@ -111,7 +117,7 @@ E2E flows use real login and UI navigation after the initial page entry. Do not 
 
 Load the applicable installed `webapp-testing`, `backend-testing`, or `mobile-testing` instructions and existing evidence/report helpers. Record their paths and the agreed task report path. Preserve their obligations under the current runtime/browser policy. Do not execute retired launchers or let a helper override the explicit report path. An already approved worktree artifact path remains valid; keep its report and evidence. For a new task with no authorized report location, resolve that missing location before creating files, while continuing independent authorized work. Never infer permission to create `.artifacts/` from an old helper example or silently scatter evidence into substitute directories.
 
-Also read the applicable existing `webapp-impl`, `backend-impl`, or `mobile-impl` instruction file from the trusted Yunomi plugin/checkout and follow its implementation checklist, whether implementing directly or through a lead. For Web UI, read the installed `frontend-design` skill and carry its applicable design and accessibility requirements into the plan and verification, including reduced-motion preferences. Preserve the user's existing design system and current design policy over a helper's aesthetic presets. Direct implementation replaces the old mandatory agent launch, not the requirements that agent used to load. `/done` must verify these inherited requirements as well.
+Also read the applicable existing `webapp-impl`, `backend-impl`, or `mobile-impl` instruction file from the trusted Yunomi plugin/checkout and follow its implementation checklist, whether implementing directly or through a lead. For Web UI, read the installed `frontend-design` skill and carry its applicable design and accessibility requirements into the plan and verification, including reduced-motion preferences. Preserve the user's existing design system and current design policy over a helper's aesthetic presets. Direct implementation replaces the old mandatory agent launch, not the requirements that agent used to load. The final review must verify these inherited requirements as well.
 
 Implement directly unless an independent or isolated role has a concrete benefit and delegation is authorized. Follow the environment's runtime, model, permissions, and routing rules. Give each delegate the complete outcome, protected requirements, allowed files and side effects, stopping conditions, and evidence to return. The lead remains responsible and inspects the actual diff and results.
 
@@ -119,7 +125,7 @@ Implement directly unless an independent or isolated role has a concrete benefit
 
 Exercise the changed behavior through its real user or caller path. Build success alone is not a behavioral check. Verify the relevant input, visible result, and persisted or external effects; integrations require evidence across the communication path. Keep required security, accessibility, failure, and recovery checks.
 
-Invoke `/done` with the original request, current worktree and diff, design decisions, verification commands and results, evidence locations, and unresolved items. `/done` owns deslop, final verification and review, the report, and the human approval loop. Do not duplicate those steps here or stop at implementation complete.
+Continue with the environment's flow. Run the local CI equivalent, and give the reviewers the original request, current worktree and diff, design decisions, verification commands and results, evidence locations, and unresolved items. Then carry the result through the pull request to the human merge decision. Do not stop at implementation complete. Invoke `/done` with the same material only when the user asked for it; it then owns its deslop pass, report, and yunomi review.
 
 ## Resume without losing the task
 
@@ -127,6 +133,6 @@ Keep a short task-local record of the original outcome, decisions, affected path
 
 In that same record, keep consequential checkpoints: claim/question, decision, reason, alternatives considered, source/evidence path, result, and next dependency. Preserve user answers and feedback verbatim. Append corrections and their evidence when a decision proves wrong; do not rewrite history. Put the current outcome first and the compact decision trail in its own section, without adding a logger or transcript store.
 
-After feedback or compaction, read the existing record/worktree/TODO before creating anything. Give each feedback item its original wording, required change, and verification method. A TODO is complete only with implementation and verification evidence; human approval stays separate. Continue through `/done` without requiring the user to restart the task.
+After feedback or compaction, read the existing record/worktree/TODO before creating anything. Give each feedback item its original wording, required change, and verification method. A TODO is complete only with implementation and verification evidence; human approval stays separate. Continue the same task without requiring the user to restart it.
 
 Pause only for a real blocker, explicit user pause, or human approval. Report what cannot proceed and why, while continuing independent authorized work. Completion means the requested outcome and required evidence are accepted by the human and any authorized delivery steps are finished.

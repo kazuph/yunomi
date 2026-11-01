@@ -256,11 +256,13 @@ This repository also serves as a Claude Code plugin marketplace. The plugin inte
 
 The canonical sources are `plugin/skills/do/`, `done/`, and `bucho/`. Personal installations contain identical copies. `tiny-do` and `tiny-done` are retired into these entries; task size does not select a lower quality level.
 
+These entries are optional. `/done` and a yunomi review run only when a human explicitly asks for them. Each environment's development flow decides who does what and in which order. The plugin's hooks no longer prompt for `/done` or yunomi.
+
 | Entry | Responsibilities |
 |---|---|
-| `/do` | Discover requirements and protected behavior, **select the matching playbook**, trace all callers, choose reuse and domain/state ownership, obtain design advice, use a nested git-wt worktree, implement with TDD and verified prerequisites, and continue into `/done`. |
-| `/done` | Verify additions and regressions, deslop without changing behavior, build and exercise real flows, complete specialist reviews, validate diagrams/screenshots/video/report, and continue the human feedback loop. |
-| `/bucho` | Delegate the same complete `/do` → `/done` outcome to an approved Herdr lead, maintain a durable decision record, and inspect actual diffs and evidence before acceptance. |
+| `/do` | Discover requirements and protected behavior, **select the matching playbook**, trace all callers, choose reuse and domain/state ownership, obtain design advice, use a nested git-wt worktree, implement with TDD and verified prerequisites, and deliver through the environment's development flow. |
+| `/done` | Runs only on request. Verify additions and regressions, deslop without changing behavior, build and exercise real flows, complete specialist reviews, and continue the human feedback loop. A requested yunomi review also validates diagrams/screenshots/video/report. |
+| `/bucho` | Delegate the same complete `/do` outcome to an approved ikesu lead, maintain a durable decision record, and inspect actual diffs and evidence before acceptance. |
 
 Check the agent's skill list for any namespaced invocation. See the executable instructions in [do](plugin/skills/do/SKILL.md), [done](plugin/skills/done/SKILL.md), and [bucho](plugin/skills/bucho/SKILL.md).
 
@@ -268,7 +270,7 @@ Check the agent's skill list for any namespaced invocation. See the executable i
 
 P-Stack contributes choosing a procedure from the request (investigation, bug-fix, feature, and the other nested playbooks under `/do`), understanding the real flow, modeling data/state/ownership, resolving observable questions with experiments, verifying prerequisites before dependent work, and retaining reasons and evidence for decisions. Ponytail contributes considering repository code, standard facilities, platform features, installed dependencies, then new code after understanding the full requirement, and fixing shared causes across callers.
 
-Existing discovery, design advice, TDD, code/security and E2E reviews, applicable UI/UX review, screenshots and video, report validation, and human approval remain required. Deslop retains trust-boundary validation, data protection, security, accessibility, diagnostics, and necessary tests. No third-party workflow scripts, libraries, or model defaults are imported.
+Discovery, design advice, TDD, code/security and E2E reviews, applicable UI/UX review, and the human decision remain required. Screenshots, video, and report validation apply to a requested yunomi review. Deslop retains trust-boundary validation, data protection, security, accessibility, diagnostics, and necessary tests. No third-party workflow scripts, libraries, or model defaults are imported.
 
 ### Existing agent instructions
 
@@ -281,26 +283,26 @@ Existing discovery, design advice, TDD, code/security and E2E reviews, applicabl
 | `webapp-impl.md` / `backend-impl.md` / `mobile-impl.md` | Implementation and real verification for each project type. |
 | `dogfooding.md` / `review-video.md` | Real operation and video review. |
 
-Use the current environment's approved independent review routing, models, and permissions. Do not launch a fixed number of retired agents. Resolve Critical/High findings, reverify, and obtain the affected re-review before human acceptance.
+Use the current environment's approved independent review routing, models, and permissions. Do not launch a fixed number of retired agents. Resolve Critical/High findings, reverify, and obtain the affected re-review within the environment's review-round limit before human acceptance.
 
 ### Distribute Markdown into an existing environment
 
 Copy `plugin/skills/{do,done,bucho}/` from a trusted local Yunomi checkout into the existing skill directory after checking destination changes. Keep the three copies at the same revision, including `/do`'s nested `playbooks/` and `why.md`. No additional installer, script, or library is required. Copying skills does not enable plugin hooks.
 
-Review instructions remain available at `plugin/agents/` in that checkout. The environment's existing `yunomi`, `artifact-proof`, `validate-report`, applicable testing skills, `frontend-design` for Web UI, and `herdr-pane-commander` for delegation remain prerequisites; they are not bundled with these three skill directories. Missing required instructions are a concrete blocker, not permission to skip a review or fetch an external runner.
+Review instructions remain available at `plugin/agents/` in that checkout. The environment's applicable testing skills, `frontend-design` for Web UI, and `herdr-pane-commander` for delegation (it keeps its old name and drives ikesu) remain prerequisites. `yunomi`, `artifact-proof`, and `validate-report` are needed for a requested yunomi review. These skills are not bundled with these three skill directories. Missing required instructions are a concrete blocker, not permission to skip a review or fetch an external runner.
 
 ### Evidence, review, and resumption
 
 - Keep the original checkout on its default branch and work in a nested `git wt` worktree.
 - Web uses the real browser; backend uses its actual test framework, database or permitted local emulator, and coverage; mobile uses Maestro assertions and per-step evidence. Fullstack verifies both sides and the request/response/persistence path.
-- Embed the explanatory diagram, screenshots, and video in report tables. Comparisons place old and new flows side by side, labeling and coloring preserved, added, changed, and explicitly retired behavior. Check files/embedding before launch and actual browser image loading afterward.
+- For a requested yunomi review, embed the explanatory diagram, screenshots, and video in report tables. Comparisons place old and new flows side by side, labeling and coloring preserved, added, changed, and explicitly retired behavior. Check files/embedding before launch and actual browser image loading afterward.
 - Use the agreed report/evidence location and retain consequential decisions for resumption after compaction. Creating or relocating `.artifacts/` requires authorization. Never commit evidence; use the existing PR attachment mechanism.
-- Follow the installed `yunomi` protocol with a proven Herdr or tmux notification route and `--loop`. Convert exact human feedback into implementation and verification TODOs and continue the same review loop. Agents do not grant human approval.
+- Use yunomi only when a human explicitly asks for it. Then follow the installed `yunomi` protocol with a proven ikesu, Herdr, or tmux notification route and `--loop`. Convert exact human feedback into implementation and verification TODOs and continue the same review loop. Agents do not grant human approval.
 - Distinguish implementation, build/operation/evidence verification, human acceptance, and authorized delivery.
 
 ### Existing hooks
 
-`plugin/hooks/` and `plugin/hooks-handlers/` retain pre-commit/push review reminders, completion reminders, worktree protection, and test guards. The workflow integration adds no hooks or external executable dependencies. Markdown-only distribution does not activate hooks.
+`plugin/hooks/` and `plugin/hooks-handlers/` provide worktree protection and test guards. The completion checklist on every prompt and the reminder on every `git commit` and `git push` are removed. Markdown-only distribution does not activate hooks.
 
 ## Development
 

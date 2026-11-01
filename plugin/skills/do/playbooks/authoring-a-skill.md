@@ -12,6 +12,6 @@ Do not add a new slash command unless the user explicitly asked for a new entry.
 4. If the change is itself a workflow or architecture change, plan the side-by-side explanatory diagram required by `/do`.
 5. Confirm distributed copies that this change owns will match the source. Record which destinations are in scope. Do not silently skip Codex, Agents, Claude, or Cursor when the task includes them.
 6. Keep notification routing, human approval, and no-third-party-script rules intact.
-7. Hand `/done` the source paths, the copy-match evidence, and the preserved obligations.
+7. Hand the final review the source paths, the copy-match evidence, and the preserved obligations.
 
-Continue into `/done`.
+Continue with the rest of `/do`.
