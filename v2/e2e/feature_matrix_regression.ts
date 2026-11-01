@@ -316,7 +316,6 @@ try {
     ".claude-plugin/plugin.json",
     "README.md",
     "hooks/hooks.json",
-    "hooks-handlers/completion-checklist.sh",
     "hooks-handlers/git-wt-guard.sh",
     "hooks-handlers/test-mock-guard.sh",
     "hooks-handlers/test-mock-postcheck.sh",
@@ -342,7 +341,8 @@ try {
   ];
   const missingPluginFiles = requiredPluginFiles.filter((file) => !existsSync(join(pluginRoot, file)));
   const pluginManifest = JSON.parse(readFileSync(join(pluginRoot, ".claude-plugin", "plugin.json"), "utf8"));
-  const hooksConfig = JSON.parse(readFileSync(join(pluginRoot, "hooks", "hooks.json"), "utf8"));
+  const hooksText = readFileSync(join(pluginRoot, "hooks", "hooks.json"), "utf8");
+  const hooksConfig = JSON.parse(hooksText);
   const skillFiles = existsSync(pluginSkills)
     ? readdirSync(pluginSkills, { recursive: true }).filter((name) => String(name).endsWith("SKILL.md"))
     : [];
@@ -351,9 +351,8 @@ try {
   const webappAgent = readFileSync(join(pluginAgents, "webapp-impl.md"), "utf8");
   const backendAgent = readFileSync(join(pluginAgents, "backend-impl.md"), "utf8");
   const mobileAgent = readFileSync(join(pluginAgents, "mobile-impl.md"), "utf8");
-  const completionChecklist = readFileSync(join(pluginHookHandlers, "completion-checklist.sh"), "utf8");
   assert(
-    missingPluginFiles.length === 0 && agentNames.length >= 9 && hookHandlerNames.length >= 6,
+    missingPluginFiles.length === 0 && agentNames.length >= 9 && hookHandlerNames.length >= 5,
     "Claude Code plugin assets一式がhooks/agents中心のv3構造で存在する",
     {
       missingPluginFiles,
@@ -361,7 +360,7 @@ try {
       hookHandlerCount: hookHandlerNames.length,
     },
   );
-  assert(pluginManifest.version === "2.6.7" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがyunomi 2.6.7と同じバージョンと3スキルの同梱を明記している", {
+  assert(pluginManifest.version === "2.6.8" && pluginManifest.description.includes("do, done, and bucho"), "plugin.jsonがplugin 2.6.8で3スキルの同梱を明記している", {
     version: pluginManifest.version,
     description: pluginManifest.description,
   });
@@ -398,11 +397,16 @@ try {
   const uiReview = readFileSync(join(pluginAgents, "review-ui-ux.md"), "utf8");
   const reviewVideo = readFileSync(join(pluginAgents, "review-video.md"), "utf8");
   assert(
-    claudeMd.includes("すべて `/do` → `/done`") &&
+    claudeMd.includes("標準開発フローに従う") &&
+      claudeMd.includes("yunomi レビューは店長が明示的に頼んだときだけ行う") &&
+      claudeMd.includes("yunomi の承認を条件にしない") &&
+      claudeMd.includes("マージは人間が判断する") &&
       claudeMd.includes("`/bucho` は委譲時のみ入口") &&
+      !claudeMd.includes("すべて `/do` → `/done`") &&
+      !claudeMd.includes("承認なしでcommit/push禁止") &&
       !claudeMd.includes("/tiny-done") &&
       !claudeMd.includes("tiny系"),
-    "CLAUDE.mdの完了入口は /do → /done のみで tiny を残さない",
+    "CLAUDE.mdは標準開発フローに従い、/doneとyunomi承認を強制せず、人間のマージ判断を残し、tinyを残さない",
   );
   assert(
     reportBuilder.includes("Use this order only") &&
@@ -446,15 +450,44 @@ try {
       !reviewVideo.includes("3. **期待される操作フロー**"),
     "review-videoの入力番号が連続している",
   );
-  assert(
-    Array.isArray(hooksConfig.hooks?.PreToolUse) &&
-      Array.isArray(hooksConfig.hooks?.PostToolUse) &&
-      Array.isArray(hooksConfig.hooks?.UserPromptSubmit),
-    "hooks.jsonがPreToolUse/PostToolUse/UserPromptSubmit hooksを定義している",
-    {
-      hookEvents: Object.keys(hooksConfig.hooks ?? {}),
-    },
-  );
+  type HookGroup = { matcher?: string; hooks?: Array<{ type?: string; command?: string }> };
+  type HookConfig = { hooks?: Record<string, HookGroup[]> };
+  const hookEntries = (config: HookConfig): string[] =>
+    Object.entries(config.hooks ?? {})
+      .flatMap(([event, groups]) =>
+        groups.flatMap((group) =>
+          (group.hooks ?? []).map((hook) => JSON.stringify([event, group.matcher, hook.type, hook.command])),
+        ),
+      )
+      .sort();
+  const pluginHandler = (name: string): string => "$" + "{CLAUDE_PLUGIN_ROOT}/hooks-handlers/" + name;
+  const expectedHookEntries = [
+    ["PreToolUse", "Bash", "command", pluginHandler("git-wt-guard.sh")],
+    ["PreToolUse", "Write", "command", pluginHandler("test-mock-guard.sh")],
+    ["PostToolUse", "Write|Edit", "command", pluginHandler("test-mock-postcheck.sh")],
+  ]
+    .map((entry) => JSON.stringify(entry))
+    .sort();
+  const hooksMatchExpected = (config: HookConfig): boolean =>
+    JSON.stringify(hookEntries(config)) === JSON.stringify(expectedHookEntries);
+  assert(hooksMatchExpected(hooksConfig), "hooks.jsonはイベント・matcher・type・commandの組が保護用の3つだけである", {
+    actual: hookEntries(hooksConfig),
+    expected: expectedHookEntries,
+  });
+  const brokenHookConfigs: Array<[string, (config: Required<HookConfig>) => void]> = [
+    ["matcherの変更", (config) => { config.hooks.PreToolUse[0].matcher = "Edit"; }],
+    ["イベントの移動", (config) => { config.hooks.PostToolUse.push(config.hooks.PreToolUse.shift() as HookGroup); }],
+    ["コマンドの削除", (config) => { config.hooks.PostToolUse = []; }],
+    ["typeの変更", (config) => { (config.hooks.PreToolUse[0].hooks ?? [])[0].type = "prompt"; }],
+    ["不要なコマンドの追加", (config) => {
+      config.hooks.UserPromptSubmit = [{ hooks: [{ type: "command", command: pluginHandler("completion-checklist.sh") }] }];
+    }],
+  ];
+  for (const [label, breakConfig] of brokenHookConfigs) {
+    const broken = structuredClone(hooksConfig) as Required<HookConfig>;
+    breakConfig(broken);
+    assert(!hooksMatchExpected(broken), `hooks.jsonの検査が${label}を検出する`, { actual: hookEntries(broken) });
+  }
   assert(
     webappAgent.includes("skills: frontend-design, webapp-testing, artifact-proof") &&
       backendAgent.includes("skills: backend-testing, artifact-proof") &&
@@ -462,12 +495,28 @@ try {
     "実装agentはplugin内skill名ではなくグローバルskill名を参照している",
   );
   assert(
-    completionChecklist.includes("Execute /done") && !completionChecklist.includes("/yunomi-plugin:done"),
-    "completion checklistはplugin namespace付きskill実行を要求しない",
-    {
-      hasGlobalDone: completionChecklist.includes("Execute /done"),
-      hasPluginDone: completionChecklist.includes("/yunomi-plugin:done"),
-    },
+    !existsSync(join(pluginHookHandlers, "completion-checklist.sh")) &&
+      !hooksText.includes("completion-checklist") &&
+      !hooksText.includes("/done") &&
+      !/git commit|git push/.test(hooksText),
+    "hooksは/doneとyunomiを促さない",
+    { hooksText },
+  );
+  assert(
+    doSkill.includes("Open a yunomi review only when the human explicitly asks") &&
+      doneSkill.includes("Follow this section only when the human explicitly asked") &&
+      buchoSkill.includes("only when the human explicitly asked") &&
+      doSkill.includes("A request for `/done` alone covers its verification and deslop pass") &&
+      doSkill.includes("The report and the browser review run only when the human also explicitly asks for yunomi") &&
+      ["review-code-security.md", "review-e2e.md", "review-ui-ux.md"].every(
+        (file) => doSkill.includes(`plugin/agents/${file}`) && buchoSkill.includes(`plugin/agents/${file}`),
+      ) &&
+      doSkill.includes("This adds no agents and does not start `/done`") &&
+      buchoSkill.includes("This adds no agents and does not start `/done`") &&
+      doSkill.includes("within the environment's review-round limit") &&
+      buchoSkill.includes("within the environment's review-round limit") &&
+      !/herdr (pane|msg|run)|Herdr pane|Under Herdr/.test(buchoSkill + doSkill + doneSkill),
+    "3スキルはyunomiを明示の依頼時だけに限定し、最終レビューの指示を明記し、ペイン操作の手順はikesuで書く",
   );
 } finally {
   rmSync(WORK_DIR, { recursive: true, force: true });

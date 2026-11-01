@@ -12,6 +12,6 @@ Keep `/do`'s reuse order, domain model, TDD, verifiable units, and independent d
 4. Record data shape, valid states, owners of mutation, and public contracts. Then follow `/do`'s model-the-domain and sequence-verifiable-units sections.
 5. Mutating operations must converge to the same correct state after a retry or a mid-run interrupt. Verify that, or record why this change has no such operation.
 6. Verify the new path and the retained paths on the real surface.
-7. Hand `/done` the chosen design, rejected alternatives, unit results, and preservation record.
+7. Hand the final review the chosen design, rejected alternatives, unit results, and preservation record.
 
-Continue into `/done`. Human approval still gates commit, push, and PR.
+Continue with the rest of `/do`. The human decision still gates the merge.
