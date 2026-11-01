@@ -69,4 +69,6 @@ Use `ikesu run` for long commands and read `ikesu log <job>` after its completio
 
 Inspect the final diff and real artifacts yourself and confirm that they correspond to the task's final state. Reconcile delegated findings with the original request and any human feedback. Do not duplicate already-proven checks unless changes, failures, or unresolved concerns justify them.
 
+Run the same final review as `/do`. The manager and the environment's existing read-only reviewer always read `plugin/agents/review-code-security.md`, `plugin/agents/review-e2e.md`, and, when UI is affected, `plugin/agents/review-ui-ux.md` from the trusted Yunomi plugin/checkout and apply them. This adds no agents and does not start `/done`. Return every Critical or High finding to the same lead for a fix and reverification, and obtain the affected re-review within the environment's review-round limit. At that limit, confirm the fix with the regular verification and report it as not re-reviewed.
+
 Continue the environment's review, pull request, human-decision, and authorized-delivery flow until the outcome is actually complete. Keep one coherent user-facing report. Close only completed task-owned agent panes when permitted; retain the evidence and state needed to explain or resume the work.

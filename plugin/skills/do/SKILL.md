@@ -125,7 +125,11 @@ Implement directly unless an independent or isolated role has a concrete benefit
 
 Exercise the changed behavior through its real user or caller path. Build success alone is not a behavioral check. Verify the relevant input, visible result, and persisted or external effects; integrations require evidence across the communication path. Keep required security, accessibility, failure, and recovery checks.
 
-Continue with the environment's flow. Run the local CI equivalent, and give the reviewers the original request, current worktree and diff, design decisions, verification commands and results, evidence locations, and unresolved items. Then carry the result through the pull request to the human merge decision. Do not stop at implementation complete. Invoke `/done` with the same material only when the user asked for it; it then owns its deslop pass, report, and yunomi review.
+Continue with the environment's flow. Run the local CI equivalent, and give the reviewers the original request, current worktree and diff, design decisions, verification commands and results, evidence locations, and unresolved items. Then carry the result through the pull request to the human merge decision. Do not stop at implementation complete.
+
+The final review always reads `plugin/agents/review-code-security.md`, `plugin/agents/review-e2e.md`, and, when UI is affected, `plugin/agents/review-ui-ux.md` from the trusted Yunomi plugin/checkout. The parent and the environment's existing read-only reviewer apply them. This adds no agents and does not start `/done`. Fix every Critical or High finding, reverify, and obtain the affected re-review within the environment's review-round limit. At that limit, confirm the fix with the regular verification and report it as not re-reviewed.
+
+Invoke `/done` with the same material only when the user asked for it. A request for `/done` alone covers its verification and deslop pass, then returns to the environment's flow. The report and the browser review run only when the human also explicitly asks for yunomi.
 
 ## Resume without losing the task
 
