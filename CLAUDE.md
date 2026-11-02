@@ -66,7 +66,8 @@ yunomi --version
 
 ## 主要ファイル
 
-- `cli.cjs` - メインソースコード（単一ファイル）
+- `v2/src/` - メインソースコード（MoonBit。`server`・`ui`・`core`）
+- `dist/server/server.js` - `npm run prepack` で作る配布物
 - `package.json` - yunomi CLI本体のバージョン管理
 
 ## バージョン管理
@@ -109,14 +110,14 @@ claude plugin update yunomi-plugin@yunomi-plugins
 
 1. 実装 → テスト → エビデンス収集
 2. REPORT.mdに「何を・なぜ・どう変えた」「テスト結果」「確認項目」をまとめる
-3. 証明済みpaneを渡し、`npx yunomi .artifacts/<feature>/REPORT.md --loop --notify-pane "$PANE_ID"` を `run_in_background: true` で起動
+3. 証明済みpaneを渡し、ikesu 経路なら `npx yunomi .artifacts/<feature>/REPORT.md --loop --notify-ikesu-pane "$PANE_ID"` を `run_in_background: true` で起動（Herdr 経路は `--notify-pane`）
 4. ユーザーがブラウザで確認 → Approve/Request Changes
 
 ### 禁止事項
 - `git diff | yunomi --diff` でコード差分だけ見せる
-- AIエージェント（yunomi-plugin:review-code-security等）にレビューさせる
+- yunomi で人間が行う判定を、AIエージェント（yunomi-plugin:review-code-security等）に代行させる
 - お膳立てなしでいきなりyunomiを開く
-- `--notify-pane` を省略して、人間のコメント・チェックボックス・判定が起動元エージェントへ戻らない状態でレビューを始める
+- 経路の通知オプション（`--notify-ikesu-pane`・`--notify-pane` など）を省略して、人間のコメント・チェックボックス・判定が起動元エージェントへ戻らない状態でレビューを始める
 
 ## 完了フロー
 
