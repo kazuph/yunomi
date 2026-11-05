@@ -1411,6 +1411,9 @@ fn send_comment_to_server(
   fetch_post(url, buf.to_string(), fn(response) {
     // Show sent/failed badge on the comment indicator
     update_sent_badge(key, response != "error")
+    if event_type == "send-now" && response != "error" {
+      load_review_loop_state()
+    }
   })
 }
 

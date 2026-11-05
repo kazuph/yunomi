@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 const root=mkdtempSync(join(tmpdir(),'yunomi-send-order-'));
-const file=join(root,'report.md');writeFileSync(file,'# Order\n\nTarget paragraph.\n');
+const file=join(root,'report.md');writeFileSync(file,'# Order\n\nTarget paragraph.\n\nFresh target.\n');
 const serverJs=new URL('../_build/js/release/build/server/server.js',import.meta.url).pathname;
 const child=spawn(process.execPath,[serverJs,file,'--no-open','--port','0'],{cwd:root,env:{...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:'',YUNOMI_REVIEW_DIR:join(root,'review'),YUNOMI_LOCK_DIR:join(root,'locks')},stdio:['ignore','pipe','pipe']});
 let output='';
@@ -110,6 +110,15 @@ try {
   assert.ok(flushEvents);flushEvents!();
   await page.waitForFunction(()=>!!document.querySelector('.review-loop-inline .review-loop-resolved'));
   assert.equal(await rejected.count(),1);
+  holdEvents=true;
+  await page.locator('#md-preview p').last().click();
+  await page.locator('#comment-input').fill('send-now without event delivery');
+  const sendNowResponse=page.waitForResponse(r=>r.url().includes('/comment') && r.request().method()==='POST');
+  await page.locator('#send-now-comment').click();
+  assert.equal((await sendNowResponse).status(),200);
+  const newThread=page.locator('.review-loop-inline', {hasText:'send-now without event delivery'});
+  await newThread.waitFor({timeout:20000});
+  assert.equal(await newThread.count(),1);
 
 
 
