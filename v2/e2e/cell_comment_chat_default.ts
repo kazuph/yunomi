@@ -168,6 +168,7 @@ try {
     await page.locator('#review-loop-panel button[type=submit]').click();
     const chat = page.locator('#review-loop-panel .review-loop-conversation-message .review-loop-markdown').last();
     await chat.locator('table td').first().waitFor();
+    await page.locator('#review-loop-panel .review-loop-conversation-message').last().locator('.conversation-send-status.is-saved').waitFor();
     await chat.locator('pre code.hljs[data-highlighted="yes"] .hljs-keyword').waitFor();
     assert.equal(await chat.innerHTML(), draftHtml);
     const styles = async (root: typeof draft) => root.evaluate(el => {

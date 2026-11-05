@@ -1411,6 +1411,9 @@ fn send_comment_to_server(
   fetch_post(url, buf.to_string(), fn(response) {
     // Show sent/failed badge on the comment indicator
     update_sent_badge(key, response != "error")
+    if event_type == "send-now" && response != "error" {
+      load_review_loop_state()
+    }
   })
 }
 
@@ -2125,17 +2128,26 @@ fn setup_sse(_port : Int) -> Unit {
   sse_on(es, "reload", fn(_e) { request_quiet_refresh() })
   sse_on(es, "round", fn(e) {
     let data = sse_event_data(e)
-    render_review_state(data)
-    if suppress_next_round_reload.val {
-      // A reply only changes the conversation, which is already on screen.
-      suppress_next_round_reload.val = false
+    if review_scope_mismatch(data) {
+      load_review_loop_state()
     } else {
-      // A new round may come with a rewritten report: patch it in quietly.
-      request_quiet_refresh()
+      render_review_state(data)
+      if suppress_next_round_reload.val {
+        // A reply only changes the conversation, which is already on screen.
+        suppress_next_round_reload.val = false
+      } else {
+        // A new round may come with a rewritten report: patch it in quietly.
+        request_quiet_refresh()
+      }
     }
   })
   sse_on(es, "resolve", fn(e) {
-    render_review_state(sse_event_data(e))
+    let data = sse_event_data(e)
+    if review_scope_mismatch(data) {
+      load_review_loop_state()
+    } else {
+      render_review_state(data)
+    }
   })
   sse_on(es, "reply", fn(e) {
     suppress_next_round_reload.val = true

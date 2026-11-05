@@ -3269,7 +3269,11 @@ fn try_listen(
     try_listen(ctx, 0, attempt, no_open)
     return
   }
-  let server = create_server(fn(req, res) { handle_request(ctx, req, res) })
+  let server = create_server(fn(req, res) {
+    request_cache_start()
+    handle_request(ctx, req, res)
+    request_cache_end()
+  })
   server_on_error(server, fn(err) {
     if error_code(err) == "EADDRINUSE" && port != 0 {
       console_log("Port \{port} in use, trying \{port + 1}...")
@@ -3469,7 +3473,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     res_end(res, history_json)
   } else if http_method == "GET" && path == "/review-state" {
     let state_json = if ctx.file_path == "<stdin>" {
-      "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0,\"gate_unresolved_count\":0,\"is_loop\":false}"
+      with_review_scope("{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0,\"gate_unresolved_count\":0,\"is_loop\":false}", "stdin", "stdin")
     } else {
       review_state_response(ctx.file_path, ctx.is_loop)
     }
@@ -3634,6 +3638,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     read_body(req, fn(body) {
       let id = json_parse_string("id", body)
       let text = json_parse_string("text", body)
+      let client_id = json_parse_string("clientId", body)
+      let review_scope = json_parse_string("reviewScope", body)
+      if ctx.file_path != "<stdin>" && review_scope.length() > 0 && review_scope != review_scope_for(ctx.file_path) {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"review_scope_changed\"}")
+        return
+      }
       let author_raw = json_parse_string("author", body)
       let author = if author_raw.length() > 0 { author_raw } else { "agent" }
       let image = json_parse_string("image", body)
@@ -3641,6 +3652,19 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         res_write_head(res, 400, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"wrong_file_context\"}")
         return
+      }
+      if ctx.file_path != "<stdin>" {
+        let existing = conversation_existing_id(read_file_safe(review_json_path_for_file(ctx.file_path)), client_id, id, text, author, image, false)
+        if existing == "\u0000" {
+          res_write_head(res, 409, "application/json")
+          res_end(res, "{\"ok\":false,\"error\":\"client_id_conflict\"}")
+          return
+        }
+        if existing.length() > 0 {
+          res_write_head(res, 200, "application/json")
+          res_end(res, "{\"ok\":true}")
+          return
+        }
       }
       let is_round_thread = if ctx.file_path != "<stdin>" {
         review_comment_is_round(
@@ -3659,13 +3683,24 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         }
       }
       let attachment_ref = save_conversation_image(ctx, id, image)
+      if ctx.file_path != "<stdin>" && image.length() > 0 && attachment_ref.length() == 0 {
+        res_write_head(res, 500, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"image_save_failed\"}")
+        return
+      }
       if ctx.file_path != "<stdin>" {
         let previous_review = if author == "human" {
           read_file_safe(review_json_path_for_file(ctx.file_path))
         } else {
           ""
         }
-        reply_review_comment(ctx.file_path, id, text, author, attachment_ref)
+        let review_path = review_json_path_for_file(ctx.file_path)
+        let save_error = save_conversation_record(review_path, read_file_safe(review_path), id, text, author, attachment_ref, client_id, false)
+        if save_error.length() > 0 {
+          res_write_head(res, 500, "application/json")
+          res_end(res, "{\"ok\":false,\"error\":" + json_encode_value(save_error) + "}")
+          return
+        }
         if author == "human" {
           let round = current_review_round(ctx.file_path)
           let attachment_path = if attachment_ref.length() > 0 {
@@ -3714,6 +3749,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
           json_encode_value(text) +
           ",\"author\":" +
           json_encode_value(author) +
+          ",\"clientId\":" + json_encode_value(client_id) +
           ",\"round\":" +
           round.to_string() +
           "}"
@@ -3733,6 +3769,13 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
   } else if http_method == "POST" && path == "/create-global-comment" {
     read_body(req, fn(body) {
       let text = json_parse_string("text", body)
+      let client_id = json_parse_string("clientId", body)
+      let review_scope = json_parse_string("reviewScope", body)
+      if ctx.file_path != "<stdin>" && review_scope.length() > 0 && review_scope != review_scope_for(ctx.file_path) {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"review_scope_changed\"}")
+        return
+      }
       let image = json_parse_string("image", body)
       if text.trim().length() == 0 && image.length() == 0 {
         res_write_head(res, 400, "application/json")
@@ -3744,8 +3787,20 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         res_end(res, "{\"ok\":false,\"error\":\"review_not_persistent\"}")
         return
       }
+      ensure_review_state(ctx.file_path)
       let review_path = review_json_path_for_file(ctx.file_path)
       let review_json = read_file_safe(review_path)
+      let existing = conversation_existing_id(review_json, client_id, "", text, "human", image, true)
+      if existing == "\u0000" {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"client_id_conflict\"}")
+        return
+      }
+      if existing.length() > 0 {
+        res_write_head(res, 200, "application/json")
+        res_end(res, "{\"ok\":true,\"id\":" + json_encode_value(existing) + "}")
+        return
+      }
       if !review_can_create_global_comment(review_json) {
         res_write_head(res, 409, "application/json")
         res_end(res, "{\"ok\":false,\"error\":\"conversation_open\"}")
@@ -3753,13 +3808,17 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       }
       let id = next_global_comment_id(review_json)
       let attachment_ref = save_conversation_image(ctx, id, image)
-      create_global_review_comment(
-        ctx.file_path,
-        id,
-        text,
-        "human",
-        attachment_ref,
-      )
+      if image.length() > 0 && attachment_ref.length() == 0 {
+        res_write_head(res, 500, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"image_save_failed\"}")
+        return
+      }
+      let save_error = save_conversation_record(review_path, review_json, id, text, "human", attachment_ref, client_id, true)
+      if save_error.length() > 0 {
+        res_write_head(res, 500, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":" + json_encode_value(save_error) + "}")
+        return
+      }
       let round = current_review_round(ctx.file_path)
       let attachment_path = if attachment_ref.length() > 0 {
         path_resolve(

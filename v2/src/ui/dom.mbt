@@ -414,15 +414,18 @@ extern "js" fn ls_set(key : String, value : String) -> Unit =
 
 ///|
 extern "js" fn install_draft_storage() -> Unit =
-  #|() => { window.__yunomiSaveDraftStorage = (key, value) => {
-  #|  try { localStorage.setItem(key, value); document.getElementById("yunomi-draft-storage-error")?.remove(); }
-  #|  catch (_) {
+  #|() => {
+  #|  window.__yunomiShowDraftStorageError = () => {
   #|    if (document.getElementById("yunomi-draft-storage-error")) return;
   #|    const warning = document.createElement("div"); warning.id = "yunomi-draft-storage-error"; warning.setAttribute("role", "alert");
   #|    warning.textContent = "Draft could not be saved in this browser. Keep this tab open and send or submit your comments to save them.";
   #|    document.querySelector("header")?.after(warning);
-  #|  }
-  #|}; }
+  #|  };
+  #|  window.__yunomiSaveDraftStorage = (key, value) => {
+  #|    try { localStorage.setItem(key, value); if (!window.__yunomiQueueStorageFailed) document.getElementById("yunomi-draft-storage-error")?.remove(); }
+  #|    catch (_) { window.__yunomiShowDraftStorageError(); }
+  #|  };
+  #|}
 
 ///|
 extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
@@ -957,8 +960,12 @@ extern "js" fn install_chat_markdown_renderer(
   #|}
 
 ///|
+extern "js" fn review_scope_mismatch(json : String) -> Bool =
+  #|(json) => { try { const incoming = String(JSON.parse(json).review_scope || ""); const current = String(window.__yunomiCurrentReviewScope || ""); return !!incoming && !!current && incoming !== current; } catch (_) { return false; } }
+
+///|
 extern "js" fn render_review_loop_panel_json(json : String) -> Int =
-  #|(json) => {
+  #|function renderConversation(json) {
   #|  const panel = document.querySelector("#review-loop-panel");
   #|  if (!panel) return 0;
   #|  const captureScroll = (selector) => {
@@ -973,10 +980,83 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    conversation: captureScroll(".review-loop-conversation-stream"),
   #|  };
   #|  const storageScope = String(window.__YUNOMI_STORAGE_SCOPE__ || window.__YUNOMI_FILENAME__ || location.pathname || "current");
+  #|  let state;
+  #|  try { state = JSON.parse(json || "{}"); } catch (_) { panel.innerHTML = ""; window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_ROUND_IDS__ = new Set(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; window.__yunomiUnread?.syncUnresolved?.(); return 0; }
+  #|  const reviewScope = String(state.review_scope || "");
+  #|  if (!reviewScope) return 0;
+  #|  window.__yunomiCurrentReviewScope = reviewScope;
   #|  const requestPath = (path) => {
   #|    const context = String(window.__YUNOMI_REQUEST_CONTEXT__ || "");
   #|    return context ? path + (path.includes("?") ? "&" : "?") + context.replace(/^\?/, "") : path;
   #|  };
+  #|  const queueKey = `yunomi:conversation-queue:${reviewScope}`;
+  #|  const allQueues = window.__yunomiConversationQueues || (window.__yunomiConversationQueues = {});
+  #|  if (!allQueues[reviewScope]) {
+  #|    let restored = [];
+  #|    try { restored = JSON.parse(localStorage.getItem(queueKey) || "[]"); } catch (_) {}
+  #|    const entries = Array.isArray(restored) ? restored : [];
+  #|    allQueues[reviewScope] = { items: entries.filter(item => item.reviewScope === reviewScope), foreign: entries.filter(item => item.reviewScope !== reviewScope), running: new Set(), confirmed: new Map(), recovering: new Set(entries.filter(item => item.reviewScope === reviewScope && item.status !== "saved").map(item => item.conversation)), globalThreadId: "" };
+  #|    const restoredHeads = new Set();
+  #|    for (const item of allQueues[reviewScope].items) {
+  #|      if (item.status === "saved") continue;
+  #|      if (!restoredHeads.has(item.conversation) && (item.status === "sending" || item.status === "queued")) item.status = "unknown";
+  #|      restoredHeads.add(item.conversation);
+  #|    }
+  #|  }
+  #|  const queue = allQueues[reviewScope];
+  #|  const persistQueue = () => {
+  #|    try { localStorage.setItem(queueKey, JSON.stringify([...queue.foreign, ...queue.items])); window.__yunomiQueueStorageFailed = false; }
+  #|    catch (_) { window.__yunomiQueueStorageFailed = true; window.__yunomiShowDraftStorageError(); }
+  #|  };
+  #|  const redrawQueue = () => { if (window.__yunomiCurrentReviewScope === reviewScope) renderConversation(String(window.__YUNOMI_LAST_REVIEW_JSON__ || json)); };
+  #|  const sendQueue = async (conversation) => {
+  #|    if (window.__yunomiCurrentReviewScope !== reviewScope || queue.running.has(conversation)) return;
+  #|    const item = queue.items.find(entry => entry.conversation === conversation && entry.status !== "saved");
+  #|    if (!item || item.reviewScope !== reviewScope || item.status !== "queued") return;
+  #|    queue.running.add(conversation);
+  #|    item.status = "sending";
+  #|    persistQueue();
+  #|    redrawQueue();
+  #|    let reviewChanged = false;
+  #|    try {
+  #|      const response = await fetch(requestPath(item.endpoint), {
+  #|        method: "POST", headers: { "Content-Type": "application/json" },
+  #|        body: JSON.stringify({ id: item.threadId, text: item.text, image: item.image, author: "human", clientId: item.clientId, reviewScope: item.reviewScope })
+  #|      });
+  #|      const result = await response.json();
+  #|      reviewChanged = result.error === "review_scope_changed";
+  #|      if (!response.ok) { if (item.status !== "saved") { item.status = "failed"; item.error = String(result.error || response.status); } }
+  #|      else {
+  #|        item.status = "saved";
+  #|        if (result.id && item.endpoint === "/create-global-comment") {
+  #|          queue.globalThreadId = String(result.id);
+  #|          for (const next of queue.items) if (next.conversation === conversation && next.endpoint === "/create-global-comment") { next.endpoint = "/reply-comment"; next.threadId = String(result.id); }
+  #|        }
+  #|      }
+  #|    } catch (error) { if (item.status !== "saved") { item.status = "unknown"; item.error = String(error); } }
+  #|    queue.running.delete(conversation);
+  #|    persistQueue();
+  #|    if (reviewChanged && window.__yunomiCurrentReviewScope === reviewScope) {
+  #|      try { const current = await fetch(requestPath("/review-state")); if (current.ok) { renderConversation(await current.text()); return; } } catch (_) {}
+  #|    }
+  #|    redrawQueue();
+  #|    if (item.status === "saved") sendQueue(conversation);
+  #|  };
+  #|  window.__yunomiRetryConversation = (clientId) => {
+  #|    const item = queue.items.find(entry => entry.clientId === clientId);
+  #|    if (!item || item.reviewScope !== reviewScope || window.__yunomiCurrentReviewScope !== reviewScope || !["failed", "unknown"].includes(item.status)) return;
+  #|    queue.recovering.delete(item.conversation);
+  #|    item.status = "queued";
+  #|    persistQueue();
+  #|    sendQueue(item.conversation);
+  #|  };
+  #|  if (!window.__yunomiConversationRetryBound) {
+  #|    window.__yunomiConversationRetryBound = true;
+  #|    document.addEventListener("click", event => {
+  #|      const button = event.target.closest?.("[data-retry-client-id]");
+  #|      if (button) window.__yunomiRetryConversation?.(button.dataset.retryClientId);
+  #|    });
+  #|  }
   #|  const replyDraftStorageKey = `yunomi:conversation-drafts:${storageScope}`;
   #|  let replyDrafts = {};
   #|  try { replyDrafts = JSON.parse(localStorage.getItem(replyDraftStorageKey) || "{}"); } catch (_) { replyDrafts = {}; }
@@ -1018,11 +1098,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    editor.focus({ preventScroll: true });
   #|    try { editor.setSelectionRange(focusMemo.start, focusMemo.end); } catch (_) {}
   #|  };
-  #|  const clearPanel = () => {
-  #|    panel.innerHTML = "";
-  #|  };
-  #|  let state;
-  #|  try { state = JSON.parse(json || "{}"); } catch { clearPanel(); window.__YUNOMI_DURABLE_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_COMMENT_IDS__ = new Set(); window.__YUNOMI_UNRESOLVED_ROUND_IDS__ = new Set(); window.__YUNOMI_REVIEW_LOOP_STATUS__ = ""; window.__YUNOMI_REVIEW_LOOP_GATE__ = 0; window.__yunomiUnread?.syncUnresolved?.(); return 0; }
   #|  const review = state.review || {};
   #|  const rounds = Array.isArray(review.rounds) ? review.rounds : [];
   #|  // The latest round is the highest round number, never the last array
@@ -1035,6 +1110,45 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // comment exists yet — an approved or untouched review still shows it,
   #|  // so the reviewer always has somewhere to start talking.
   #|  const comments = Array.isArray(review.comments) ? review.comments : [];
+  #|  const seenClients = new Map();
+  #|  for (const comment of comments) {
+  #|    if (comment.clientId) seenClients.set(comment.clientId, { thread: comment, root: true });
+  #|    for (const reply of Array.isArray(comment.replies) ? comment.replies : []) if (reply.clientId) seenClients.set(reply.clientId, { thread: comment, reply, root: false });
+  #|  }
+  #|  const knownThread = comments.find(comment => String(comment.id) === queue.globalThreadId);
+  #|  if (knownThread?.status === "resolved") queue.globalThreadId = "";
+  #|  let changedQueue = false;
+  #|  for (let i = queue.items.length - 1; i >= 0; i--) {
+  #|    const item = queue.items[i], found = seenClients.get(item.clientId);
+  #|    if (!found) continue;
+  #|    if (item.endpoint === "/create-global-comment") {
+  #|      queue.globalThreadId = String(found.thread.id);
+  #|      for (const next of queue.items) if (next.conversation === item.conversation && next.endpoint === "/create-global-comment") { next.endpoint = "/reply-comment"; next.threadId = queue.globalThreadId; }
+  #|    }
+  #|    item.status = "saved";
+  #|    queue.confirmed.set(item.clientId, { thread: { ...found.thread, replies: [] }, reply: found.root ? null : { ...found.reply } });
+  #|    queue.items.splice(i, 1);
+  #|    changedQueue = true;
+  #|  }
+  #|  for (const [clientId, saved] of queue.confirmed) {
+  #|    if (seenClients.has(clientId)) continue;
+  #|    let thread = comments.find(comment => String(comment.id) === String(saved.thread.id));
+  #|    if (!thread) { thread = { ...saved.thread, replies: [] }; comments.push(thread); }
+  #|    if (saved.reply) { thread.replies = Array.isArray(thread.replies) ? thread.replies : []; thread.replies.push({ ...saved.reply }); }
+  #|    seenClients.set(clientId, { thread, reply: saved.reply, root: !saved.reply });
+  #|  }
+  #|  if (queue.recovering.size) {
+  #|    const heads = new Set();
+  #|    for (const item of queue.items) {
+  #|      if (item.status === "saved" || !queue.recovering.has(item.conversation) || heads.has(item.conversation)) continue;
+  #|      heads.add(item.conversation);
+  #|      if (item.status === "queued" || item.status === "sending") { item.status = "unknown"; changedQueue = true; }
+  #|    }
+  #|  }
+  #|  for (const conversation of queue.recovering) if (!queue.items.some(item => item.conversation === conversation && item.status !== "saved")) queue.recovering.delete(conversation);
+  #|  const actualThread = comments.find(comment => String(comment.id) === queue.globalThreadId);
+  #|  if (actualThread?.status === "resolved") queue.globalThreadId = "";
+  #|  if (changedQueue) persistQueue();
   #|  const currentRound = Number(round.round || 1);
   #|  window.__YUNOMI_ROUND_AWAITING_GO__ = round.submitted_at && round.decision === "request_changes" ? currentRound : 0;
   #|  const actionableComments = comments.filter(c => c.scope !== "round");
@@ -1240,7 +1354,6 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      if (editor) editor.value = String(replyDrafts[draftKey] || "");
   #|      editor?.addEventListener("input", () => saveReplyDraft(draftKey, String(editor.value || "")));
   #|      let image = String(replyDrafts[draftKey + ":image"] || "");
-  #|      let submitting = false;
   #|      const renderPreview = () => {
   #|        saveReplyDraft(draftKey + ":image", image);
   #|        if (!preview) return;
@@ -1276,24 +1389,23 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      });
   #|      const submitReply = () => {
   #|        const text = String(editor?.value || "").trim();
-  #|        if (submitting || (!text && !image)) return;
-  #|        submitting = true;
+  #|        if (!text && !image) return;
+  #|        const conversation = globalChat ? "global" : `thread:${threadId}`;
+  #|        const previous = queue.items.filter(item => item.conversation === conversation).at(-1);
+  #|        const clientId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+  #|        const item = { clientId, reviewScope, text, image, conversation, threadId: form.getAttribute("data-review-comment-id") || "", endpoint: form.getAttribute("data-review-endpoint") || "/reply-comment", status: "queued" };
+  #|        if (globalChat && item.endpoint === "/create-global-comment" && queue.globalThreadId) { item.endpoint = "/reply-comment"; item.threadId = queue.globalThreadId; }
+  #|        if (globalChat && !queue.globalThreadId && previous?.endpoint === "/create-global-comment" && previous.status !== "saved") { item.endpoint = "/create-global-comment"; item.threadId = ""; }
+  #|        queue.items.push(item);
+  #|        persistQueue();
+  #|        if (editor) editor.value = "";
+  #|        saveReplyDraft(draftKey, "");
+  #|        if (picker) picker.value = "";
+  #|        image = "";
+  #|        renderPreview();
   #|        if (globalChat) window.__YUNOMI_CHAT_STICK_UNTIL__ = Date.now() + 1500;
-  #|        fetch(endpoint, {
-  #|          method: "POST",
-  #|          headers: { "Content-Type": "application/json" },
-  #|          body: JSON.stringify({ id: form.getAttribute("data-review-comment-id") || "", text, image, author: "human" })
-  #|        }).then(response => {
-  #|          if (!response.ok) throw new Error(`conversation request failed: ${response.status}`);
-  #|        }).then(() => {
-  #|          if (editor) editor.value = "";
-  #|          saveReplyDraft(draftKey, "");
-  #|          if (picker) picker.value = "";
-  #|          image = "";
-  #|          renderPreview();
-  #|        }).catch(() => {}).finally(() => {
-  #|          submitting = false;
-  #|        });
+  #|        redrawQueue();
+  #|        sendQueue(conversation);
   #|      };
   #|      form.addEventListener("submit", (event) => {
   #|        event.preventDefault();
@@ -1312,7 +1424,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      });
   #|    });
   #|  };
-  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
+  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-scope="${esc(reviewScope)}" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
   #|  // Stable identity for every message so unread tracking survives
   #|  // re-renders: thread id + position + author + a cheap text hash.
   #|  const textHash = (text) => {
@@ -1323,16 +1435,27 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  };
   #|  const messageKey = (threadId, index, message) => `${threadId}#${index}#${message.author === "human" ? "h" : "a"}#${textHash(message.text)}`;
   #|  const unreadKeys = window.__yunomiUnread?.unreadKeys?.() || new Set();
+  #|  const statusIcon = (message) => {
+  #|    const item = queue.items.find(entry => entry.clientId === message.clientId);
+  #|    if (!item && !seenClients.has(message.clientId)) return "";
+  #|    const status = item?.status || "saved";
+  #|    const title = status === "saved" ? "Saved" : status === "failed" ? `Failed: ${item?.error || "Unknown error"}` : status === "unknown" ? `Result unknown: ${item?.error || "Connection lost"}` : "Sending";
+  #|    const paths = status === "saved" ? '<path d="M20 6 9 17l-5-5"/>' : status === "failed" || status === "unknown" ? '<circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>' : '<path d="M21 12a9 9 0 1 1-6.2-8.56"/>';
+  #|    const icon = `<span class="conversation-send-status is-${esc(status)}" title="${esc(title)}" aria-label="${esc(title)}"><svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg></span>`;
+  #|    const retry = status === "failed" || status === "unknown" ? `<button type="button" class="conversation-retry" data-retry-client-id="${esc(item.clientId)}" title="Retry" aria-label="Retry"><svg class="lucide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>` : "";
+  #|    return icon + retry;
+  #|  };
   #|  const reviewLoopCard = (c, includeSnippet, options = {}) => {
   #|    const replies = Array.isArray(c.replies) ? c.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
+  #|    for (const item of queue.items) if (item.conversation === `thread:${c.id}` && !seenClients.has(item.clientId)) replies.push({ author: "human", text: item.text, attachments: item.image ? [item.image] : [], clientId: item.clientId });
   #|    const threadLine = (r, key) => {
   #|      const human = r.author === "human";
   #|      const unread = !human && unreadKeys.has(key) ? " is-unread" : "";
   #|      const className = human ? "review-loop-thread-line is-human" : `review-loop-thread-line is-agent${unread}`;
   #|      const attachments = (Array.isArray(r.attachments) ? r.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|      return `<div class="${className}" data-message-key="${esc(key)}" data-message-author="${human ? "human" : "agent"}">${r.text ? chatMd(r.text) : ""}${attachments}</div>`;
+  #|      return `<div class="${className}" data-message-key="${esc(key)}" data-message-author="${human ? "human" : "agent"}">${r.text ? chatMd(r.text) : ""}${attachments}${statusIcon(r)}</div>`;
   #|    };
-  #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [] }, `${c.id}#root#h`)]
+  #|    const thread = [threadLine({ author: "human", text: c.text, attachments: c.attachments || [], clientId: c.clientId }, `${c.id}#root#h`)]
   #|      .concat(replies.map((r, index) => threadLine(r, messageKey(c.id, index, r)))).join("");
   #|    const revealClose = c.status === "resolved" && revealedResolved.has(String(c.id || "")) ? `<button type="button" class="review-loop-reveal-close" data-review-comment-id="${esc(c.id)}" title="Close" aria-label="Close resolved thread">×</button>` : "";
   #|    const resolve = c.status === "resolved" ? `<span class="review-loop-resolved">${esc(t.resolved)}</span>${revealClose}` : `<button class="review-loop-resolve" data-review-comment-id="${esc(c.id)}" title="${esc(t.resolveTitle)}">${esc(t.resolve)}</button>`;
@@ -1421,7 +1544,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const tableCell = rawTarget.closest?.("td,th");
   #|    const target = rawTarget.closest?.("tr") ? rawTarget : insertionAnchor(rawTarget);
   #|    const previous = existingInlines.get(String(comment.id || ""));
-  #|    if (previous && previous.isConnected && previous.__yunomiAnchor === rawTarget && updateInlineCard(previous, comment)) {
+  #|    if (previous && previous.isConnected && previous.dataset.reviewScope === reviewScope && previous.__yunomiAnchor === rawTarget && updateInlineCard(previous, comment)) {
   #|      reusedInlines.add(previous);
   #|      const anchorKey = tableCell && Number(comment.col || 0) > 0 ? null : (target.closest?.("tr") || target.closest?.("li") || target);
   #|      if (anchorKey) lastInlineByAnchor.set(anchorKey, holderOf(previous));
@@ -1433,6 +1556,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    inline.className = "review-loop-inline";
   #|    inline.tabIndex = -1;
   #|    inline.dataset.reviewCommentId = String(comment.id || "");
+  #|    inline.dataset.reviewScope = reviewScope;
   #|    inline.innerHTML = `<ol class="review-loop-list">${reviewLoopCard(comment, false)}</ol>`;
   #|    if (tableCell && Number(comment.col || 0) > 0) {
   #|      tableCell.appendChild(inline);
@@ -1468,7 +1592,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
   #|  const placementCandidates = visibleActionableComments
-  #|    .filter(c => c.status !== "resolved" || revealedResolved.has(String(c.id || "")))
+  #|    .filter(c => c.status !== "resolved" || revealedResolved.has(String(c.id || "")) || queue.items.some(item => item.conversation === `thread:${c.id}` && item.status !== "saved"))
   #|    .map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
   #|  const placements = placementCandidates.filter(placement => placement.target);
   #|  placements.sort((a, b) => {
@@ -1490,13 +1614,14 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const human = message.author === "human";
   #|    const unread = !human && unreadKeys.has(message.key) ? " is-unread" : "";
   #|    const attachments = (Array.isArray(message.attachments) ? message.attachments : []).map(ref => `<img class="review-loop-conversation-image" src="${esc(ref)}" alt="${esc(t.attachedImage)}" />`).join("");
-  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}${unread}" data-message-key="${esc(message.key)}" data-message-author="${human ? "human" : "agent"}">${message.text ? chatMd(message.text) : ""}${attachments}</article>`;
+  #|    return `<article class="review-loop-conversation-message is-${human ? "human" : "agent"}${unread}" data-message-key="${esc(message.key)}" data-message-author="${human ? "human" : "agent"}">${message.text ? chatMd(message.text) : ""}${attachments}${statusIcon(message)}</article>`;
   #|  };
   #|  const timelineMessages = roundThreads.flatMap(thread => {
   #|    const replies = Array.isArray(thread.replies) ? thread.replies.slice().sort((a, b) => Number(a.round || 0) - Number(b.round || 0)) : [];
-  #|    return [{ author: "human", text: thread.text, attachments: thread.attachments || [], key: `${thread.id}#root#h` }]
+  #|    return [{ author: "human", text: thread.text, attachments: thread.attachments || [], clientId: thread.clientId, key: `${thread.id}#root#h` }]
   #|      .concat(replies.map((r, index) => ({ ...r, key: messageKey(thread.id, index, r) })));
   #|  });
+  #|  for (const item of queue.items) if (item.conversation === "global" && !seenClients.has(item.clientId)) timelineMessages.push({ author: "human", text: item.text, attachments: item.image ? [item.image] : [], clientId: item.clientId, key: item.clientId });
   #|  const activeRoundThread = roundThreads.filter(thread => thread.status !== "resolved").at(-1);
   #|  const replyForm = activeRoundThread
   #|    ? conversationForm(activeRoundThread.id, "/reply-comment", t.messagePlaceholder, t.reply)
@@ -1520,6 +1645,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const existingForm = existingSection?.querySelector(":scope > .review-loop-reply-form");
   #|  const existingStream = existingSection?.querySelector(".review-loop-conversation-stream");
   #|  const canPatch = !!existingForm && !!existingStream
+  #|    && existingForm.getAttribute("data-review-scope") === reviewScope
   #|    && (existingForm.getAttribute("data-review-comment-id") || "") === activeThreadId
   #|    && (existingForm.getAttribute("data-review-endpoint") || "") === activeEndpoint;
   #|  if (canPatch) {

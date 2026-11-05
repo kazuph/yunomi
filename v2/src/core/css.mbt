@@ -916,6 +916,12 @@ fn build_css() -> String {
     #|.review-loop-quote { margin: 0; padding: 0 0 0 10px; border-left: 2px solid var(--border-strong); color: var(--text); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
     #|.review-loop-change { color: var(--muted); font-family: var(--font-mono); font-size: 12px; overflow-wrap: anywhere; }
     #|.review-loop-thread { display: grid; gap: 8px; padding-left: 15px; }
+    #|.conversation-send-status, .conversation-retry { display: inline-flex; justify-self: end; color: var(--text-muted); }
+    #|.conversation-send-status svg, .conversation-retry svg { width: 14px; height: 14px; }
+    #|.conversation-send-status.is-failed, .conversation-send-status.is-unknown { color: #c33; }
+    #|.conversation-send-status.is-sending svg, .conversation-send-status.is-queued svg { animation: conversation-send-spin 1s linear infinite; }
+    #|@keyframes conversation-send-spin { to { transform: rotate(360deg); } }
+    #|.conversation-retry { border: 0; padding: 0; background: transparent; cursor: pointer; }
     #|.review-loop-thread-line { display: grid; gap: 3px; min-width: 0; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg); overflow-wrap: anywhere; }
     #|.review-loop-thread-line.is-human { margin-left: 16px; width: calc(100% - 16px); max-width: calc(100% - 16px); box-sizing: border-box; background: var(--accent-soft); }
     #|.review-loop-thread-line.is-agent { margin-right: 16px; }

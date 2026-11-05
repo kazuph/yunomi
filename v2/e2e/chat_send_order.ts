@@ -1,0 +1,132 @@
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { chromium } from 'playwright';
+const root=mkdtempSync(join(tmpdir(),'yunomi-send-order-'));
+const file=join(root,'report.md');writeFileSync(file,'# Order\n\nTarget paragraph.\n\nFresh target.\n');
+const serverJs=new URL('../_build/js/release/build/server/server.js',import.meta.url).pathname;
+const child=spawn(process.execPath,[serverJs,file,'--no-open','--port','0'],{cwd:root,env:{...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:'',YUNOMI_REVIEW_DIR:join(root,'review'),YUNOMI_LOCK_DIR:join(root,'locks')},stdio:['ignore','pipe','pipe']});
+let output='';
+const port=await new Promise<number>((resolve,reject)=>{const onData=(c:Buffer)=>{output+=c.toString();const m=output.match(/http:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(Number(m[1]));};child.stdout.on('data',onData);child.stderr.on('data',onData);child.once('exit',c=>reject(Error(`exit ${c}: ${output}`)));setTimeout(()=>reject(Error(output)),15000).unref();});
+function deferred() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
+let eventReady=deferred(), postHeld=deferred();
+let holdPost=false, dropPost=false, holdEvents=false, postCount=0, releasePost:(()=>void)|undefined, flushEvents:(()=>void)|undefined;
+const proxy=http.createServer((req,res)=>{
+  const upstream=http.request({host:'127.0.0.1',port,path:req.url,method:req.method,headers:req.headers},response=>{
+    const isEvents=req.url?.startsWith('/sse');
+    const isPost=req.method==='POST' && /\/(reply-comment|create-global-comment)/.test(req.url||'');
+    if (isPost) postCount++;
+    if (isPost && dropPost) {
+      response.resume();response.on('end',()=>res.destroy());
+    } else if (isPost && holdPost) {
+      const chunks:Buffer[]=[]; response.on('data',chunk=>chunks.push(chunk)); response.on('end',()=>{releasePost=()=>{res.writeHead(response.statusCode||200,response.headers);res.end(Buffer.concat(chunks));};postHeld.resolve();});
+    } else {
+      res.writeHead(response.statusCode||200,response.headers);
+      const chunks:Buffer[]=[];
+      if (isEvents) { flushEvents=()=>{holdEvents=false;for(const chunk of chunks.splice(0))res.write(chunk);}; eventReady.resolve(); }
+      response.on('data',chunk=>{if(isEvents && holdEvents)chunks.push(chunk);else res.write(chunk);});
+      response.on('end',()=>res.end());
+    }
+    res.on('close',()=>response.destroy());
+  });
+  req.pipe(upstream);upstream.on('error',()=>res.destroy());
+});
+await new Promise<void>(resolve=>proxy.listen(0,'127.0.0.1',resolve));
+const proxyPort=(proxy.address() as {port:number}).port;
+const browser=await chromium.launch();
+try {
+  const page=await browser.newPage();await page.goto(`http://127.0.0.1:${proxyPort}/`);
+  const toggle=page.locator('#review-loop-panel .review-loop-sidebar-toggle');await toggle.waitFor();
+  if(await page.locator('#review-loop-panel.review-loop-sidebar-collapsed').count())await toggle.click();
+  const form=page.locator('#review-loop-panel .review-loop-reply-form');
+  holdPost=true;holdEvents=true;
+  await form.locator('textarea').fill('event arrives first');await form.locator('button[type=submit]').click();
+  const eventFirst=page.locator('.review-loop-conversation-message',{hasText:'event arrives first'});
+  await eventFirst.locator('.conversation-send-status.is-sending').waitFor({timeout:20000});
+  await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('next draft stays');
+  const draftImage=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:draftImage});
+  await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
+  if (process.env.EVIDENCE_DIR) await page.screenshot({path: join(process.env.EVIDENCE_DIR, 'sending-chat.png')});
+  await eventReady.promise; assert.ok(flushEvents);flushEvents!();
+  await eventFirst.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  await postHeld.promise;
+  assert.ok(releasePost, 'server event reached browser while HTTP response remained buffered');
+  assert.equal(await eventFirst.count(),1);holdPost=false;releasePost!();
+  await page.waitForResponse(r=>r.url().includes('/create-global-comment'),{timeout:20000});
+  assert.equal(await eventFirst.locator('.conversation-send-status.is-saved').count(),1);
+  assert.equal(await page.locator('#review-loop-panel .review-loop-reply-form textarea').inputValue(),'next draft stays');
+  assert.equal(await page.locator('#review-loop-panel .review-loop-reply-preview img').count(),1);
+  await page.locator('#review-loop-panel .review-loop-reply-remove').click();
+  holdEvents=true;
+  await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('response arrives first');
+  await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
+  const responseFirst=page.locator('.review-loop-conversation-message',{hasText:'response arrives first'});
+  await responseFirst.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  assert.equal(await responseFirst.count(),1); assert.ok(flushEvents);flushEvents!();
+  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.review-loop-conversation-message')).some(el => el.textContent?.includes('response arrives first') && (el.getAttribute('data-message-key') || '').includes('#')));
+  assert.equal(await responseFirst.locator('.conversation-send-status.is-saved').count(),1);
+  assert.equal(await responseFirst.count(),1);assert.equal(await eventFirst.count(),1);
+  holdEvents=true;dropPost=true;
+  const image=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'pixel.png',mimeType:'image/png',buffer:image});
+  await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
+  await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('unknown after disconnect');
+  await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
+  const uncertain=page.locator('.review-loop-conversation-message',{hasText:'unknown after disconnect'});
+  await uncertain.locator('.conversation-send-status.is-unknown').waitFor({timeout:20000});
+  assert.equal(await uncertain.locator('img').count(),1);
+  const sentBeforeReload=postCount;
+  eventReady=deferred();
+  await page.reload();
+  const recovered=page.locator('.review-loop-conversation-message',{hasText:'unknown after disconnect'});
+  await recovered.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  assert.equal(await recovered.count(),1);assert.equal(await recovered.locator('img').count(),1);
+  assert.equal(postCount,sentBeforeReload,'reload does not resend');
+  dropPost=false;holdPost=true;holdEvents=true;releasePost=undefined;postHeld=deferred();
+  await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'pending.png',mimeType:'image/png',buffer:image});
+  await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
+  await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('reload while sending');
+  await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
+  const pending=page.locator('.review-loop-conversation-message',{hasText:'reload while sending'});
+  await pending.locator('.conversation-send-status.is-sending').waitFor({timeout:20000});
+  assert.equal(await pending.locator('img').count(),1);
+  await postHeld.promise;
+  const sentWhilePending=postCount;
+  eventReady=deferred();
+  await page.reload();
+  const restored=page.locator('.review-loop-conversation-message',{hasText:'reload while sending'});
+  await restored.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  assert.equal(await restored.count(),1);assert.equal(await restored.locator('img').count(),1);assert.equal(postCount,sentWhilePending);
+  holdPost=false;holdEvents=false;
+  const inlineCreate=await page.request.post(`http://127.0.0.1:${proxyPort}/comment`,{data:{type:'send-now',key:'resolved-case',row:2,col:0,text:'resolved root',value:'Target paragraph.'}});
+  assert.equal(inlineCreate.status(),200);
+  const inlineForm=page.locator('.review-loop-inline .review-loop-reply-form').first();await inlineForm.waitFor({timeout:20000});
+  holdEvents=true;
+  const resolved=await page.request.post(`http://127.0.0.1:${proxyPort}/resolve-comment`,{data:{id:'resolved-case'}});assert.equal(resolved.status(),200);
+  await inlineForm.locator('textarea').fill('keep resolved reply');
+  const replyResponse=page.waitForResponse(r=>r.url().includes('/reply-comment') && r.status()===409);
+  await inlineForm.locator('button[type=submit]').click();await replyResponse;
+  const rejected=page.locator('.review-loop-inline .review-loop-thread-line',{hasText:'keep resolved reply'});
+  await rejected.locator('.conversation-send-status.is-failed').waitFor({timeout:20000});
+  assert.match(await rejected.locator('.conversation-send-status').getAttribute('title')||'',/thread_resolved/);
+  await eventReady.promise; assert.ok(flushEvents);flushEvents!();
+  await page.waitForFunction(()=>!!document.querySelector('.review-loop-inline .review-loop-resolved'));
+  assert.equal(await rejected.count(),1);
+  holdEvents=true;
+  await page.locator('#md-preview p').last().click();
+  await page.locator('#comment-input').fill('send-now without event delivery');
+  const sendNowResponse=page.waitForResponse(r=>r.url().includes('/comment') && r.request().method()==='POST');
+  await page.locator('#send-now-comment').click();
+  assert.equal((await sendNowResponse).status(),200);
+  const newThread=page.locator('.review-loop-inline', {hasText:'send-now without event delivery'});
+  await newThread.waitFor({timeout:20000});
+  assert.equal(await newThread.count(),1);
+
+
+
+  console.log('PASS real HTTP response and SSE delivery in both orders without duplicate bubbles');
+} finally {await browser.close();await new Promise<void>(resolve=>proxy.close(()=>resolve()));await new Promise<void>(resolve=>{child.once('exit',()=>resolve());child.kill('SIGTERM');});rmSync(root,{recursive:true,force:true});}

@@ -272,7 +272,10 @@ extern "js" fn read_body(req : JsValue, callback : (String) -> Unit) -> Unit =
   #|(req, cb) => {
   #|  const chunks = [];
   #|  req.on("data", (chunk) => { chunks.push(chunk); });
-  #|  req.on("end", () => cb(Buffer.concat(chunks).toString("utf8")));
+  #|  req.on("end", () => {
+  #|    globalThis.__yunomiRequestCache = new Map();
+  #|    try { cb(Buffer.concat(chunks).toString("utf8")); } finally { globalThis.__yunomiRequestCache = null; }
+  #|  });
   #|}
 
 ///|
@@ -1505,8 +1508,27 @@ extern "js" fn js_sanitize_branch(branch : String) -> String =
   #|(branch) => String(branch || "no-branch").replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "no-branch"
 
 ///|
+extern "js" fn request_cache_get(key : String) -> String =
+  #|(key) => globalThis.__yunomiRequestCache?.get(key) ?? "\u0000"
+
+///|
+extern "js" fn request_cache_put(key : String, value : String) -> Unit =
+  #|(key, value) => { globalThis.__yunomiRequestCache?.set(key, value); }
+
+///|
+extern "js" fn request_cache_start() -> Unit =
+  #|() => { globalThis.__yunomiRequestCache = new Map(); }
+
+///|
+extern "js" fn request_cache_end() -> Unit =
+  #|() => { globalThis.__yunomiRequestCache = null; }
+
+///|
 fn git_stdout(cwd : String, args_json : String) -> String {
-  try_call_string(
+  let key = cwd + "\n" + args_json
+  let cached = request_cache_get(key)
+  if cached != "\u0000" { return cached }
+  let result = try_call_string(
     fn() {
       js_obj_stdout(
         child_spawn_sync(
@@ -1518,6 +1540,8 @@ fn git_stdout(cwd : String, args_json : String) -> String {
     },
     "",
   )
+  request_cache_put(key, result)
+  result
 }
 
 ///|
@@ -2667,6 +2691,22 @@ extern "js" fn js_review_response_json(
   #|}
 
 ///|
+extern "js" fn js_review_scope(dir : String, file : String) -> String =
+  #|(dir, file) => JSON.stringify([dir, file])
+
+///|
+fn review_scope_for(file_path : String) -> String {
+  js_review_scope(
+    realpath_or_resolve(review_dir_for_file(file_path)),
+    realpath_or_resolve(file_path),
+  )
+}
+
+///|
+extern "js" fn with_review_scope(json : String, dir : String, file : String) -> String =
+  #|(json, dir, file) => { const state = JSON.parse(json); state.review_scope = JSON.stringify([dir, file]); return JSON.stringify(state); }
+
+///|
 fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   ensure_review_state(file_path)
   let review_json = read_file_safe(review_json_path_for_file(file_path))
@@ -2677,12 +2717,16 @@ fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   } else {
     ""
   }
-  js_review_response_json(
-    review_json,
-    read_file_safe(file_path),
-    previous_text,
-    gate_enabled,
-    review_display_file(file_path),
+  with_review_scope(
+    js_review_response_json(
+      review_json,
+      read_file_safe(file_path),
+      previous_text,
+      gate_enabled,
+      review_display_file(file_path),
+    ),
+    realpath_or_resolve(review_dir_for_file(file_path)),
+    realpath_or_resolve(file_path),
   )
 }
 
@@ -2870,6 +2914,47 @@ fn reply_review_comment(
     js_review_reply(read_file_safe(review_path), id, text, author, attachment),
   )
 }
+
+///|
+extern "js" fn conversation_existing_id(json : String, client_id : String, id : String, text : String, author : String, image : String, create : Bool) -> String =
+  #|(json, clientId, id, text, author, image, create) => {
+  #|  if (!clientId) return "";
+  #|  try {
+  #|    for (const c of JSON.parse(json || "{}").comments || []) {
+  #|      const compare = (record, isRoot) => {
+  #|        const same = isRoot === create && (create || String(c.id) === id) && String(record.text || "") === text && String(record.author || (isRoot ? "human" : "agent")) === author && Boolean(Array.isArray(record.attachments) && record.attachments.length) === Boolean(image);
+  #|        return same ? String(c.id) : "\u0000";
+  #|      };
+  #|      if (c.clientId === clientId) return compare(c, true);
+  #|      for (const reply of Array.isArray(c.replies) ? c.replies : []) if (reply && reply.clientId === clientId) return compare(reply, false);
+  #|    }
+  #|  } catch (_) {}
+  #|  return "";
+  #|}
+
+///|
+extern "js" fn save_conversation_record(path : String, json : String, id : String, text : String, author : String, attachment : String, client_id : String, create : Bool) -> String =
+  #|(path, json, id, text, author, attachment, clientId, create) => {
+  #|  try {
+  #|    const fs = process.getBuiltinModule("node:fs");
+  #|    const review = JSON.parse(json || "{}");
+  #|    const rounds = Array.isArray(review.rounds) ? review.rounds : [];
+  #|    const round = rounds.reduce((n, r) => Math.max(n, Number(r.round || 0)), 1);
+  #|    const record = { author: author || (create ? "human" : "agent"), round, text: String(text || ""), attachments: attachment ? [attachment] : [] };
+  #|    if (clientId) record.clientId = clientId;
+  #|    if (create) {
+  #|      review.comments = Array.isArray(review.comments) ? review.comments : [];
+  #|      review.comments.push({ id, scope: "round", file: "", line: 0, ...record, status: "unresolved", replies: [] });
+  #|    } else {
+  #|      const c = (review.comments || []).find(c => c.id === id);
+  #|      if (!c || c.status === "resolved") return "thread_resolved";
+  #|      c.replies = Array.isArray(c.replies) ? c.replies : [];
+  #|      c.replies.push(record);
+  #|    }
+  #|    fs.writeFileSync(path, JSON.stringify(review, null, 2), { mode: 0o600 });
+  #|    return "";
+  #|  } catch (error) { return String(error && error.message || error); }
+  #|}
 
 ///|
 extern "js" fn review_comment_reply_count(json : String, id : String) -> Int =
