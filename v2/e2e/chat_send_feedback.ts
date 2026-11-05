@@ -18,7 +18,7 @@ writeFileSync(notificationLog, '');
 writeFileSync(notificationScript, "import { appendFileSync, existsSync } from 'node:fs'; if (existsSync(process.env.NOTIFY_FAIL)) process.exit(1); appendFileSync(process.env.NOTIFY_LOG, 'sent\\n');");
 const notificationFail = join(dir, 'fail-notification');
 const serverPath = new URL('../_build/js/release/build/server/server.js', import.meta.url).pathname;
-const server = spawn(process.execPath, [serverPath, '--no-open', '--port', '5472', report], {
+const server = spawn(process.execPath, [serverPath, '--no-open', '--port', '0', report], {
   cwd: dir, env: { ...process.env, IKESU_PANE_ID: '', IKESU_SOCKET_PATH: '', IKESU: '', HERDR_PANE_ID: '', TMUX_PANE: '', YUNOMI_NOTIFY_CMD: `${process.execPath} ${notificationScript} {msg}`, NOTIFY_LOG: notificationLog, NOTIFY_FAIL: notificationFail, YUNOMI_REVIEW_DIR: reviewDir }, stdio: ['ignore', 'pipe', 'pipe'],
 });
 let output = '';
