@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import http from 'node:http';
 import {spawn,spawnSync} from 'node:child_process';
 import {chmodSync,mkdtempSync,readFileSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -12,8 +13,13 @@ const script=new URL('../_build/js/release/build/server/server.js',import.meta.u
 const env={...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:'',YUNOMI_LOCK_DIR:join(root,'locks')}; delete env.YUNOMI_REVIEW_DIR;
 const proc=spawn(process.execPath,[script,file,'--no-open','--port','0'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let output='';
 const port=await new Promise<number>((resolve,reject)=>{const read=(c:Buffer)=>{output+=c.toString();const m=output.match(/http:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(Number(m[1]));};proc.stdout.on('data',read);proc.stderr.on('data',read);proc.once('exit',c=>reject(Error(`${c}: ${output}`)));setTimeout(()=>reject(Error(output)),15000).unref();});
+let resolveConnected!:()=>void, resolveOld!:()=>void; const connected=new Promise<void>(r=>resolveConnected=r), oldReady=new Promise<void>(r=>resolveOld=r); let events:http.ServerResponse|undefined, oldEvent='', pending='';
+const proxy=http.createServer((req,res)=>{const up=http.request({host:'127.0.0.1',port,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode||200,response.headers);if(req.url?.startsWith('/sse')){events=res;resolveConnected();response.on('data',c=>{pending+=c.toString();let i;while((i=pending.indexOf('\n\n'))>=0){const frame=pending.slice(0,i+2);pending=pending.slice(i+2);if(frame.startsWith('event: resolve\n')){oldEvent=frame;resolveOld();}res.write(frame);}});}else response.pipe(res);res.on('close',()=>response.destroy());});req.pipe(up);up.on('error',()=>res.destroy());});
+await new Promise<void>(resolve=>proxy.listen(0,'127.0.0.1',resolve));const proxyPort=(proxy.address() as {port:number}).port;
 const browser=await chromium.launch();try {
- const page=await browser.newPage();await page.goto(`http://127.0.0.1:${port}/`);const toggle=page.locator('#review-loop-panel .review-loop-sidebar-toggle');await toggle.waitFor();if(await page.locator('#review-loop-panel.review-loop-sidebar-collapsed').count())await toggle.click();
+ const page=await browser.newPage();await page.goto(`http://127.0.0.1:${proxyPort}/`);await connected;const toggle=page.locator('#review-loop-panel .review-loop-sidebar-toggle');await toggle.waitFor();if(await page.locator('#review-loop-panel.review-loop-sidebar-collapsed').count())await toggle.click();
+ const createAnchor=await page.request.post(`http://127.0.0.1:${proxyPort}/comment`,{data:{type:'send-now',key:'old-anchor',row:0,col:0,text:'old anchor'}});assert.equal(createAnchor.status(),200);
+ const resolveAnchor=await page.request.post(`http://127.0.0.1:${proxyPort}/resolve-comment`,{data:{id:'old-anchor'}});assert.equal(resolveAnchor.status(),200);await oldReady;
  const sessions=join(root,'.yunomi','reviews','main','sessions');const review=join(sessions,readdirSync(sessions)[0],'review.json');chmodSync(review,0o444);
  await page.locator('#review-loop-panel textarea').fill('old branch pending');await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
  const old=page.locator('.review-loop-conversation-message',{hasText:'old branch pending'});await old.locator('.conversation-send-status.is-failed').waitFor();
@@ -25,6 +31,9 @@ const browser=await chromium.launch();try {
  assert.equal(postCount,1);
  await page.waitForFunction(scope=>JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__||'{}').review_scope!==scope,originalScope);
  assert.equal(await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).count(),0);
+ const refreshed=page.waitForResponse(r=>r.url().includes('/review-state'));events!.write(oldEvent);await refreshed;
+ assert.notEqual(await page.evaluate(()=>JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__).review_scope),originalScope);
+ assert.equal(await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).count(),0);
  await page.reload();await page.waitForFunction(scope=>JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__||'{}').review_scope!==scope,originalScope);
  assert.equal(await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).count(),0);assert.equal(postCount,1);
  assert.equal(await page.evaluate(scope=>JSON.parse(localStorage.getItem(`yunomi:conversation-queue:${scope}`)||'[]').some((x:any)=>x.text==='old branch pending'),originalScope),true);
@@ -33,4 +42,4 @@ const browser=await chromium.launch();try {
  await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).locator('.conversation-send-status.is-saved').waitFor();
  assert.equal(JSON.parse(readFileSync(review,'utf8')).comments.filter((c:any)=>c.text==='old branch pending').length,1);
  console.log('PASS pending message isolation across branch changes at same origin and file');
-}finally{await browser.close();await new Promise<void>(resolve=>{proc.once('exit',()=>resolve());proc.kill('SIGTERM');});rmSync(root,{recursive:true,force:true});}
+}finally{await browser.close();await new Promise<void>(resolve=>proxy.close(()=>resolve()));await new Promise<void>(resolve=>{proc.once('exit',()=>resolve());proc.kill('SIGTERM');});rmSync(root,{recursive:true,force:true});}

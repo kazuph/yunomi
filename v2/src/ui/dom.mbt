@@ -960,6 +960,10 @@ extern "js" fn install_chat_markdown_renderer(
   #|}
 
 ///|
+extern "js" fn review_scope_mismatch(json : String) -> Bool =
+  #|(json) => { try { const incoming = String(JSON.parse(json).review_scope || ""); const current = String(window.__yunomiCurrentReviewScope || ""); return !!incoming && !!current && incoming !== current; } catch (_) { return false; } }
+
+///|
 extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|function renderConversation(json) {
   #|  const panel = document.querySelector("#review-loop-panel");
