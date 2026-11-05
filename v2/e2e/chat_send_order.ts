@@ -54,6 +54,7 @@ try {
   assert.ok(releasePost, 'server event reached browser while HTTP response remained buffered');
   assert.equal(await eventFirst.count(),1);holdPost=false;releasePost!();
   await page.waitForResponse(r=>r.url().includes('/create-global-comment'),{timeout:20000});
+  assert.equal(await eventFirst.locator('.conversation-send-status.is-saved').count(),1);
   assert.equal(await page.locator('#review-loop-panel .review-loop-reply-form textarea').inputValue(),'next draft stays');
   assert.equal(await page.locator('#review-loop-panel .review-loop-reply-preview img').count(),1);
   await page.locator('#review-loop-panel .review-loop-reply-remove').click();
