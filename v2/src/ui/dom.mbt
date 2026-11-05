@@ -1125,6 +1125,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      queue.globalThreadId = String(found.thread.id);
   #|      for (const next of queue.items) if (next.conversation === item.conversation && next.endpoint === "/create-global-comment") { next.endpoint = "/reply-comment"; next.threadId = queue.globalThreadId; }
   #|    }
+  #|    item.status = "saved";
   #|    queue.confirmed.set(item.clientId, { thread: { ...found.thread, replies: [] }, reply: found.root ? null : { ...found.reply } });
   #|    queue.items.splice(i, 1);
   #|    changedQueue = true;
@@ -1423,7 +1424,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      });
   #|    });
   #|  };
-  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
+  #|  const conversationForm = (id, endpoint, placeholder, submitLabel) => `<form class="review-loop-reply-form" data-review-scope="${esc(reviewScope)}" data-review-comment-id="${esc(id)}" data-review-endpoint="${esc(endpoint)}"><textarea rows="3" aria-label="${esc(placeholder)}" placeholder="${esc(placeholder)}"></textarea><div class="review-loop-reply-preview" aria-live="polite"></div><div class="review-loop-reply-actions"><label class="review-loop-reply-attach" title="${esc(t.attachImage)}" aria-label="${esc(t.attachImage)}">${attachIcon}<input class="review-loop-reply-file" type="file" accept="image/*" aria-label="${esc(t.attachImage)}" /></label><button type="submit">${esc(submitLabel)}</button></div></form>`;
   #|  // Stable identity for every message so unread tracking survives
   #|  // re-renders: thread id + position + author + a cheap text hash.
   #|  const textHash = (text) => {
@@ -1543,7 +1544,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const tableCell = rawTarget.closest?.("td,th");
   #|    const target = rawTarget.closest?.("tr") ? rawTarget : insertionAnchor(rawTarget);
   #|    const previous = existingInlines.get(String(comment.id || ""));
-  #|    if (previous && previous.isConnected && previous.__yunomiAnchor === rawTarget && updateInlineCard(previous, comment)) {
+  #|    if (previous && previous.isConnected && previous.dataset.reviewScope === reviewScope && previous.__yunomiAnchor === rawTarget && updateInlineCard(previous, comment)) {
   #|      reusedInlines.add(previous);
   #|      const anchorKey = tableCell && Number(comment.col || 0) > 0 ? null : (target.closest?.("tr") || target.closest?.("li") || target);
   #|      if (anchorKey) lastInlineByAnchor.set(anchorKey, holderOf(previous));
@@ -1555,6 +1556,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    inline.className = "review-loop-inline";
   #|    inline.tabIndex = -1;
   #|    inline.dataset.reviewCommentId = String(comment.id || "");
+  #|    inline.dataset.reviewScope = reviewScope;
   #|    inline.innerHTML = `<ol class="review-loop-list">${reviewLoopCard(comment, false)}</ol>`;
   #|    if (tableCell && Number(comment.col || 0) > 0) {
   #|      tableCell.appendChild(inline);
@@ -1643,6 +1645,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  const existingForm = existingSection?.querySelector(":scope > .review-loop-reply-form");
   #|  const existingStream = existingSection?.querySelector(".review-loop-conversation-stream");
   #|  const canPatch = !!existingForm && !!existingStream
+  #|    && existingForm.getAttribute("data-review-scope") === reviewScope
   #|    && (existingForm.getAttribute("data-review-comment-id") || "") === activeThreadId
   #|    && (existingForm.getAttribute("data-review-endpoint") || "") === activeEndpoint;
   #|  if (canPatch) {

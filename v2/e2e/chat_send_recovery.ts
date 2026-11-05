@@ -11,12 +11,12 @@ const log=join(root,'notify.log');writeFileSync(log,'');const notify=join(root,'
 const script=new URL('../_build/js/release/build/server/server.js',import.meta.url).pathname;
 const proc=spawn(process.execPath,[script,file,'--no-open','--port','0'],{cwd:root,env:{...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:`${process.execPath} ${notify} {msg}`,NOTIFY_LOG:log,YUNOMI_REVIEW_DIR:join(root,'review'),YUNOMI_LOCK_DIR:join(root,'locks')},stdio:['ignore','pipe','pipe']});let output='';
 const port=await new Promise<number>((resolve,reject)=>{const read=(c:Buffer)=>{output+=c.toString();const m=output.match(/http:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(Number(m[1]));};proc.stdout.on('data',read);proc.stderr.on('data',read);proc.once('exit',c=>reject(Error(`${c}: ${output}`)));setTimeout(()=>reject(Error(output)),15000).unref();});
-let connected=deferred(), held=deferred(), dropped=deferred(), holdEvents=true, dropNext=false, holdNext=false, releaseHeld:(()=>void)|undefined, flush:(()=>void)|undefined;
+let connected=deferred(), held=deferred(), dropped=deferred(), holdEvents=true, dropNext=false, holdNext=false, releaseHeld:(()=>void)|undefined, cutHeld:(()=>void)|undefined, flush:(()=>void)|undefined;
 const requests:{path:string;body:any}[]=[];
 const proxy=http.createServer((req,res)=>{const isPost=req.method==='POST' && /\/(create-global-comment|reply-comment)/.test(req.url||'');const chunks:Buffer[]=[];if(isPost)req.on('data',c=>chunks.push(c));
  const upstream=http.request({host:'127.0.0.1',port,path:req.url,method:req.method,headers:req.headers},up=>{const events=req.url?.startsWith('/sse');if(isPost)requests.push({path:req.url!,body:JSON.parse(Buffer.concat(chunks).toString())});
  if(isPost && dropNext){dropNext=false;const body:Buffer[]=[];up.on('data',c=>body.push(c));up.on('end',()=>{res.writeHead(up.statusCode||200,up.headers);res.write(Buffer.concat(body).subarray(0,1));setImmediate(()=>{res.destroy();dropped.resolve();});});}
- else if(isPost && holdNext){holdNext=false;const body:Buffer[]=[];up.on('data',c=>body.push(c));up.on('end',()=>{releaseHeld=()=>{res.writeHead(up.statusCode||200,up.headers);res.end(Buffer.concat(body));};held.resolve();});}
+ else if(isPost && holdNext){holdNext=false;const body:Buffer[]=[];up.on('data',c=>body.push(c));up.on('end',()=>{releaseHeld=()=>{res.writeHead(up.statusCode||200,up.headers);res.end(Buffer.concat(body));};cutHeld=()=>{res.writeHead(up.statusCode||200,up.headers);res.write(Buffer.concat(body).subarray(0,1));setImmediate(()=>res.destroy());};held.resolve();});}
  else {res.writeHead(up.statusCode||200,up.headers);const buffered:Buffer[]=[];if(events){flush=()=>{holdEvents=false;for(const c of buffered.splice(0))res.write(c);};connected.resolve();}up.on('data',c=>{if(events && holdEvents)buffered.push(c);else res.write(c);});up.on('end',()=>res.end());}
  res.on('close',()=>up.destroy());});req.pipe(upstream);upstream.on('error',()=>res.destroy());});
 await new Promise<void>(resolve=>proxy.listen(0,'127.0.0.1',resolve));const proxyPort=(proxy.address() as {port:number}).port;
@@ -44,5 +44,17 @@ const browser=await chromium.launch();try {
  await bubble('reload root').locator('.conversation-send-status.is-saved').waitFor();await bubble('reload follower').getByRole('button',{name:'Retry'}).waitFor();assert.equal(requests.length,countBeforeReload);
  await bubble('reload follower').getByRole('button',{name:'Retry'}).click();await bubble('reload follower').locator('.conversation-send-status.is-saved').waitFor();
  thread=stored().comments.find((c:any)=>c.text==='reload root');assert.equal(stored().comments.filter((c:any)=>c.text==='reload root').length,1);assert.equal(thread.replies.filter((r:any)=>r.text==='reload follower').length,1);
- assert.ok(releaseHeld);releaseHeld!();console.log('PASS UI retry create/reply, resolved idempotence, queue cleanup and reload recovery');
+ assert.ok(releaseHeld);releaseHeld!();
+ holdEvents=true;held=deferred();holdNext=true;
+ const beforeSseCut=notices(), startRequest=requests.length;
+ await send('sse first cut A');await held.promise;await send('sse first cut B');
+ assert.equal(requests.length,startRequest+1);assert.ok(flush);flush!();
+ await bubble('sse first cut A').locator('.conversation-send-status.is-saved').waitFor();
+ assert.ok(cutHeld);cutHeld!();
+ await bubble('sse first cut B').locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+ await page.waitForFunction(()=>{const scope=JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__).review_scope;return JSON.parse(localStorage.getItem(`yunomi:conversation-queue:${scope}`)||'[]').length===0;});
+ const finalThread=stored().comments.find((c:any)=>c.text==='reload root');
+ assert.deepEqual(finalThread.replies.slice(-2).map((r:any)=>r.text),['sse first cut A','sse first cut B']);
+ assert.equal(requests.length,startRequest+2);assert.equal(notices(),beforeSseCut+2);
+ console.log('PASS UI retry create/reply, resolved idempotence, queue cleanup, reload recovery and SSE-before-cut continuation');
 }finally{await browser.close();await new Promise<void>(resolve=>proxy.close(()=>resolve()));await new Promise<void>(resolve=>{proc.once('exit',()=>resolve());proc.kill('SIGTERM');});rmSync(root,{recursive:true,force:true});}
