@@ -1356,7 +1356,8 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        if (!text && !image) return;
   #|        const conversation = globalChat ? "global" : `thread:${threadId}`;
   #|        const previous = queue.items.filter(item => item.conversation === conversation).at(-1);
-  #|        const item = { clientId: crypto.randomUUID(), text, image, conversation, threadId: form.getAttribute("data-review-comment-id") || "", endpoint: form.getAttribute("data-review-endpoint") || "/reply-comment", status: "queued" };
+  #|        const clientId = Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("");
+  #|        const item = { clientId, text, image, conversation, threadId: form.getAttribute("data-review-comment-id") || "", endpoint: form.getAttribute("data-review-endpoint") || "/reply-comment", status: "queued" };
   #|        if (globalChat && previous?.endpoint === "/create-global-comment" && previous.status !== "saved") { item.endpoint = "/create-global-comment"; item.threadId = ""; }
   #|        queue.items.push(item);
   #|        persistQueue();
