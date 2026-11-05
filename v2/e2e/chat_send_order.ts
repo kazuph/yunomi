@@ -45,6 +45,9 @@ try {
   const eventFirst=page.locator('.review-loop-conversation-message',{hasText:'event arrives first'});
   await eventFirst.locator('.conversation-send-status.is-sending').waitFor({timeout:20000});
   await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('next draft stays');
+  const draftImage=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=','base64');
+  await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:draftImage});
+  await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
   if (process.env.EVIDENCE_DIR) await page.screenshot({path: join(process.env.EVIDENCE_DIR, 'sending-chat.png')});
   assert.ok(flushEvents);flushEvents!();
   await eventFirst.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
@@ -52,6 +55,8 @@ try {
   assert.equal(await eventFirst.count(),1);holdPost=false;releasePost!();
   await page.waitForResponse(r=>r.url().includes('/create-global-comment'),{timeout:20000});
   assert.equal(await page.locator('#review-loop-panel .review-loop-reply-form textarea').inputValue(),'next draft stays');
+  assert.equal(await page.locator('#review-loop-panel .review-loop-reply-preview img').count(),1);
+  await page.locator('#review-loop-panel .review-loop-reply-remove').click();
   holdEvents=true;
   await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('response arrives first');
   await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
