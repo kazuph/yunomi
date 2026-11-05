@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -34,8 +34,11 @@ try {
   await create(single.port, 'single-before');
   assert.ok((await state(single.port)).review.comments.some((c: any) => c.text === 'single-before'));
   git('switch', '-c', 'after');
-  assert.ok(!(await state(single.port)).review.comments.some((c: any) => c.text === 'single-before'));
   await create(single.port, 'single-after');
+  assert.ok(!(await state(single.port)).review.comments.some((c: any) => c.text === 'single-before'));
+  const dir = join(root, '.yunomi', 'reviews', 'after', 'sessions');
+  const initialized = JSON.parse(readFileSync(join(dir, readdirSync(dir)[0], 'review.json'), 'utf8'));
+  assert.equal(initialized.version, 1); assert.equal(initialized.branch, 'after'); assert.ok(initialized.rounds.length > 0); assert.ok(initialized.files.length > 0);
   git('switch', 'before');
   assert.ok((await state(single.port)).review.comments.some((c: any) => c.text === 'single-before'));
   await stop(single.proc);

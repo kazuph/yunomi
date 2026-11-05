@@ -3473,7 +3473,7 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     res_end(res, history_json)
   } else if http_method == "GET" && path == "/review-state" {
     let state_json = if ctx.file_path == "<stdin>" {
-      "{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0,\"gate_unresolved_count\":0,\"is_loop\":false}"
+      with_review_scope("{\"review\":{\"version\":1,\"branch\":\"stdin\",\"files\":[\"stdin\"],\"rounds\":[],\"comments\":[]},\"diff\":{\"lines\":[]},\"unresolved_count\":0,\"gate_unresolved_count\":0,\"is_loop\":false}", "stdin", "stdin")
     } else {
       review_state_response(ctx.file_path, ctx.is_loop)
     }
@@ -3648,7 +3648,12 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         return
       }
       if ctx.file_path != "<stdin>" {
-        let existing = conversation_existing_id(read_file_safe(review_json_path_for_file(ctx.file_path)), client_id)
+        let existing = conversation_existing_id(read_file_safe(review_json_path_for_file(ctx.file_path)), client_id, id, text, author, image, false)
+        if existing == "\u0000" {
+          res_write_head(res, 409, "application/json")
+          res_end(res, "{\"ok\":false,\"error\":\"client_id_conflict\"}")
+          return
+        }
         if existing.length() > 0 {
           res_write_head(res, 200, "application/json")
           res_end(res, "{\"ok\":true}")
@@ -3770,9 +3775,15 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
         res_end(res, "{\"ok\":false,\"error\":\"review_not_persistent\"}")
         return
       }
+      ensure_review_state(ctx.file_path)
       let review_path = review_json_path_for_file(ctx.file_path)
       let review_json = read_file_safe(review_path)
-      let existing = conversation_existing_id(review_json, client_id)
+      let existing = conversation_existing_id(review_json, client_id, "", text, "human", image, true)
+      if existing == "\u0000" {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"client_id_conflict\"}")
+        return
+      }
       if existing.length() > 0 {
         res_write_head(res, 200, "application/json")
         res_end(res, "{\"ok\":true,\"id\":" + json_encode_value(existing) + "}")

@@ -107,6 +107,20 @@ try {
   await page.locator('.review-loop-conversation-message', { hasText: 'queued after failure' }).locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
   const afterRetry = JSON.parse(readFileSync(reviewPath, 'utf8')).comments.find((c: any) => c.id === thread.id);
   assert.deepEqual(afterRetry.replies.map((r: any) => r.text), ['same message', 'write failure', 'queued after failure']);
+  const conflictBefore = countNotifications();
+  const duplicateRoot = await page.request.post(`http://127.0.0.1:${port}/create-global-comment`, { data: { text: thread.text, clientId: thread.clientId } });
+  assert.equal(duplicateRoot.status(), 200);
+  for (const payload of [
+    { path: '/reply-comment', body: { id: thread.id, text: 'different', author: 'human', clientId: thread.replies[0].clientId } },
+    { path: '/reply-comment', body: { id: 'inline-send-test', text: 'same message', author: 'human', clientId: thread.replies[0].clientId } },
+    { path: '/create-global-comment', body: { text: 'same message', clientId: thread.replies[0].clientId } },
+    { path: '/reply-comment', body: { id: thread.id, text: 'same message', image: 'data:image/png;base64,AA==', author: 'human', clientId: thread.replies[0].clientId } },
+  ]) {
+    const response = await page.request.post(`http://127.0.0.1:${port}${payload.path}`, {data:payload.body});
+    assert.equal(response.status(),409);
+    assert.equal((await response.json()).error,'client_id_conflict');
+  }
+  assert.equal(countNotifications(),conflictBefore);
   const beforeDisconnect = countNotifications();
   const proxy = http.createServer((incoming, outgoing) => {
     const upstream = http.request({ host: '127.0.0.1', port, method: incoming.method, path: incoming.url, headers: incoming.headers }, response => {

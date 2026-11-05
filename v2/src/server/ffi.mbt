@@ -2691,6 +2691,10 @@ extern "js" fn js_review_response_json(
   #|}
 
 ///|
+extern "js" fn with_review_scope(json : String, dir : String, file : String) -> String =
+  #|(json, dir, file) => { const state = JSON.parse(json); state.review_scope = JSON.stringify([dir, file]); return JSON.stringify(state); }
+
+///|
 fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   ensure_review_state(file_path)
   let review_json = read_file_safe(review_json_path_for_file(file_path))
@@ -2701,12 +2705,16 @@ fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
   } else {
     ""
   }
-  js_review_response_json(
-    review_json,
-    read_file_safe(file_path),
-    previous_text,
-    gate_enabled,
-    review_display_file(file_path),
+  with_review_scope(
+    js_review_response_json(
+      review_json,
+      read_file_safe(file_path),
+      previous_text,
+      gate_enabled,
+      review_display_file(file_path),
+    ),
+    path_resolve(review_dir_for_file(file_path)),
+    path_resolve(file_path),
   )
 }
 
@@ -2896,12 +2904,17 @@ fn reply_review_comment(
 }
 
 ///|
-extern "js" fn conversation_existing_id(json : String, client_id : String) -> String =
-  #|(json, clientId) => {
+extern "js" fn conversation_existing_id(json : String, client_id : String, id : String, text : String, author : String, image : String, create : Bool) -> String =
+  #|(json, clientId, id, text, author, image, create) => {
   #|  if (!clientId) return "";
   #|  try {
   #|    for (const c of JSON.parse(json || "{}").comments || []) {
-  #|      if (c.clientId === clientId || (Array.isArray(c.replies) ? c.replies : []).some(r => r && r.clientId === clientId)) return String(c.id || "");
+  #|      const compare = (record, isRoot) => {
+  #|        const same = isRoot === create && (create || String(c.id) === id) && String(record.text || "") === text && String(record.author || (isRoot ? "human" : "agent")) === author && Boolean(Array.isArray(record.attachments) && record.attachments.length) === Boolean(image);
+  #|        return same ? String(c.id) : "\u0000";
+  #|      };
+  #|      if (c.clientId === clientId) return compare(c, true);
+  #|      for (const reply of Array.isArray(c.replies) ? c.replies : []) if (reply && reply.clientId === clientId) return compare(reply, false);
   #|    }
   #|  } catch (_) {}
   #|  return "";
