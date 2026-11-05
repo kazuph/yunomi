@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {spawn,spawnSync} from 'node:child_process';
+import {chmodSync,mkdtempSync,readFileSync,readdirSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {chromium} from 'playwright';
+const root=mkdtempSync(join(tmpdir(),'yunomi-chat-review-scope-'));
+const git=(...args:string[])=>{const r=spawnSync('git',args,{cwd:root,encoding:'utf8'});assert.equal(r.status,0,r.stderr);};
+git('init','-b','main');git('config','user.name','Test');git('config','user.email','test@example.invalid');
+const file=join(root,'report.md');writeFileSync(file,'# Review scope\n');git('add','report.md');git('commit','-m','initial');
+const script=new URL('../_build/js/release/build/server/server.js',import.meta.url).pathname;
+const env={...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:'',YUNOMI_LOCK_DIR:join(root,'locks')}; delete env.YUNOMI_REVIEW_DIR;
+const proc=spawn(process.execPath,[script,file,'--no-open','--port','0'],{cwd:root,env,stdio:['ignore','pipe','pipe']});let output='';
+const port=await new Promise<number>((resolve,reject)=>{const read=(c:Buffer)=>{output+=c.toString();const m=output.match(/http:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(Number(m[1]));};proc.stdout.on('data',read);proc.stderr.on('data',read);proc.once('exit',c=>reject(Error(`${c}: ${output}`)));setTimeout(()=>reject(Error(output)),15000).unref();});
+const browser=await chromium.launch();try {
+ const page=await browser.newPage();await page.goto(`http://127.0.0.1:${port}/`);const toggle=page.locator('#review-loop-panel .review-loop-sidebar-toggle');await toggle.waitFor();if(await page.locator('#review-loop-panel.review-loop-sidebar-collapsed').count())await toggle.click();
+ const sessions=join(root,'.yunomi','reviews','main','sessions');const review=join(sessions,readdirSync(sessions)[0],'review.json');chmodSync(review,0o444);
+ await page.locator('#review-loop-panel textarea').fill('old branch pending');await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
+ const old=page.locator('.review-loop-conversation-message',{hasText:'old branch pending'});await old.locator('.conversation-send-status.is-failed').waitFor();
+ const originalScope=await page.evaluate(()=>JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__).review_scope);
+ let postCount=0;page.on('request',r=>{if(r.method()==='POST' && /\/(create-global-comment|reply-comment)/.test(r.url()))postCount++;});
+ git('switch','-c','other');await page.reload();await page.waitForFunction(scope=>JSON.parse((window as any).__YUNOMI_LAST_REVIEW_JSON__||'{}').review_scope!==scope,originalScope);
+ assert.equal(await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).count(),0);assert.equal(postCount,0);
+ assert.equal(await page.evaluate(scope=>JSON.parse(localStorage.getItem(`yunomi:conversation-queue:${scope}`)||'[]').some((x:any)=>x.text==='old branch pending'),originalScope),true);
+ git('switch','main');await page.reload();await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).locator('.conversation-send-status.is-failed').waitFor();assert.equal(postCount,0);
+ chmodSync(review,0o600);await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).getByRole('button',{name:'Retry'}).click();
+ await page.locator('.review-loop-conversation-message',{hasText:'old branch pending'}).locator('.conversation-send-status.is-saved').waitFor();
+ assert.equal(JSON.parse(readFileSync(review,'utf8')).comments.filter((c:any)=>c.text==='old branch pending').length,1);
+ console.log('PASS pending message isolation across branch changes at same origin and file');
+}finally{await browser.close();await new Promise<void>(resolve=>{proc.once('exit',()=>resolve());proc.kill('SIGTERM');});rmSync(root,{recursive:true,force:true});}

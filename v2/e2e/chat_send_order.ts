@@ -11,6 +11,8 @@ const serverJs=new URL('../_build/js/release/build/server/server.js',import.meta
 const child=spawn(process.execPath,[serverJs,file,'--no-open','--port','0'],{cwd:root,env:{...process.env,IKESU_PANE_ID:'',IKESU_SOCKET_PATH:'',IKESU:'',HERDR_PANE_ID:'',TMUX_PANE:'',YUNOMI_NOTIFY_CMD:'',YUNOMI_REVIEW_DIR:join(root,'review'),YUNOMI_LOCK_DIR:join(root,'locks')},stdio:['ignore','pipe','pipe']});
 let output='';
 const port=await new Promise<number>((resolve,reject)=>{const onData=(c:Buffer)=>{output+=c.toString();const m=output.match(/http:\/\/127\.0\.0\.1:(\d+)/);if(m)resolve(Number(m[1]));};child.stdout.on('data',onData);child.stderr.on('data',onData);child.once('exit',c=>reject(Error(`exit ${c}: ${output}`)));setTimeout(()=>reject(Error(output)),15000).unref();});
+function deferred() { let resolve!: () => void; const promise = new Promise<void>(r => { resolve = r; }); return { promise, resolve }; }
+let eventReady=deferred(), postHeld=deferred();
 let holdPost=false, dropPost=false, holdEvents=false, postCount=0, releasePost:(()=>void)|undefined, flushEvents:(()=>void)|undefined;
 const proxy=http.createServer((req,res)=>{
   const upstream=http.request({host:'127.0.0.1',port,path:req.url,method:req.method,headers:req.headers},response=>{
@@ -20,11 +22,11 @@ const proxy=http.createServer((req,res)=>{
     if (isPost && dropPost) {
       response.resume();response.on('end',()=>res.destroy());
     } else if (isPost && holdPost) {
-      const chunks:Buffer[]=[]; response.on('data',chunk=>chunks.push(chunk)); response.on('end',()=>{releasePost=()=>{res.writeHead(response.statusCode||200,response.headers);res.end(Buffer.concat(chunks));};});
+      const chunks:Buffer[]=[]; response.on('data',chunk=>chunks.push(chunk)); response.on('end',()=>{releasePost=()=>{res.writeHead(response.statusCode||200,response.headers);res.end(Buffer.concat(chunks));};postHeld.resolve();});
     } else {
       res.writeHead(response.statusCode||200,response.headers);
       const chunks:Buffer[]=[];
-      if (isEvents) flushEvents=()=>{holdEvents=false;for(const chunk of chunks.splice(0))res.write(chunk);};
+      if (isEvents) { flushEvents=()=>{holdEvents=false;for(const chunk of chunks.splice(0))res.write(chunk);}; eventReady.resolve(); }
       response.on('data',chunk=>{if(isEvents && holdEvents)chunks.push(chunk);else res.write(chunk);});
       response.on('end',()=>res.end());
     }
@@ -49,8 +51,9 @@ try {
   await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'draft.png',mimeType:'image/png',buffer:draftImage});
   await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
   if (process.env.EVIDENCE_DIR) await page.screenshot({path: join(process.env.EVIDENCE_DIR, 'sending-chat.png')});
-  assert.ok(flushEvents);flushEvents!();
+  await eventReady.promise; assert.ok(flushEvents);flushEvents!();
   await eventFirst.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  await postHeld.promise;
   assert.ok(releasePost, 'server event reached browser while HTTP response remained buffered');
   assert.equal(await eventFirst.count(),1);holdPost=false;releasePost!();
   await page.waitForResponse(r=>r.url().includes('/create-global-comment'),{timeout:20000});
@@ -77,12 +80,13 @@ try {
   await uncertain.locator('.conversation-send-status.is-unknown').waitFor({timeout:20000});
   assert.equal(await uncertain.locator('img').count(),1);
   const sentBeforeReload=postCount;
+  eventReady=deferred();
   await page.reload();
   const recovered=page.locator('.review-loop-conversation-message',{hasText:'unknown after disconnect'});
   await recovered.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
   assert.equal(await recovered.count(),1);assert.equal(await recovered.locator('img').count(),1);
   assert.equal(postCount,sentBeforeReload,'reload does not resend');
-  dropPost=false;holdPost=true;holdEvents=true;releasePost=undefined;
+  dropPost=false;holdPost=true;holdEvents=true;releasePost=undefined;postHeld=deferred();
   await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'pending.png',mimeType:'image/png',buffer:image});
   await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
   await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('reload while sending');
@@ -90,7 +94,9 @@ try {
   const pending=page.locator('.review-loop-conversation-message',{hasText:'reload while sending'});
   await pending.locator('.conversation-send-status.is-sending').waitFor({timeout:20000});
   assert.equal(await pending.locator('img').count(),1);
+  await postHeld.promise;
   const sentWhilePending=postCount;
+  eventReady=deferred();
   await page.reload();
   const restored=page.locator('.review-loop-conversation-message',{hasText:'reload while sending'});
   await restored.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
@@ -107,7 +113,7 @@ try {
   const rejected=page.locator('.review-loop-inline .review-loop-thread-line',{hasText:'keep resolved reply'});
   await rejected.locator('.conversation-send-status.is-failed').waitFor({timeout:20000});
   assert.match(await rejected.locator('.conversation-send-status').getAttribute('title')||'',/thread_resolved/);
-  assert.ok(flushEvents);flushEvents!();
+  await eventReady.promise; assert.ok(flushEvents);flushEvents!();
   await page.waitForFunction(()=>!!document.querySelector('.review-loop-inline .review-loop-resolved'));
   assert.equal(await rejected.count(),1);
   holdEvents=true;

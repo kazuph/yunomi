@@ -2713,8 +2713,8 @@ fn review_state_response(file_path : String, gate_enabled : Bool) -> String {
       gate_enabled,
       review_display_file(file_path),
     ),
-    path_resolve(review_dir_for_file(file_path)),
-    path_resolve(file_path),
+    realpath_or_resolve(review_dir_for_file(file_path)),
+    realpath_or_resolve(file_path),
   )
 }
 
