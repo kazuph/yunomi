@@ -3639,6 +3639,12 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
       let id = json_parse_string("id", body)
       let text = json_parse_string("text", body)
       let client_id = json_parse_string("clientId", body)
+      let review_scope = json_parse_string("reviewScope", body)
+      if ctx.file_path != "<stdin>" && review_scope.length() > 0 && review_scope != review_scope_for(ctx.file_path) {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"review_scope_changed\"}")
+        return
+      }
       let author_raw = json_parse_string("author", body)
       let author = if author_raw.length() > 0 { author_raw } else { "agent" }
       let image = json_parse_string("image", body)
@@ -3764,6 +3770,12 @@ fn handle_request(ctx : ServerContext, req : JsValue, res : JsValue) -> Unit {
     read_body(req, fn(body) {
       let text = json_parse_string("text", body)
       let client_id = json_parse_string("clientId", body)
+      let review_scope = json_parse_string("reviewScope", body)
+      if ctx.file_path != "<stdin>" && review_scope.length() > 0 && review_scope != review_scope_for(ctx.file_path) {
+        res_write_head(res, 409, "application/json")
+        res_end(res, "{\"ok\":false,\"error\":\"review_scope_changed\"}")
+        return
+      }
       let image = json_parse_string("image", body)
       if text.trim().length() == 0 && image.length() == 0 {
         res_write_head(res, 400, "application/json")

@@ -1013,12 +1013,14 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    item.status = "sending";
   #|    persistQueue();
   #|    redrawQueue();
+  #|    let reviewChanged = false;
   #|    try {
   #|      const response = await fetch(requestPath(item.endpoint), {
   #|        method: "POST", headers: { "Content-Type": "application/json" },
-  #|        body: JSON.stringify({ id: item.threadId, text: item.text, image: item.image, author: "human", clientId: item.clientId })
+  #|        body: JSON.stringify({ id: item.threadId, text: item.text, image: item.image, author: "human", clientId: item.clientId, reviewScope: item.reviewScope })
   #|      });
   #|      const result = await response.json();
+  #|      reviewChanged = result.error === "review_scope_changed";
   #|      if (!response.ok) { if (item.status !== "saved") { item.status = "failed"; item.error = String(result.error || response.status); } }
   #|      else {
   #|        item.status = "saved";
@@ -1030,6 +1032,9 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    } catch (error) { if (item.status !== "saved") { item.status = "unknown"; item.error = String(error); } }
   #|    queue.running.delete(conversation);
   #|    persistQueue();
+  #|    if (reviewChanged && window.__yunomiCurrentReviewScope === reviewScope) {
+  #|      try { const current = await fetch(requestPath("/review-state")); if (current.ok) { renderConversation(await current.text()); return; } } catch (_) {}
+  #|    }
   #|    redrawQueue();
   #|    if (item.status === "saved") sendQueue(conversation);
   #|  };

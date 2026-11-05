@@ -2691,6 +2691,18 @@ extern "js" fn js_review_response_json(
   #|}
 
 ///|
+extern "js" fn js_review_scope(dir : String, file : String) -> String =
+  #|(dir, file) => JSON.stringify([dir, file])
+
+///|
+fn review_scope_for(file_path : String) -> String {
+  js_review_scope(
+    realpath_or_resolve(review_dir_for_file(file_path)),
+    realpath_or_resolve(file_path),
+  )
+}
+
+///|
 extern "js" fn with_review_scope(json : String, dir : String, file : String) -> String =
   #|(json, dir, file) => { const state = JSON.parse(json); state.review_scope = JSON.stringify([dir, file]); return JSON.stringify(state); }
 
