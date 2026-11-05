@@ -414,15 +414,18 @@ extern "js" fn ls_set(key : String, value : String) -> Unit =
 
 ///|
 extern "js" fn install_draft_storage() -> Unit =
-  #|() => { window.__yunomiSaveDraftStorage = (key, value) => {
-  #|  try { localStorage.setItem(key, value); document.getElementById("yunomi-draft-storage-error")?.remove(); }
-  #|  catch (_) {
+  #|() => {
+  #|  window.__yunomiShowDraftStorageError = () => {
   #|    if (document.getElementById("yunomi-draft-storage-error")) return;
   #|    const warning = document.createElement("div"); warning.id = "yunomi-draft-storage-error"; warning.setAttribute("role", "alert");
   #|    warning.textContent = "Draft could not be saved in this browser. Keep this tab open and send or submit your comments to save them.";
   #|    document.querySelector("header")?.after(warning);
-  #|  }
-  #|}; }
+  #|  };
+  #|  window.__yunomiSaveDraftStorage = (key, value) => {
+  #|    try { localStorage.setItem(key, value); if (!window.__yunomiQueueStorageFailed) document.getElementById("yunomi-draft-storage-error")?.remove(); }
+  #|    catch (_) { window.__yunomiShowDraftStorageError(); }
+  #|  };
+  #|}
 
 ///|
 extern "js" fn save_draft_storage(key : String, value : String) -> Unit =
@@ -991,7 +994,10 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    }
   #|  }
   #|  const queue = allQueues[storageScope];
-  #|  const persistQueue = () => { localStorage.setItem(queueKey, JSON.stringify(queue.items)); };
+  #|  const persistQueue = () => {
+  #|    try { localStorage.setItem(queueKey, JSON.stringify(queue.items)); window.__yunomiQueueStorageFailed = false; }
+  #|    catch (_) { window.__yunomiQueueStorageFailed = true; window.__yunomiShowDraftStorageError(); }
+  #|  };
   #|  const redrawQueue = () => renderConversation(String(window.__YUNOMI_LAST_REVIEW_JSON__ || json));
   #|  const sendQueue = async (conversation) => {
   #|    if (queue.running.has(conversation)) return;
@@ -999,7 +1005,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    if (!item || item.status !== "queued") return;
   #|    queue.running.add(conversation);
   #|    item.status = "sending";
-  #|    try { persistQueue(); } catch (_) {}
+  #|    persistQueue();
   #|    redrawQueue();
   #|    try {
   #|      const response = await fetch(requestPath(item.endpoint), {
@@ -1016,7 +1022,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|      }
   #|    } catch (error) { if (item.status !== "saved") { item.status = "unknown"; item.error = String(error); } }
   #|    queue.running.delete(conversation);
-  #|    try { persistQueue(); } catch (_) {}
+  #|    persistQueue();
   #|    redrawQueue();
   #|    if (item.status === "saved") sendQueue(conversation);
   #|  };
@@ -1024,7 +1030,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    const item = queue.items.find(entry => entry.clientId === clientId);
   #|    if (!item || !["failed", "unknown"].includes(item.status)) return;
   #|    item.status = "queued";
-  #|    try { persistQueue(); } catch (_) { item.status = "failed"; item.error = "Unable to save pending message"; redrawQueue(); return; }
+  #|    persistQueue();
   #|    sendQueue(item.conversation);
   #|  };
   #|  if (!window.__yunomiConversationRetryBound) {
@@ -1353,15 +1359,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|        const item = { clientId: crypto.randomUUID(), text, image, conversation, threadId: form.getAttribute("data-review-comment-id") || "", endpoint: form.getAttribute("data-review-endpoint") || "/reply-comment", status: "queued" };
   #|        if (globalChat && previous?.endpoint === "/create-global-comment" && previous.status !== "saved") { item.endpoint = "/create-global-comment"; item.threadId = ""; }
   #|        queue.items.push(item);
-  #|        try { persistQueue(); } catch (error) {
-  #|          queue.items.pop();
-  #|          const title = `Unable to save pending message: ${String(error)}`;
-  #|          let warning = form.querySelector(".conversation-storage-error");
-  #|          if (!warning) { warning = document.createElement("span"); warning.className = "conversation-storage-error conversation-send-status is-failed"; warning.innerHTML = '<svg class="lucide lucide-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>'; form.querySelector(".review-loop-reply-actions")?.prepend(warning); }
-  #|          warning.title = title;
-  #|          warning.setAttribute("aria-label", title);
-  #|          return;
-  #|        }
+  #|        persistQueue();
   #|        if (editor) editor.value = "";
   #|        saveReplyDraft(draftKey, "");
   #|        if (picker) picker.value = "";

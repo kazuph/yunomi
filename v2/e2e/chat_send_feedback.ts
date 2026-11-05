@@ -157,18 +157,29 @@ try {
   await page.locator('.review-loop-conversation-message', { hasText: 'notification failure' }).locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
   await page.locator('#notify-undelivered:not([hidden])').waitFor({ timeout: 20000 });
   const editor = page.locator('#review-loop-panel .review-loop-reply-form textarea');
-  await editor.fill('keep draft when storage is full');
+  await editor.fill('send with full storage');
+  await page.locator('#review-loop-panel input[type=file]').setInputFiles({name:'full-storage.png',mimeType:'image/png',buffer:image});
+  await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
   await page.evaluate(() => {
     let i = 0;
     try { for (; i < 20; i++) localStorage.setItem(`quota-fill-${i}`, 'x'.repeat(1024 * 1024)); } catch (_) {}
     try { for (; i < 2048; i++) localStorage.setItem(`quota-tail-${i}`, 'x'.repeat(1024)); } catch (_) {}
     try { for (; i < 4096; i++) localStorage.setItem(`q${i}`, 'x'); } catch (_) {}
   });
+  chmodSync(reviewPath, 0o444);
   const requestCount = requests.length;
   await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
-  assert.equal(await editor.inputValue(), 'keep draft when storage is full');
-  assert.equal(requests.length, requestCount);
-  assert.match(await page.locator('.conversation-storage-error').getAttribute('title') || '', /Unable to save pending message/);
+  const fullStorageBubble = page.locator('.review-loop-conversation-message', {hasText:'send with full storage'});
+  await fullStorageBubble.locator('.conversation-send-status.is-failed').waitFor({timeout:20000});
+  assert.equal(requests.length, requestCount + 1);
+  assert.equal(await fullStorageBubble.locator('img').count(), 1);
+  await page.locator('#yunomi-draft-storage-error').waitFor();
+  chmodSync(reviewPath, 0o600);
+  await fullStorageBubble.getByRole('button', {name:'Retry'}).click();
+  await fullStorageBubble.locator('.conversation-send-status.is-saved').waitFor({timeout:20000});
+  assert.equal(await fullStorageBubble.locator('img').count(),1);
+  assert.equal(await page.locator('#yunomi-draft-storage-error').count(),1);
+  assert.equal(JSON.parse(readFileSync(reviewPath,'utf8')).comments.find((c:any)=>c.id===thread.id).replies.filter((r:any)=>r.text==='send with full storage').length,1);
   assert.deepEqual(errors, []);
   console.log('PASS immediate two messages, ordered create/reply, idempotence, write failure and retry');
 } finally {
