@@ -1352,7 +1352,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|          queue.items.pop();
   #|          const title = `Unable to save pending message: ${String(error)}`;
   #|          let warning = form.querySelector(".conversation-storage-error");
-  #|          if (!warning) { warning = document.createElement("span"); warning.className = "conversation-storage-error conversation-send-status is-failed"; warning.textContent = "!"; form.querySelector(".review-loop-reply-actions")?.prepend(warning); }
+  #|          if (!warning) { warning = document.createElement("span"); warning.className = "conversation-storage-error conversation-send-status is-failed"; warning.innerHTML = '<svg class="lucide lucide-circle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>'; form.querySelector(".review-loop-reply-actions")?.prepend(warning); }
   #|          warning.title = title;
   #|          warning.setAttribute("aria-label", title);
   #|          return;
