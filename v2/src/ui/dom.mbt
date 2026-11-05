@@ -983,7 +983,12 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|    let restored = [];
   #|    try { restored = JSON.parse(localStorage.getItem(queueKey) || "[]"); } catch (_) {}
   #|    allQueues[storageScope] = { items: Array.isArray(restored) ? restored : [], running: new Set() };
-  #|    for (const item of allQueues[storageScope].items) if (item.status === "sending") item.status = "unknown";
+  #|    const restoredHeads = new Set();
+  #|    for (const item of allQueues[storageScope].items) {
+  #|      if (item.status === "saved") continue;
+  #|      if (!restoredHeads.has(item.conversation) && (item.status === "sending" || item.status === "queued")) item.status = "unknown";
+  #|      restoredHeads.add(item.conversation);
+  #|    }
   #|  }
   #|  const queue = allQueues[storageScope];
   #|  const persistQueue = () => { localStorage.setItem(queueKey, JSON.stringify(queue.items)); };
@@ -1550,7 +1555,7 @@ extern "js" fn render_review_loop_panel_json(json : String) -> Int =
   #|  // An empty conversation still renders: the panel doubles as the entry
   #|  // point for starting the first thread, so it must not disappear here.
   #|  const placementCandidates = visibleActionableComments
-  #|    .filter(c => c.status !== "resolved" || revealedResolved.has(String(c.id || "")))
+  #|    .filter(c => c.status !== "resolved" || revealedResolved.has(String(c.id || "")) || queue.items.some(item => item.conversation === `thread:${c.id}` && item.status !== "saved"))
   #|    .map((comment, order) => ({ comment, order, target: inlineTargetFor(comment) }));
   #|  const placements = placementCandidates.filter(placement => placement.target);
   #|  placements.sort((a, b) => {

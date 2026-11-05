@@ -40,6 +40,9 @@ try {
   const form = page.locator('#review-loop-panel .review-loop-reply-form');
   await form.waitFor();
   const requests: string[] = [];
+  const failedResponses: number[] = [];
+  page.on('response', r => { if (/\/(create-global-comment|reply-comment)/.test(r.url()) && !r.ok()) failedResponses.push(r.status()); });
+  const countNotifications = () => readFileSync(notificationLog, 'utf8').split('\n').filter(Boolean).length;
   page.on('request', r => { if (/\/(create-global-comment|reply-comment)/.test(r.url())) requests.push(new URL(r.url()).pathname); });
   await form.locator('textarea').fill('same message');
   const immediate = await form.evaluate(el => {
@@ -66,6 +69,7 @@ try {
   const retry = await page.request.post(`http://127.0.0.1:${port}/reply-comment`, { data: { id: thread.id, text: 'same message', author: 'human', clientId: thread.replies[0].clientId } });
   assert.equal(retry.status(), 200);
   assert.equal(JSON.parse(readFileSync(reviewPath, 'utf8')).comments.find((c: any) => c.id === thread.id).replies.length, 1);
+  const beforeWriteFailure = countNotifications();
   chmodSync(reviewPath, 0o444);
   await form.locator('textarea').fill('write failure');
   await form.evaluate(el => {
@@ -78,15 +82,31 @@ try {
   await page.locator('.review-loop-conversation-message', { hasText: 'write failure' }).locator('.conversation-send-status.is-failed').waitFor({ timeout: 20000 });
   assert.equal(await page.locator('.review-loop-conversation-message', { hasText: 'write failure' }).locator('.conversation-send-status.is-saved').count(), 0);
   assert.equal(JSON.parse(readFileSync(reviewPath, 'utf8')).comments.find((c: any) => c.id === thread.id).replies.length, 1);
+  assert.equal(countNotifications(), beforeWriteFailure);
+  assert.ok(failedResponses.includes(500));
+  if (process.env.EVIDENCE_DIR) await page.screenshot({path: join(process.env.EVIDENCE_DIR, 'failed-chat.png')});
   await page.reload();
   await page.locator('.review-loop-conversation-message', { hasText: 'write failure' }).locator('.conversation-send-status.is-failed').waitFor({ timeout: 20000 });
   assert.equal(await page.locator('.review-loop-conversation-message', { hasText: 'queued after failure' }).count(), 1);
   chmodSync(reviewPath, 0o600);
+  const inlineRoot = await page.request.post(`http://127.0.0.1:${port}/comment`, { data: { type: 'send-now', key: 'inline-send-test', row: 2, col: 0, text: 'inline root', value: 'Text to review.' } });
+  assert.equal(inlineRoot.status(), 200);
+  const inlineForm = page.locator('.review-loop-inline .review-loop-reply-form').first();
+  await inlineForm.waitFor({ timeout: 20000 });
+  await inlineForm.locator('textarea').fill('inline immediate');
+  const start = Date.now();
+  const inlineSpinner = await inlineForm.evaluate(el => { el.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); return !!document.querySelector('.review-loop-inline .conversation-send-status.is-sending'); });
+  assert.equal(inlineSpinner, true);
+  const inlineBubble = page.locator('.review-loop-inline .review-loop-thread-line', { hasText: 'inline immediate' });
+  await inlineBubble.waitFor({ timeout: 400 });
+  assert.ok(Date.now() - start < 400, 'inline bubble appears within 400 ms');
+  await inlineBubble.locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
+  assert.equal(await page.locator('.review-loop-inline .review-loop-thread-line', { hasText: 'inline immediate' }).count(), 1);
+  if (process.env.EVIDENCE_DIR) await page.screenshot({path: join(process.env.EVIDENCE_DIR, 'inline-saved.png')});
   await page.locator('.review-loop-conversation-message', { hasText: 'write failure' }).getByRole('button', { name: 'Retry' }).click();
   await page.locator('.review-loop-conversation-message', { hasText: 'queued after failure' }).locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
   const afterRetry = JSON.parse(readFileSync(reviewPath, 'utf8')).comments.find((c: any) => c.id === thread.id);
   assert.deepEqual(afterRetry.replies.map((r: any) => r.text), ['same message', 'write failure', 'queued after failure']);
-  const countNotifications = () => readFileSync(notificationLog, 'utf8').split('\n').filter(Boolean).length;
   const beforeDisconnect = countNotifications();
   const proxy = http.createServer((incoming, outgoing) => {
     const upstream = http.request({ host: '127.0.0.1', port, method: incoming.method, path: incoming.url, headers: incoming.headers }, response => {
@@ -113,6 +133,8 @@ try {
   const attachmentDir = join(reviewDir, 'comment-attachments');
   mkdirSync(attachmentDir, { recursive: true });
   chmodSync(attachmentDir, 0o555);
+  const beforeImageFailure = countNotifications();
+  const failuresBeforeImage = failedResponses.length;
   const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
   await page.locator('#review-loop-panel input[type=file]').setInputFiles({ name: 'pixel.png', mimeType: 'image/png', buffer: image });
   await page.locator('#review-loop-panel .review-loop-reply-preview img').waitFor();
@@ -120,30 +142,33 @@ try {
   const imageMessage = page.locator('.review-loop-conversation-message').filter({ has: page.locator('img[src^="data:image"]') }).last();
   await imageMessage.locator('.conversation-send-status.is-failed').waitFor({ timeout: 20000 });
   assert.equal(await imageMessage.locator('img').count(), 1);
+  assert.equal(countNotifications(), beforeImageFailure);
+  assert.equal(failedResponses.length, failuresBeforeImage + 1);
+  assert.equal(failedResponses.at(-1), 500);
   await page.reload();
   await page.locator('.review-loop-conversation-message').filter({ has: page.locator('img[src^="data:image"]') }).locator('.conversation-send-status.is-failed').waitFor({ timeout: 20000 });
   chmodSync(attachmentDir, 0o755);
   const failedImage = page.locator('.review-loop-conversation-message').filter({ has: page.locator('img[src^="data:image"]') }).last();
   await failedImage.getByRole('button', { name: 'Retry' }).click();
   await page.locator('.review-loop-conversation-message').filter({ has: page.locator('img') }).last().locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
-  const inlineRoot = await page.request.post(`http://127.0.0.1:${port}/comment`, { data: { type: 'send-now', key: 'inline-send-test', row: 2, col: 0, text: 'inline root', value: 'Text to review.' } });
-  assert.equal(inlineRoot.status(), 200);
-  const inlineForm = page.locator('.review-loop-inline .review-loop-reply-form').first();
-  await inlineForm.waitFor({ timeout: 20000 });
-  await inlineForm.locator('textarea').fill('inline immediate');
-  const start = Date.now();
-  const inlineSpinner = await inlineForm.evaluate(el => { el.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); return !!document.querySelector('.review-loop-inline .conversation-send-status.is-sending'); });
-  assert.equal(inlineSpinner, true);
-  const inlineBubble = page.locator('.review-loop-inline .review-loop-thread-line', { hasText: 'inline immediate' });
-  await inlineBubble.waitFor({ timeout: 400 });
-  assert.ok(Date.now() - start < 400, 'inline bubble appears within 400 ms');
-  await inlineBubble.locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
-  assert.equal(await page.locator('.review-loop-inline .review-loop-thread-line', { hasText: 'inline immediate' }).count(), 1);
   writeFileSync(notificationFail, 'fail');
   await page.locator('#review-loop-panel .review-loop-reply-form textarea').fill('notification failure');
   await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
   await page.locator('.review-loop-conversation-message', { hasText: 'notification failure' }).locator('.conversation-send-status.is-saved').waitFor({ timeout: 20000 });
   await page.locator('#notify-undelivered:not([hidden])').waitFor({ timeout: 20000 });
+  const editor = page.locator('#review-loop-panel .review-loop-reply-form textarea');
+  await editor.fill('keep draft when storage is full');
+  await page.evaluate(() => {
+    let i = 0;
+    try { for (; i < 20; i++) localStorage.setItem(`quota-fill-${i}`, 'x'.repeat(1024 * 1024)); } catch (_) {}
+    try { for (; i < 2048; i++) localStorage.setItem(`quota-tail-${i}`, 'x'.repeat(1024)); } catch (_) {}
+    try { for (; i < 4096; i++) localStorage.setItem(`q${i}`, 'x'); } catch (_) {}
+  });
+  const requestCount = requests.length;
+  await page.locator('#review-loop-panel .review-loop-reply-form button[type=submit]').click();
+  assert.equal(await editor.inputValue(), 'keep draft when storage is full');
+  assert.equal(requests.length, requestCount);
+  assert.match(await page.locator('.conversation-storage-error').getAttribute('title') || '', /Unable to save pending message/);
   assert.deepEqual(errors, []);
   console.log('PASS immediate two messages, ordered create/reply, idempotence, write failure and retry');
 } finally {
