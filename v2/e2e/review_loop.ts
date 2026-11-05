@@ -601,7 +601,7 @@ async function main(): Promise<void> {
     });
     await firstInline.locator(".review-loop-reply-preview img").waitFor({ state: "visible" });
     await firstInline.locator("textarea").press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await page.waitForFunction(() => document.querySelector(".review-loop-inline[data-review-comment-id='c-1-1']")?.textContent?.includes("Human follow-up inside the inline thread"), undefined, { timeout: 3000 });
+    await firstInline.locator(".review-loop-thread-line", { hasText: "Human follow-up inside the inline thread" }).locator(".conversation-send-status.is-saved").waitFor({ timeout: 3000 });
     assert.equal(await page.locator("#submit-modal.visible").count(), 0, "Cmd/Ctrl+Enter in an inline reply sends that reply without opening Submit");
     await page.waitForSelector(".review-loop-inline[data-review-comment-id='c-1-1'] .review-loop-conversation-image", { timeout: 3000 });
     const reviewAfterInlineReply = JSON.parse(readFileSync(join(REVIEW_DIR, "review.json"), "utf-8"));
@@ -861,7 +861,7 @@ async function main(): Promise<void> {
     await page.waitForSelector("#review-loop-panel .review-loop-reply-preview img", { timeout: 3000 });
     assert.equal(await page.locator("#review-loop-panel .review-loop-reply-preview img").count(), 1, "selected reply image is previewed before sending");
     await summaryInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("Sidebar reply remains in the global conversation"), undefined, { timeout: 3000 });
+    await page.locator("#review-loop-panel .review-loop-conversation-message", { hasText: "Sidebar reply remains in the global conversation" }).locator(".conversation-send-status.is-saved").waitFor({ timeout: 3000 });
     assert.doesNotMatch(
       await page.evaluate(() => localStorage.getItem(`yunomi:conversation-drafts:${window.__YUNOMI_STORAGE_SCOPE__}`) || ""),
       /Sidebar reply remains in the global conversation/,
@@ -899,7 +899,7 @@ async function main(): Promise<void> {
     });
     await summaryInput.fill("See me without extra scrolling");
     await summaryInput.press(process.platform === "darwin" ? "Meta+Enter" : "Control+Enter");
-    await page.waitForFunction(() => document.querySelector("#review-loop-panel")?.textContent?.includes("See me without extra scrolling"), undefined, { timeout: 3000 });
+    await page.locator("#review-loop-panel .review-loop-conversation-message", { hasText: "See me without extra scrolling" }).locator(".conversation-send-status.is-saved").waitFor({ timeout: 3000 });
     await page.waitForFunction(() => {
       const stream = document.querySelector<HTMLElement>("#review-loop-panel .review-loop-conversation-stream");
       if (!stream) return false;
